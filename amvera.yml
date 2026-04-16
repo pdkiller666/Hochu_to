@@ -4,10 +4,10 @@ meta:
     name: npm
     version: "20"
 build:
-  # Мы добавляем --child-concurrency=1, чтобы избежать ошибки Worker exited with code 1
+  # Мы добавляем лимиты для pnpm, чтобы он не ел всю память
   additionalCommands: "export PORT=3000 && npm install -g pnpm@9 && pnpm install --no-frozen-lockfile --child-concurrency=1 && npm run build"
   artifacts:
     "artifacts/api-server/dist": "dist"
 run:
-  # Указываем scriptName, чтобы Amvera дернула "start" из package.json
-  scriptName: start
+  # Используем команду напрямую, чтобы точно знать, что запускается
+  command: "node dist/main.js"
