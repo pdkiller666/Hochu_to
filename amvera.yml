@@ -5,12 +5,13 @@ meta:
     version: 20
 
 build:
-  # Удаляем поле 'command', чтобы не было ошибки "unknown fields"
-  # Amvera автоматически выполнит 'npm run build' из корневого package.json
+  # Используем стандартное поле, которое Amvera ждет
+  # Она сама выполнит npm install && npm run build
+  args: []
 
 run:
-  # Если 'command' тут тоже вызовет ошибку, Amvera будет искать 'npm start'
-  scriptName: start 
+  # Указываем имя скрипта из package.json
+  scriptName: start
   persistence:
     - mountPath: /data
       name: data
