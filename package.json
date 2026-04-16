@@ -3,10 +3,10 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "build": "pnpm --filter @workspace/api-server build",
-    "typecheck": "true"
+    "amvera-install": "npm install pnpm && npx pnpm install",
+    "build": "export PORT=3000 && npm run amvera-install && npx pnpm --filter @workspace/api-server build",
+    "start": "npx pnpm --filter @workspace/api-server start"
   },
-  "packageManager": "pnpm@9.15.9",
   "dependencies": {
     "pnpm": "9.15.9"
   }
