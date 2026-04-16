@@ -131,14 +131,14 @@ export function Header() {
   const { selectedRegion: selectedSlug, setSelectedRegion } = useRegion();
 
   // Вычисляем текущий slug региона (приоритет: профиль → гео-кеш → "")
-  const userRegionSlug = user?.regionId && regions
-    ? regions.find(r => r.id === user.regionId)?.slug ?? ""
+  const userRegionSlug = user?.regionId && regions?.results
+    ? regions.results.find(r => r.id === user.regionId)?.slug ?? ""
     : "";
   const initialized = useRef(false);
 
   useEffect(() => {
     if (initialized.current) return;
-    if (!regions?.length) return;
+    if (!regions?.results?.length) return;
     if (isAuthenticated && !user) return; // ждём загрузки профиля
     const preferred = userRegionSlug || getCachedGeoRegion() || "";
     if (preferred) {
@@ -147,7 +147,7 @@ export function Header() {
     }
   }, [user, regions, userRegionSlug, isAuthenticated, setSelectedRegion]);
 
-  const selectedName = regions?.find(r => r.slug === selectedSlug)?.name ?? "Выберите регион";
+  const selectedName = regions?.results?.find(r => r.slug === selectedSlug)?.name ?? "Выберите регион";
 
   const handleRegionChange = (slug: string) => {
     setSelectedRegion(slug);
@@ -159,7 +159,7 @@ export function Header() {
   };
 
   const handleGeoDetect = () => {
-    if (!navigator.geolocation || !regions?.length) return;
+    if (!navigator.geolocation || !regions?.results?.length) return;
     setGeoLoading(true);
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
@@ -171,7 +171,7 @@ export function Header() {
           );
           const data = await resp.json();
           const state: string = data?.address?.state ?? data?.address?.city ?? "";
-          const slug = state ? matchRegion(state, regions) : null;
+          const slug = state ? matchRegion(state, regions.results) : null;
           if (slug) handleRegionChange(slug);
         } catch {}
         setGeoLoading(false);
@@ -214,7 +214,7 @@ export function Header() {
                 title={selectedName}
               >
                 <option value="">Все регионы</option>
-                {regions?.map(r => (
+                {regions?.results?.map(r => (
                   <option key={r.id} value={r.slug}>{r.name}</option>
                 ))}
               </select>
@@ -524,7 +524,7 @@ export function Header() {
                   onChange={(e) => { handleRegionChange(e.target.value); setIsMobileMenuOpen(false); }}
                 >
                   <option value="">Все регионы</option>
-                  {regions?.map(r => (
+                  {regions?.results?.map(r => (
                     <option key={r.id} value={r.slug}>{r.name}</option>
                   ))}
                 </select>
