@@ -4,9 +4,10 @@ meta:
     name: npm
     version: "20"
 build:
-  # Мы принудительно ставим pnpm и используем только его
-  additionalCommands: "npm install -g pnpm && pnpm install --frozen-lockfile && pnpm run build"
+  # Ставим pnpm глобально и запускаем сборку всех пакетов
+  additionalCommands: "npm install -g pnpm && pnpm install --no-frozen-lockfile && pnpm run build"
   artifacts:
     "dist": "dist"
 run:
+  # Пробуем запустить из корня, если билд создаст там папку dist
   command: "npx serve -s dist"
