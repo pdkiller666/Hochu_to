@@ -4,11 +4,7 @@
   "private": true,
   "scripts": {
     "build": "pnpm --filter @workspace/api-server build",
-    "typecheck:libs": "true",
-    "typecheck": "true"
-  },
-  "devDependencies": {
-    "typescript": "^5.3.3"
+    "start": "pnpm --filter @workspace/api-server start"
   },
   "packageManager": "pnpm@9.15.9"
 }
