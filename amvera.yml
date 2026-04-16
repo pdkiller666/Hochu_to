@@ -1,11 +1,8 @@
 meta:
   environment: nodejs
-  toolchain:
-    name: pnpm
-    version: 8 # или 9, если используешь самую новую
   nodeVersion: "20"
 build:
-  command: pnpm install && pnpm run build
+  command: npm install -g pnpm && pnpm install && pnpm run build
   output: dist
 run:
-  command: pnpm run dev
+  command: npx serve -s dist
