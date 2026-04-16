@@ -212,3 +212,4 @@ Located at `artifacts/api-server/src/lib/scheduler.ts`. Runs every hour via `nod
 - MotoPress Calendar integration ready (booking calendar in place)
 - Payment gateway hooks ready (total_price calculated at booking)
 - SEO: unique title/meta per page, Russian-language content
+ 
