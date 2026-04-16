@@ -1,10 +1,16 @@
 import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  setAuthTokenGetter,
+  setAuthTokenRefresher,
+  setUnauthorizedHandler,
+} from "@workspace/api-client-react";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useEffect } from "react";
 import { RegionProvider } from "@/lib/region-context";
 import { FavoritesProvider } from "@/lib/favorites-context";
+import { getToken, refreshAccessToken, logoutEverywhere } from "@/lib/auth";
 import NotFound from "@/pages/not-found";
 
 import Home from "@/pages/Home";
@@ -74,6 +80,21 @@ function Router() {
 }
 
 function App() {
+  useEffect(() => {
+    setAuthTokenGetter(() => getToken());
+    setAuthTokenRefresher(() => refreshAccessToken());
+    setUnauthorizedHandler(async () => {
+      await logoutEverywhere();
+      if (!window.location.pathname.startsWith("/auth")) {
+        window.location.assign("/auth?tab=login");
+      }
+    });
+
+    return () => {
+      setUnauthorizedHandler(null);
+    };
+  }, []);
+
   return (
     <QueryClientProvider client={queryClient}>
       <RegionProvider>
