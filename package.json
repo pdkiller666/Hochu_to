@@ -3,8 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "amvera-install": "npm install pnpm && npx pnpm install",
-    "build": "export PORT=3000 && npm run amvera-install && npx pnpm --filter @workspace/api-server build",
+    "build": "export PORT=3000 && npm install pnpm && npx pnpm install && npx pnpm --filter @workspace/api-server build",
     "start": "npx pnpm --filter @workspace/api-server start"
   },
   "dependencies": {
