@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { db, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
+import { verifyAccessToken } from "../lib/auth-token";
 
 export interface AuthRequest extends Request {
   userId?: number;
@@ -16,7 +17,12 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
 
   try {
     const token = authHeader.slice(7);
-    const payload = JSON.parse(Buffer.from(token, "base64").toString());
+    const payload = verifyAccessToken(token);
+    if (!payload) {
+      res.status(401).json({ error: "unauthorized", message: "Недействительный токен" });
+      return;
+    }
+
     const [user] = await db.select().from(usersTable).where(eq(usersTable.id, payload.userId)).limit(1);
 
     if (!user) {

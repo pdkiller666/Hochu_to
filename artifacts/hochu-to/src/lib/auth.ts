@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 
 const TOKEN_KEY = 'hochu_to_auth_token';
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
 
 export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
@@ -19,11 +20,57 @@ export function getAuthHeaders() {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+export async function refreshAccessToken(): Promise<string | null> {
+  try {
+    const response = await fetch(`${API_BASE}/api/auth/refresh`, {
+      method: 'POST',
+      credentials: 'include',
+    });
+    if (!response.ok) {
+      return null;
+    }
+    const data = (await response.json()) as { token?: string };
+    if (!data.token) {
+      return null;
+    }
+    setToken(data.token);
+    window.dispatchEvent(new Event('auth-change'));
+    return data.token;
+  } catch {
+    return null;
+  }
+}
+
+export async function logoutEverywhere(): Promise<void> {
+  try {
+    await fetch(`${API_BASE}/api/auth/logout`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      credentials: 'include',
+    });
+  } catch {
+    // Ignore network errors; local logout still proceeds.
+  } finally {
+    removeToken();
+    window.dispatchEvent(new Event('auth-change'));
+  }
+}
+
 // Custom hook to reactively track auth state across components
 export function useAuthState() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(!!getToken());
 
   useEffect(() => {
+    const bootstrapRefresh = async () => {
+      if (!getToken()) return;
+      const refreshed = await refreshAccessToken();
+      if (!refreshed) {
+        removeToken();
+      }
+      setIsAuthenticated(!!getToken());
+    };
+    void bootstrapRefresh();
+
     const handleStorageChange = () => {
       setIsAuthenticated(!!getToken());
     };
@@ -45,9 +92,8 @@ export function useAuthState() {
   };
 
   const logout = () => {
-    removeToken();
+    void logoutEverywhere();
     setIsAuthenticated(false);
-    window.dispatchEvent(new Event('auth-change'));
   };
 
   return { isAuthenticated, login, logout, token: getToken() };
