@@ -1,0 +1,129 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Montserrat:wght@500;600;700;800&display=swap');
+@import "tailwindcss";
+
+@theme inline {
+  /* Brand Fonts */
+  --font-sans: 'Inter', sans-serif;
+  --font-display: 'Montserrat', sans-serif;
+
+  /* Brand Colors - Hochu_To */
+  --color-background: hsl(42 43% 92%); /* #F2EEE3 Warm Cream */
+  --color-foreground: hsl(0 0% 17%); /* #2B2B2B Dark Text */
+  
+  --color-primary: hsl(15 56% 50%); /* #C65D3B Terracotta */
+  --color-primary-foreground: hsl(0 0% 100%);
+  
+  --color-accent: hsl(181 29% 40%); /* #4A8587 Teal */
+  --color-accent-foreground: hsl(0 0% 100%);
+  
+  --color-card: hsl(42 40% 96%); /* Slightly lighter cream for cards */
+  --color-card-foreground: hsl(0 0% 17%);
+  
+  --color-popover: hsl(42 40% 96%);
+  --color-popover-foreground: hsl(0 0% 17%);
+  
+  --color-secondary: hsl(30 20% 85%); /* Warm neutral */
+  --color-secondary-foreground: hsl(0 0% 17%);
+  
+  --color-muted: hsl(38 25% 88%);
+  --color-muted-foreground: hsl(30 10% 45%);
+  
+  --color-border: hsl(30 20% 80%);
+  --color-input: hsl(30 20% 85%);
+  --color-ring: hsl(15 56% 50%);
+  
+  --color-destructive: hsl(0 84% 60%);
+  --color-destructive-foreground: hsl(0 0% 100%);
+
+  /* Border Radii for friendly, modern look */
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-xl: 1.5rem;
+  --radius-2xl: 2rem;
+}
+
+:root {
+  --background: 42 43% 92%;
+  --foreground: 0 0% 17%;
+  --primary: 15 56% 50%;
+  --primary-foreground: 0 0% 100%;
+  --accent: 181 29% 40%;
+  --accent-foreground: 0 0% 100%;
+  --card: 42 40% 96%;
+  --card-foreground: 0 0% 17%;
+  --muted: 38 25% 88%;
+  --muted-foreground: 30 10% 45%;
+  --border: 30 20% 80%;
+  --ring: 15 56% 50%;
+  --radius: 1rem;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased selection:bg-primary/20 selection:text-primary;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
+    @apply font-bold tracking-tight text-foreground;
+  }
+}
+
+@layer components {
+  .glass-panel {
+    @apply bg-card/80 backdrop-blur-xl border border-white/20 shadow-xl shadow-black/5;
+  }
+  
+  .btn-primary {
+    @apply inline-flex items-center justify-center px-6 py-3 rounded-xl font-semibold transition-all duration-300
+           bg-primary text-primary-foreground shadow-[0_8px_20px_rgba(198,93,59,0.25)]
+           hover:shadow-[0_12px_25px_rgba(198,93,59,0.35)] hover:-translate-y-0.5 active:translate-y-0 active:shadow-md
+           disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none disabled:shadow-none;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center px-6 py-3 rounded-xl font-semibold transition-all duration-300
+           bg-white text-foreground border-2 border-border shadow-sm
+           hover:border-primary/50 hover:text-primary hover:bg-white
+           active:bg-muted disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-accent {
+    @apply inline-flex items-center justify-center px-6 py-3 rounded-xl font-semibold transition-all duration-300
+           bg-accent text-accent-foreground shadow-[0_8px_20px_rgba(74,133,135,0.25)]
+           hover:shadow-[0_12px_25px_rgba(74,133,135,0.35)] hover:-translate-y-0.5 active:translate-y-0 active:shadow-md
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .input-field {
+    @apply w-full px-4 py-3 rounded-xl bg-white border-2 border-transparent shadow-sm
+           text-foreground placeholder:text-muted-foreground transition-all duration-200
+           focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/10;
+  }
+  
+  .card-hover {
+    @apply bg-white rounded-2xl border border-border/50 shadow-sm overflow-hidden transition-all duration-300
+           hover:shadow-xl hover:shadow-black/5 hover:-translate-y-1 hover:border-primary/20;
+  }
+}
+
+/* Custom scrollbar for a polished feel */
+::-webkit-scrollbar {
+  width: 10px;
+}
+::-webkit-scrollbar-track {
+  background: hsl(var(--background));
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 5px;
+  border: 2px solid hsl(var(--background));
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground));
+}

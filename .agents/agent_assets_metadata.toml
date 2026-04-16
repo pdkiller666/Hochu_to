@@ -1,0 +1,62 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "wDn3ebXiLjUBLkBTI68t4"
+uri = "file://attached_assets/stock_images/rotary_hammer_drill.jpg"
+type = "image"
+title = "Bosch rotary hammer drill power tool on workbench professional"
+
+[[outputs]]
+id = "X2-w_5SVKm3H0ZaEqghiS"
+uri = "file://attached_assets/stock_images/cordless_screwdriver.jpg"
+type = "image"
+title = "Makita cordless drill screwdriver power tool"
+
+[[outputs]]
+id = "4jpIy43hYrmVftBH-xlkK"
+uri = "file://attached_assets/stock_images/macbook_laptop.jpg"
+type = "image"
+title = "MacBook Pro laptop computer on desk"
+
+[[outputs]]
+id = "kAtG5qAoKnzpGhn-5e3qT"
+uri = "file://attached_assets/stock_images/sony_camera.jpg"
+type = "image"
+title = "Sony mirrorless camera photography equipment professional"
+
+[[outputs]]
+id = "buy77c3DTBA2-aojekNtK"
+uri = "file://attached_assets/stock_images/touring_kayak.jpg"
+type = "image"
+title = "inflatable kayak canoe river outdoor adventure"
+
+[[outputs]]
+id = "WAtWX9ke60epvCetYSNqi"
+uri = "file://attached_assets/stock_images/camping_tent.jpg"
+type = "image"
+title = "camping tent outdoor nature forest setup"
+
+[[outputs]]
+id = "XjZx0zQIqvPuGuVl7QguB"
+uri = "file://attached_assets/stock_images/kids_bicycle.jpg"
+type = "image"
+title = "children kids bicycle bike colorful"
+
+[[outputs]]
+id = "clFn2aZFppEYI4TMi14dZ"
+uri = "file://attached_assets/stock_images/portable_bbq_grill.jpg"
+type = "image"
+title = "portable charcoal BBQ grill barbecue outdoor picnic"
+
+[[outputs]]
+id = "PA8tPRDvmoPWQhpk5zXPw"
+uri = "file://attached_assets/stock_images/epson_projector.jpg"
+type = "image"
+title = "Epson projector home office presentation equipment"
+
+[[outputs]]
+id = "iRP4lbmA5hl970EEcxtI_"
+uri = "file://attached_assets/stock_images/delonghi_coffee_machine.jpg"
+type = "image"
+title = "DeLonghi espresso coffee machine kitchen appliance"

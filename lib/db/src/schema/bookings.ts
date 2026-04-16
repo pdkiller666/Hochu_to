@@ -1,0 +1,25 @@
+import { pgTable, serial, integer, text, numeric, timestamp, pgEnum, varchar } from "drizzle-orm/pg-core";
+import { createInsertSchema } from "drizzle-zod";
+import { z } from "zod/v4";
+
+export const bookingStatusEnum = pgEnum("booking_status", ["pending", "confirmed", "active", "return_pending", "rejected", "completed", "cancelled"]);
+
+export const bookingsTable = pgTable("bookings", {
+  id: serial("id").primaryKey(),
+  bookingNumber: varchar("booking_number", { length: 24 }).unique(),
+  listingId: integer("listing_id").notNull(),
+  renterId: integer("renter_id").notNull(),
+  ownerId: integer("owner_id").notNull(),
+  startDate: text("start_date").notNull(),
+  endDate: text("end_date").notNull(),
+  totalDays: integer("total_days").notNull(),
+  totalPrice: numeric("total_price", { precision: 10, scale: 2 }).notNull(),
+  status: bookingStatusEnum("status").notNull().default("pending"),
+  message: text("message"),
+  ownerComment: text("owner_comment"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertBookingSchema = createInsertSchema(bookingsTable).omit({ id: true, createdAt: true });
+export type InsertBooking = z.infer<typeof insertBookingSchema>;
+export type Booking = typeof bookingsTable.$inferSelect;

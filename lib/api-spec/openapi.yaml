@@ -1,0 +1,1056 @@
+openapi: 3.1.0
+info:
+  title: Api
+  version: 0.1.0
+  description: Хочу_То — Rental Marketplace API
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: auth
+    description: Authentication operations
+  - name: listings
+    description: Listing/item operations
+  - name: bookings
+    description: Booking operations
+  - name: users
+    description: User profile operations
+  - name: categories
+    description: Category operations
+  - name: regions
+    description: Region operations
+  - name: reviews
+    description: Review operations
+  - name: joint-purchases
+    description: Joint purchase operations
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+
+  /auth/register:
+    post:
+      operationId: registerUser
+      tags: [auth]
+      summary: Register a new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterRequest"
+      responses:
+        "201":
+          description: User registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: User already exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/login:
+    post:
+      operationId: loginUser
+      tags: [auth]
+      summary: Login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Logged in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/logout:
+    post:
+      operationId: logoutUser
+      tags: [auth]
+      summary: Logout
+      responses:
+        "200":
+          description: Logged out
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /auth/me:
+    get:
+      operationId: getCurrentUser
+      tags: [auth]
+      summary: Get current user
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /regions:
+    get:
+      operationId: getRegions
+      tags: [regions]
+      summary: Get list of regions
+      responses:
+        "200":
+          description: List of regions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Region"
+
+  /categories:
+    get:
+      operationId: getCategories
+      tags: [categories]
+      summary: Get listing categories
+      responses:
+        "200":
+          description: List of categories
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Category"
+
+  /listings:
+    get:
+      operationId: getListings
+      tags: [listings]
+      summary: Get listings with filters
+      parameters:
+        - name: category
+          in: query
+          schema:
+            type: string
+        - name: region
+          in: query
+          schema:
+            type: string
+        - name: minPrice
+          in: query
+          schema:
+            type: number
+        - name: maxPrice
+          in: query
+          schema:
+            type: number
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 12
+      responses:
+        "200":
+          description: Listings list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListingsResponse"
+    post:
+      operationId: createListing
+      tags: [listings]
+      summary: Create new listing
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateListingRequest"
+      responses:
+        "201":
+          description: Listing created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Listing"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /listings/{id}:
+    get:
+      operationId: getListingById
+      tags: [listings]
+      summary: Get listing details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Listing details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ListingDetail"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    put:
+      operationId: updateListing
+      tags: [listings]
+      summary: Update listing
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateListingRequest"
+      responses:
+        "200":
+          description: Listing updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Listing"
+    delete:
+      operationId: deleteListing
+      tags: [listings]
+      summary: Delete listing
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /listings/{id}/unavailable-dates:
+    get:
+      operationId: getListingUnavailableDates
+      tags: [listings]
+      summary: Get unavailable dates for a listing
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Unavailable date ranges
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DateRange"
+
+  /bookings:
+    get:
+      operationId: getMyBookings
+      tags: [bookings]
+      summary: Get current user bookings
+      responses:
+        "200":
+          description: User bookings
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Booking"
+    post:
+      operationId: createBooking
+      tags: [bookings]
+      summary: Create booking
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBookingRequest"
+      responses:
+        "201":
+          description: Booking created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Booking"
+        "400":
+          description: Dates unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /bookings/{id}:
+    get:
+      operationId: getBookingById
+      tags: [bookings]
+      summary: Get booking details
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Booking details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Booking"
+    put:
+      operationId: updateBookingStatus
+      tags: [bookings]
+      summary: Update booking status
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateBookingStatusRequest"
+      responses:
+        "200":
+          description: Booking updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Booking"
+
+  /users/{id}:
+    get:
+      operationId: getUserById
+      tags: [users]
+      summary: Get user profile
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: User profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserProfile"
+    put:
+      operationId: updateUserProfile
+      tags: [users]
+      summary: Update user profile
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateProfileRequest"
+      responses:
+        "200":
+          description: Profile updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+  /users/{id}/listings:
+    get:
+      operationId: getUserListings
+      tags: [users]
+      summary: Get user's own listings
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: User listings
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Listing"
+
+  /reviews:
+    post:
+      operationId: createReview
+      tags: [reviews]
+      summary: Create a review
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateReviewRequest"
+      responses:
+        "201":
+          description: Review created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Review"
+
+  /listings/{id}/reviews:
+    get:
+      operationId: getListingReviews
+      tags: [reviews]
+      summary: Get reviews for a listing
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Reviews
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Review"
+
+  /joint-purchases:
+    get:
+      operationId: getJointPurchases
+      tags: [joint-purchases]
+      summary: Get joint purchase requests
+      responses:
+        "200":
+          description: Joint purchases list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/JointPurchase"
+    post:
+      operationId: createJointPurchase
+      tags: [joint-purchases]
+      summary: Submit joint purchase request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateJointPurchaseRequest"
+      responses:
+        "201":
+          description: Request submitted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JointPurchase"
+
+  /newsletter/subscribe:
+    post:
+      operationId: subscribeNewsletter
+      tags: [health]
+      summary: Subscribe to newsletter
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewsletterSubscribeRequest"
+      responses:
+        "200":
+          description: Subscribed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /contact:
+    post:
+      operationId: submitContactForm
+      tags: [health]
+      summary: Submit contact form
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContactFormRequest"
+      responses:
+        "200":
+          description: Message sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+      required:
+        - error
+
+    SuccessResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+      required:
+        - success
+
+    RegisterRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+        password:
+          type: string
+        role:
+          type: string
+          enum: [renter, owner]
+        phone:
+          type: string
+        regionId:
+          type: integer
+      required:
+        - name
+        - email
+        - password
+        - role
+
+    LoginRequest:
+      type: object
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+      required:
+        - email
+        - password
+
+    AuthResponse:
+      type: object
+      properties:
+        user:
+          $ref: "#/components/schemas/User"
+        token:
+          type: string
+      required:
+        - user
+        - token
+
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+          enum: [renter, owner, admin]
+        phone:
+          type: string
+        avatar:
+          type: string
+        regionId:
+          type: integer
+        regionName:
+          type: string
+        createdAt:
+          type: string
+      required:
+        - id
+        - name
+        - email
+        - role
+        - createdAt
+
+    UserProfile:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        avatar:
+          type: string
+        role:
+          type: string
+        regionName:
+          type: string
+        createdAt:
+          type: string
+        totalListings:
+          type: integer
+        totalBookings:
+          type: integer
+        rating:
+          type: number
+      required:
+        - id
+        - name
+        - role
+        - createdAt
+        - totalListings
+        - totalBookings
+
+    UpdateProfileRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        phone:
+          type: string
+        avatar:
+          type: string
+        regionId:
+          type: integer
+        role:
+          type: string
+          enum: [renter, owner]
+
+    Region:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        slug:
+          type: string
+      required:
+        - id
+        - name
+        - slug
+
+    Category:
+      type: object
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        slug:
+          type: string
+        icon:
+          type: string
+        listingCount:
+          type: integer
+      required:
+        - id
+        - name
+        - slug
+        - icon
+
+    Listing:
+      type: object
+      properties:
+        id:
+          type: integer
+        title:
+          type: string
+        description:
+          type: string
+        pricePerDay:
+          type: number
+        categoryId:
+          type: integer
+        categoryName:
+          type: string
+        regionId:
+          type: integer
+        regionName:
+          type: string
+        photos:
+          type: array
+          items:
+            type: string
+        ownerId:
+          type: integer
+        ownerName:
+          type: string
+        ownerAvatar:
+          type: string
+        ownerPhone:
+          type: string
+        rating:
+          type: number
+        reviewCount:
+          type: integer
+        isAvailable:
+          type: boolean
+        deposit:
+          type: number
+        createdAt:
+          type: string
+      required:
+        - id
+        - title
+        - pricePerDay
+        - categoryId
+        - regionId
+        - ownerId
+        - isAvailable
+        - createdAt
+
+    ListingDetail:
+      allOf:
+        - $ref: "#/components/schemas/Listing"
+        - type: object
+          properties:
+            reviews:
+              type: array
+              items:
+                $ref: "#/components/schemas/Review"
+            ownerPhone:
+              type: string
+
+    ListingsResponse:
+      type: object
+      properties:
+        listings:
+          type: array
+          items:
+            $ref: "#/components/schemas/Listing"
+        total:
+          type: integer
+        page:
+          type: integer
+        totalPages:
+          type: integer
+      required:
+        - listings
+        - total
+        - page
+        - totalPages
+
+    CreateListingRequest:
+      type: object
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        pricePerDay:
+          type: number
+        categoryId:
+          type: integer
+        regionId:
+          type: integer
+        photos:
+          type: array
+          items:
+            type: string
+        deposit:
+          type: number
+        isAvailable:
+          type: boolean
+      required:
+        - title
+        - pricePerDay
+        - categoryId
+        - regionId
+
+    DateRange:
+      type: object
+      properties:
+        startDate:
+          type: string
+        endDate:
+          type: string
+        status:
+          type: string
+          enum: [pending, confirmed]
+      required:
+        - startDate
+        - endDate
+
+    CreateBookingRequest:
+      type: object
+      properties:
+        listingId:
+          type: integer
+        startDate:
+          type: string
+        endDate:
+          type: string
+        message:
+          type: string
+      required:
+        - listingId
+        - startDate
+        - endDate
+
+    UpdateBookingStatusRequest:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [pending, confirmed, rejected, completed, cancelled]
+      required:
+        - status
+
+    Booking:
+      type: object
+      properties:
+        id:
+          type: integer
+        listingId:
+          type: integer
+        listingTitle:
+          type: string
+        listingPhoto:
+          type: string
+        renterId:
+          type: integer
+        renterName:
+          type: string
+        ownerId:
+          type: integer
+        ownerName:
+          type: string
+        startDate:
+          type: string
+        endDate:
+          type: string
+        totalDays:
+          type: integer
+        totalPrice:
+          type: number
+        status:
+          type: string
+          enum: [pending, confirmed, rejected, completed, cancelled]
+        message:
+          type: string
+        ownerPhone:
+          type: string
+        createdAt:
+          type: string
+      required:
+        - id
+        - listingId
+        - renterId
+        - ownerId
+        - startDate
+        - endDate
+        - totalPrice
+        - status
+        - createdAt
+
+    Review:
+      type: object
+      properties:
+        id:
+          type: integer
+        listingId:
+          type: integer
+        authorId:
+          type: integer
+        authorName:
+          type: string
+        authorAvatar:
+          type: string
+        rating:
+          type: integer
+          minimum: 1
+          maximum: 5
+        text:
+          type: string
+        createdAt:
+          type: string
+      required:
+        - id
+        - listingId
+        - authorId
+        - authorName
+        - rating
+        - createdAt
+
+    CreateReviewRequest:
+      type: object
+      properties:
+        listingId:
+          type: integer
+        rating:
+          type: integer
+          minimum: 1
+          maximum: 5
+        text:
+          type: string
+      required:
+        - listingId
+        - rating
+
+    JointPurchase:
+      type: object
+      properties:
+        id:
+          type: integer
+        itemName:
+          type: string
+        description:
+          type: string
+        targetAmount:
+          type: number
+        collectedAmount:
+          type: number
+        participantsCount:
+          type: integer
+        status:
+          type: string
+          enum: [open, closed, completed]
+        authorName:
+          type: string
+        createdAt:
+          type: string
+      required:
+        - id
+        - itemName
+        - targetAmount
+        - collectedAmount
+        - participantsCount
+        - status
+        - createdAt
+
+    CreateJointPurchaseRequest:
+      type: object
+      properties:
+        itemName:
+          type: string
+        description:
+          type: string
+        targetAmount:
+          type: number
+        contactEmail:
+          type: string
+        contactPhone:
+          type: string
+      required:
+        - itemName
+        - targetAmount
+        - contactEmail
+
+    NewsletterSubscribeRequest:
+      type: object
+      properties:
+        email:
+          type: string
+      required:
+        - email
+
+    ContactFormRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+        message:
+          type: string
+        subject:
+          type: string
+      required:
+        - name
+        - email
+        - message

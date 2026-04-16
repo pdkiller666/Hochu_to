@@ -1,0 +1,42 @@
+import { Router, type IRouter } from "express";
+import healthRouter from "./health.js";
+import authRouter from "./auth.js";
+import regionsRouter from "./regions.js";
+import categoriesRouter from "./categories.js";
+import listingsRouter from "./listings.js";
+import bookingsRouter from "./bookings.js";
+import usersRouter from "./users.js";
+import reviewsRouter from "./reviews.js";
+import jointPurchasesRouter from "./joint_purchases.js";
+import miscRouter from "./misc.js";
+import uploadRouter from "./upload.js";
+import notificationsRouter from "./notifications.js";
+import adminRouter from "./admin.js";
+import messagesRouter from "./messages.js";
+import favoritesRouter from "./favorites.js";
+import geoipRouter from "./geoip.js";
+import supportRouter from "./support.js";
+import reportsRouter from "./reports.js";
+
+const router: IRouter = Router();
+
+router.use(healthRouter);
+router.use(uploadRouter);
+router.use("/notifications", notificationsRouter);
+router.use("/messages", messagesRouter);
+router.use("/auth", authRouter);
+router.use("/regions", regionsRouter);
+router.use("/categories", categoriesRouter);
+router.use("/listings", listingsRouter);
+router.use("/bookings", bookingsRouter);
+router.use("/users", usersRouter);
+router.use("/reviews", reviewsRouter);
+router.use("/joint-purchases", jointPurchasesRouter);
+router.use("/favorites", favoritesRouter);
+router.use("/support", supportRouter);
+router.use("/reports", reportsRouter);
+router.use("/admin", adminRouter);
+router.use(geoipRouter);
+router.use(miscRouter);
+
+export default router;

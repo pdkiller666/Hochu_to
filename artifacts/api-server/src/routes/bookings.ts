@@ -1,0 +1,516 @@
+import { Router } from "express";
+import { db, bookingsTable, listingsTable, usersTable, bookingEventsTable, bookingMessagesTable } from "@workspace/db";
+import { eq, or, and, sql, ne, asc } from "drizzle-orm";
+import { requireAuth, AuthRequest } from "../middleware/auth.js";
+import { CreateBookingBody } from "@workspace/api-zod";
+import { createNotification } from "../lib/notifications.js";
+
+const router = Router();
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function generateBookingNumber(id: number): string {
+  const year = new Date().getFullYear();
+  const padded = String(id).padStart(6, "0");
+  return `ХТ-${year}-${padded}`;
+}
+
+async function recordEvent(params: {
+  bookingId: number;
+  bookingNumber: string;
+  actorId?: number;
+  actorRole?: "owner" | "renter" | "system" | "admin";
+  eventType: string;
+  fromStatus?: string;
+  toStatus?: string;
+  comment?: string;
+}) {
+  await db.insert(bookingEventsTable).values({
+    bookingId: params.bookingId,
+    bookingNumber: params.bookingNumber,
+    actorId: params.actorId ?? null,
+    actorRole: params.actorRole ?? null,
+    eventType: params.eventType,
+    fromStatus: params.fromStatus ?? null,
+    toStatus: params.toStatus ?? null,
+    comment: params.comment ?? null,
+  });
+}
+
+const SHOW_CONTACTS_STATUSES = ["confirmed", "active", "return_pending", "completed"];
+
+function formatBooking(
+  b: typeof bookingsTable.$inferSelect,
+  listing?: { title?: string | null; photos?: string[] | null },
+  renter?: { name?: string | null },
+  owner?: { name?: string | null; phone?: string | null; telegram?: string | null; website?: string | null },
+) {
+  const days = Math.max(1, Math.ceil(
+    (new Date(b.endDate).getTime() - new Date(b.startDate).getTime()) / 86_400_000
+  ));
+  const showContacts = SHOW_CONTACTS_STATUSES.includes(b.status);
+  return {
+    id: b.id,
+    bookingNumber: b.bookingNumber ?? undefined,
+    listingId: b.listingId,
+    listingTitle: listing?.title ?? undefined,
+    listingPhoto: listing?.photos?.[0] ?? undefined,
+    renterId: b.renterId,
+    renterName: renter?.name ?? undefined,
+    ownerId: b.ownerId,
+    ownerName: owner?.name ?? undefined,
+    ownerPhone: showContacts ? (owner?.phone ?? undefined) : undefined,
+    ownerTelegram: showContacts ? (owner?.telegram ?? undefined) : undefined,
+    ownerWebsite: showContacts ? (owner?.website ?? undefined) : undefined,
+    startDate: b.startDate,
+    endDate: b.endDate,
+    totalDays: days,
+    totalPrice: parseFloat(b.totalPrice as unknown as string),
+    status: b.status,
+    message: b.message ?? undefined,
+    ownerComment: b.ownerComment ?? undefined,
+    createdAt: b.createdAt.toISOString(),
+  };
+}
+
+// ─── GET /api/bookings — current user's bookings ──────────────────────────────
+
+router.get("/", requireAuth, async (req: AuthRequest, res) => {
+  const bookings = await db
+    .select({
+      booking: bookingsTable,
+      listingTitle: listingsTable.title,
+      listingPhotos: listingsTable.photos,
+      listingDeposit: listingsTable.deposit,
+      listingMeetingAddress: listingsTable.meetingAddress,
+      renterName: sql<string>`renter.name`,
+      renterAvatar: sql<string>`renter.avatar`,
+      ownerName: sql<string>`owner.name`,
+      ownerPhone: sql<string>`owner.phone`,
+      ownerTelegram: sql<string>`owner.telegram`,
+      ownerWebsite: sql<string>`owner.website`,
+    })
+    .from(bookingsTable)
+    .leftJoin(listingsTable, eq(bookingsTable.listingId, listingsTable.id))
+    .leftJoin(sql`${usersTable} AS renter`, sql`renter.id = ${bookingsTable.renterId}`)
+    .leftJoin(sql`${usersTable} AS owner`, sql`owner.id = ${bookingsTable.ownerId}`)
+    .where(or(eq(bookingsTable.renterId, req.userId!), eq(bookingsTable.ownerId, req.userId!)))
+    .orderBy(bookingsTable.createdAt);
+
+  const showContacts = (status: string) => SHOW_CONTACTS_STATUSES.includes(status);
+
+  res.json(bookings.map(row => ({
+    id: row.booking.id,
+    bookingNumber: row.booking.bookingNumber ?? undefined,
+    listingId: row.booking.listingId,
+    listingTitle: row.listingTitle ?? undefined,
+    listingPhoto: row.listingPhotos?.[0] ?? undefined,
+    renterId: row.booking.renterId,
+    renterName: row.renterName ?? undefined,
+    renterAvatar: row.renterAvatar ?? undefined,
+    ownerId: row.booking.ownerId,
+    ownerName: row.ownerName ?? undefined,
+    ownerPhone: showContacts(row.booking.status) ? (row.ownerPhone ?? undefined) : undefined,
+    ownerTelegram: showContacts(row.booking.status) ? (row.ownerTelegram ?? undefined) : undefined,
+    ownerWebsite: showContacts(row.booking.status) ? (row.ownerWebsite ?? undefined) : undefined,
+    startDate: row.booking.startDate,
+    endDate: row.booking.endDate,
+    totalDays: Math.max(1, Math.ceil(
+      (new Date(row.booking.endDate).getTime() - new Date(row.booking.startDate).getTime()) / 86_400_000
+    )),
+    totalPrice: parseFloat(row.booking.totalPrice as unknown as string),
+    listingDeposit: row.listingDeposit ? parseFloat(row.listingDeposit as unknown as string) : undefined,
+    listingMeetingAddress: showContacts(row.booking.status) ? (row.listingMeetingAddress ?? undefined) : undefined,
+    status: row.booking.status,
+    message: row.booking.message ?? undefined,
+    ownerComment: row.booking.ownerComment ?? undefined,
+    createdAt: row.booking.createdAt.toISOString(),
+  })));
+});
+
+// ─── POST /api/bookings — create booking ──────────────────────────────────────
+
+router.post("/", requireAuth, async (req: AuthRequest, res) => {
+  const parsed = CreateBookingBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "validation_error", message: parsed.error.message });
+    return;
+  }
+
+  const { listingId, startDate, endDate, message } = parsed.data;
+
+  const [listing] = await db.select().from(listingsTable).where(eq(listingsTable.id, listingId)).limit(1);
+  if (!listing) {
+    res.status(404).json({ error: "not_found", message: "Объявление не найдено" });
+    return;
+  }
+  if (listing.ownerId === req.userId) {
+    res.status(400).json({ error: "bad_request", message: "Нельзя арендовать свою вещь" });
+    return;
+  }
+
+  const conflicts = await db.select().from(bookingsTable).where(
+    and(
+      eq(bookingsTable.listingId, listingId),
+      sql`${bookingsTable.status} IN ('pending', 'confirmed', 'active', 'return_pending')`,
+      sql`NOT (${bookingsTable.endDate} < ${startDate} OR ${bookingsTable.startDate} > ${endDate})`
+    )
+  ).limit(1);
+
+  if (conflicts.length > 0) {
+    res.status(400).json({ error: "conflict", message: "Выбранные даты уже заняты" });
+    return;
+  }
+
+  const days = Math.max(1, Math.ceil(
+    (new Date(endDate).getTime() - new Date(startDate).getTime()) / 86_400_000
+  ));
+  const totalPrice = days * parseFloat(listing.pricePerDay as unknown as string);
+
+  const [booking] = await db.insert(bookingsTable).values({
+    listingId,
+    renterId: req.userId!,
+    ownerId: listing.ownerId,
+    startDate,
+    endDate,
+    totalDays: days,
+    totalPrice: totalPrice.toString(),
+    status: "pending",
+    message: message ?? null,
+  }).returning();
+
+  // Generate and assign booking number immediately
+  const bookingNumber = generateBookingNumber(booking.id);
+  await db.update(bookingsTable)
+    .set({ bookingNumber })
+    .where(eq(bookingsTable.id, booking.id));
+  booking.bookingNumber = bookingNumber;
+
+  // Audit log: booking created
+  const [renterUser] = await db.select({ name: usersTable.name }).from(usersTable)
+    .where(eq(usersTable.id, req.userId!)).limit(1);
+
+  await recordEvent({
+    bookingId: booking.id,
+    bookingNumber,
+    actorId: req.userId!,
+    actorRole: "renter",
+    eventType: "created",
+    toStatus: "pending",
+    comment: message ?? undefined,
+  });
+
+  // Notifications
+  const msgText = `${renterUser?.name ?? "Арендатор"} хочет взять вещь на ${days} ${days === 1 ? "день" : "дней"} (${startDate} — ${endDate})`;
+  await createNotification({
+    userId: listing.ownerId,
+    type: "booking_created",
+    title: `📬 Новая заявка — «${listing.title}»`,
+    message: msgText,
+    bookingId: booking.id,
+    listingTitle: listing.title ?? undefined,
+  });
+  await createNotification({
+    userId: req.userId!,
+    type: "booking_submitted",
+    title: `📤 Заявка отправлена — «${listing.title}»`,
+    message: `Ваша заявка ${bookingNumber} на аренду отправлена владельцу. Ожидайте подтверждения.`,
+    bookingId: booking.id,
+    listingTitle: listing.title ?? undefined,
+  });
+
+  res.status(201).json(formatBooking(booking, listing));
+});
+
+// ─── GET /api/bookings/:id ────────────────────────────────────────────────────
+
+router.get("/:id", requireAuth, async (req: AuthRequest, res) => {
+  const id = parseInt(req.params.id);
+  const [booking] = await db.select().from(bookingsTable).where(eq(bookingsTable.id, id)).limit(1);
+
+  if (!booking) {
+    res.status(404).json({ error: "not_found", message: "Бронирование не найдено" });
+    return;
+  }
+  if (booking.renterId !== req.userId && booking.ownerId !== req.userId) {
+    res.status(403).json({ error: "forbidden", message: "Нет доступа" });
+    return;
+  }
+
+  const [listing] = await db.select().from(listingsTable).where(eq(listingsTable.id, booking.listingId)).limit(1);
+  const [renter] = await db.select().from(usersTable).where(eq(usersTable.id, booking.renterId)).limit(1);
+  const [owner] = await db.select().from(usersTable).where(eq(usersTable.id, booking.ownerId)).limit(1);
+
+  res.json(formatBooking(booking, listing, renter, owner));
+});
+
+// ─── PUT /api/bookings/:id — update status ────────────────────────────────────
+
+router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
+  const id = parseInt(req.params.id);
+  const { status, ownerComment } = req.body;
+
+  const [booking] = await db.select().from(bookingsTable).where(eq(bookingsTable.id, id)).limit(1);
+  if (!booking) {
+    res.status(404).json({ error: "not_found", message: "Бронирование не найдено" });
+    return;
+  }
+  if (booking.renterId !== req.userId && booking.ownerId !== req.userId) {
+    res.status(403).json({ error: "forbidden", message: "Нет доступа" });
+    return;
+  }
+
+  const validStatuses = ["pending", "confirmed", "active", "return_pending", "rejected", "completed", "cancelled"];
+  if (!validStatuses.includes(status)) {
+    res.status(400).json({ error: "bad_request", message: "Недопустимый статус" });
+    return;
+  }
+
+  const fromStatus = booking.status;
+
+  const [updated] = await db.update(bookingsTable).set({
+    status,
+    ...(status === "rejected" && { ownerComment: ownerComment?.trim() || null }),
+  }).where(eq(bookingsTable.id, id)).returning();
+
+  const [listing] = await db.select().from(listingsTable).where(eq(listingsTable.id, updated.listingId)).limit(1);
+  const [owner] = await db.select().from(usersTable).where(eq(usersTable.id, updated.ownerId)).limit(1);
+  const title = listing?.title ?? "объявление";
+  const bookingNumber = updated.bookingNumber ?? generateBookingNumber(updated.id);
+
+  // Determine actor role for audit
+  const actorRole: "owner" | "renter" = req.userId === updated.ownerId ? "owner" : "renter";
+
+  // Audit log: status change
+  await recordEvent({
+    bookingId: updated.id,
+    bookingNumber,
+    actorId: req.userId!,
+    actorRole,
+    eventType: `status_changed`,
+    fromStatus,
+    toStatus: status,
+    comment: status === "rejected" ? (ownerComment?.trim() ?? undefined) : undefined,
+  });
+
+  // Notifications
+  if (status === "confirmed") {
+    await createNotification({
+      userId: updated.renterId,
+      type: "booking_confirmed",
+      title: `✅ Заявка подтверждена — «${title}»`,
+      message: `Владелец подтвердил вашу заявку ${bookingNumber}. Договоритесь о встрече для передачи вещи.`,
+      bookingId: updated.id,
+      listingTitle: title,
+    });
+  } else if (status === "active") {
+    await createNotification({
+      userId: updated.renterId,
+      type: "booking_active",
+      title: `🤝 Вещь передана — «${title}»`,
+      message: `Владелец подтвердил передачу вещи по заявке ${bookingNumber}. Аренда началась! Когда вернёте — нажмите «Возвращаю вещь».`,
+      bookingId: updated.id,
+      listingTitle: title,
+    });
+  } else if (status === "return_pending") {
+    await createNotification({
+      userId: updated.ownerId,
+      type: "booking_return_pending",
+      title: `📦 Арендатор возвращает вещь — «${title}»`,
+      message: `Арендатор инициировал возврат по заявке ${bookingNumber}. Встретьтесь и подтвердите получение вещи.`,
+      bookingId: updated.id,
+      listingTitle: title,
+    });
+  } else if (status === "rejected") {
+    const reason = ownerComment?.trim();
+    await createNotification({
+      userId: updated.renterId,
+      type: "booking_rejected",
+      title: `❌ Заявка отклонена — «${title}»`,
+      message: reason ? `Заявка ${bookingNumber} отклонена. Причина: ${reason}` : `Владелец отклонил заявку ${bookingNumber}. Попробуйте другие объявления.`,
+      bookingId: updated.id,
+      listingTitle: title,
+    });
+  } else if (status === "completed") {
+    await createNotification({
+      userId: updated.ownerId,
+      type: "booking_completed",
+      title: `🏆 Сделка завершена — «${title}»`,
+      message: `Аренда по заявке ${bookingNumber} успешно закрыта. Сделка добавлена в историю.`,
+      bookingId: updated.id,
+      listingTitle: title,
+    });
+    await createNotification({
+      userId: updated.renterId,
+      type: "booking_completed",
+      title: `🏆 Сделка завершена — «${title}»`,
+      message: `Спасибо за аренду! Заявка ${bookingNumber} завершена и добавлена в историю.`,
+      bookingId: updated.id,
+      listingTitle: title,
+    });
+  } else if (status === "cancelled") {
+    await createNotification({
+      userId: updated.ownerId,
+      type: "booking_cancelled",
+      title: `🚫 Аренда отменена — «${title}»`,
+      message: `Арендатор отменил заявку ${bookingNumber}.`,
+      bookingId: updated.id,
+      listingTitle: title,
+    });
+  }
+
+  res.json(formatBooking(updated, listing, undefined, owner));
+});
+
+// ─── PATCH /api/bookings/:id/reschedule — change dates ───────────────────────
+
+router.patch("/:id/reschedule", requireAuth, async (req: AuthRequest, res) => {
+  const id = parseInt(req.params.id);
+  const { startDate, endDate } = req.body as { startDate?: string; endDate?: string };
+
+  if (!startDate || !endDate) {
+    res.status(400).json({ error: "bad_request", message: "Укажите даты начала и окончания" });
+    return;
+  }
+
+  const start = new Date(startDate);
+  const end   = new Date(endDate);
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+
+  if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+    res.status(400).json({ error: "bad_request", message: "Неверный формат дат" });
+    return;
+  }
+  if (start < today) {
+    res.status(400).json({ error: "bad_request", message: "Дата начала не может быть в прошлом" });
+    return;
+  }
+  if (end <= start) {
+    res.status(400).json({ error: "bad_request", message: "Дата окончания должна быть позже даты начала" });
+    return;
+  }
+
+  const [booking] = await db.select().from(bookingsTable).where(eq(bookingsTable.id, id)).limit(1);
+  if (!booking) { res.status(404).json({ error: "not_found" }); return; }
+  if (booking.renterId !== req.userId && booking.ownerId !== req.userId) {
+    res.status(403).json({ error: "forbidden" }); return;
+  }
+  if (!["pending", "confirmed"].includes(booking.status)) {
+    res.status(422).json({ error: "invalid_state", message: "Изменить даты можно только для заявок в статусе «Ожидает» или «Подтверждено»" });
+    return;
+  }
+
+  const [listing] = await db.select().from(listingsTable).where(eq(listingsTable.id, booking.listingId)).limit(1);
+  const days = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / 86_400_000));
+  const pricePerDay = Number(listing?.pricePerDay ?? 0);
+  const totalPrice  = days * pricePerDay;
+
+  const [updated] = await db.update(bookingsTable)
+    .set({ startDate, endDate, totalPrice: String(totalPrice) })
+    .where(eq(bookingsTable.id, id))
+    .returning();
+
+  const actorRole: "owner" | "renter" = req.userId === booking.ownerId ? "owner" : "renter";
+  const bookingNumber = updated.bookingNumber ?? generateBookingNumber(id);
+  const title = listing?.title ?? "объявление";
+  const partnerId = actorRole === "owner" ? booking.renterId : booking.ownerId;
+
+  await recordEvent({
+    bookingId: id,
+    bookingNumber,
+    actorId: req.userId!,
+    actorRole,
+    eventType: "dates_changed",
+    comment: `Даты изменены: ${startDate} — ${endDate}. Стоимость: ${totalPrice} ₽`,
+  });
+
+  const actor = actorRole === "owner" ? "Владелец" : "Арендатор";
+  await createNotification({
+    userId: req.userId!,
+    type: "booking_confirmed",
+    title: `📅 Даты изменены — «${title}»`,
+    message: `Новые даты аренды: ${startDate} — ${endDate}. Стоимость пересчитана: ${totalPrice} ₽.`,
+    bookingId: id,
+    listingTitle: title,
+  });
+  await createNotification({
+    userId: partnerId,
+    type: "booking_confirmed",
+    title: `📅 Даты бронирования изменены — «${title}»`,
+    message: `${actor} изменил(а) даты: ${startDate} — ${endDate}. Новая стоимость: ${totalPrice} ₽. Пожалуйста, проверьте и свяжитесь при необходимости.`,
+    bookingId: id,
+    listingTitle: title,
+  });
+
+  const [owner] = await db.select().from(usersTable).where(eq(usersTable.id, updated.ownerId)).limit(1);
+  res.json(formatBooking(updated, listing, undefined, owner));
+});
+
+// ─── GET /api/bookings/:id/messages ──────────────────────────────────────────
+router.get("/:id/messages", requireAuth, async (req: AuthRequest, res) => {
+  const bookingId = parseInt(req.params.id);
+  if (isNaN(bookingId)) {
+    res.status(400).json({ error: "bad_request", message: "Неверный ID" });
+    return;
+  }
+
+  const [booking] = await db.select().from(bookingsTable).where(eq(bookingsTable.id, bookingId)).limit(1);
+  if (!booking || (booking.ownerId !== req.userId && booking.renterId !== req.userId)) {
+    res.status(403).json({ error: "forbidden", message: "Нет доступа" });
+    return;
+  }
+
+  // Mark incoming messages as read
+  await db
+    .update(bookingMessagesTable)
+    .set({ isRead: true })
+    .where(
+      and(
+        eq(bookingMessagesTable.bookingId, bookingId),
+        ne(bookingMessagesTable.senderId, req.userId!),
+        eq(bookingMessagesTable.isRead, false),
+      ),
+    );
+
+  const messages = await db
+    .select()
+    .from(bookingMessagesTable)
+    .where(eq(bookingMessagesTable.bookingId, bookingId))
+    .orderBy(asc(bookingMessagesTable.createdAt));
+
+  res.json(messages);
+});
+
+// ─── POST /api/bookings/:id/messages ─────────────────────────────────────────
+router.post("/:id/messages", requireAuth, async (req: AuthRequest, res) => {
+  const bookingId = parseInt(req.params.id);
+  if (isNaN(bookingId)) {
+    res.status(400).json({ error: "bad_request", message: "Неверный ID" });
+    return;
+  }
+
+  const [booking] = await db.select().from(bookingsTable).where(eq(bookingsTable.id, bookingId)).limit(1);
+  if (!booking || (booking.ownerId !== req.userId && booking.renterId !== req.userId)) {
+    res.status(403).json({ error: "forbidden", message: "Нет доступа" });
+    return;
+  }
+
+  const content = (req.body.content ?? "").trim();
+  if (!content) {
+    res.status(400).json({ error: "bad_request", message: "Сообщение не может быть пустым" });
+    return;
+  }
+  if (content.length > 2000) {
+    res.status(400).json({ error: "bad_request", message: "Сообщение слишком длинное (макс. 2000 символов)" });
+    return;
+  }
+
+  const [message] = await db
+    .insert(bookingMessagesTable)
+    .values({ bookingId, senderId: req.userId!, content })
+    .returning();
+
+  res.status(201).json(message);
+});
+
+export default router;

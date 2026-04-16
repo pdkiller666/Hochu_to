@@ -1,0 +1,27 @@
+packages:
+  "framer-motion": "For page transitions and smooth micro-interactions"
+  "date-fns": "For formatting dates in the booking calendar"
+  "react-day-picker": "For the booking calendar component"
+  "clsx": "Utility for constructing className strings conditionally"
+  "tailwind-merge": "Utility to merge tailwind classes without style conflicts"
+  "react-hook-form": "For robust form handling and validation"
+  "@hookform/resolvers": "For integrating Zod with react-hook-form"
+
+images:
+  - path: "artifacts/hochu-to/public/images/hero-bg.png"
+    description: "A warm, inviting lifestyle photography style image of diverse people happily sharing items outdoors, like a bicycle, a drill, and camping gear. Sunlit, golden hour, warm terracotta and teal tones, friendly and modern marketplace vibe. High quality, soft focus background."
+    aspect_ratio: "16:9"
+  - path: "artifacts/hochu-to/public/images/guarantee.png"
+    description: "A modern 3D illustration of a glowing shield protecting a cardboard box, warm cream and terracotta color palette, representing security and mutual trust in a rental marketplace. Soft lighting, friendly shapes."
+    aspect_ratio: "1:1"
+  - path: "artifacts/hochu-to/public/images/joint-purchase.png"
+    description: "A vibrant illustration of multiple hands holding puzzle pieces that come together to form a shiny new gadget, symbolizing collective buying and sharing. Teal and terracotta colors, modern corporate illustration style."
+    aspect_ratio: "16:9"
+  - path: "artifacts/hochu-to/public/images/about-team.png"
+    description: "A candid, warm lifestyle photo of a small passionate team working around a wooden table in a sunlit cozy office, natural smiles, modern startup vibe, terracotta accents in the room."
+    aspect_ratio: "16:9"
+
+notes:
+  - Using generated hooks from @workspace/api-client-react
+  - Auth token is stored in localStorage and passed via request options to specific hooks requiring auth
+  - The UI uses Framer Motion for premium feel animations
