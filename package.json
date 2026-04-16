@@ -4,9 +4,6 @@
   "private": true,
   "scripts": {
     "build": "npx pnpm --filter @workspace/api-server build",
-    "start": "npx pnpm --filter @workspace/api-server start"
-  },
-  "dependencies": {
-    "pnpm": "9.15.9"
+    "start": "node artifacts/api-server/dist/main.js"
   }
 }
