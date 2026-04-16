@@ -89,14 +89,14 @@ export default function Catalog() {
   // Приоритет: регион из профиля пользователя
   useEffect(() => {
     if (regionInitialized.current) return;
-    if (!regions?.length) return;
+    if (!regions?.results?.length) return;
     if (!currentUser) return;
     if (currentUser.regionId) {
-      const userRegion = regions.find(r => r.id === currentUser.regionId);
+      const userRegion = regions.results.find(r => r.id === currentUser.regionId);
       if (userRegion) { setRegion(userRegion.slug); regionInitialized.current = true; return; }
     }
     setGeoDetecting(true);
-    detectRegionByGeo(regions).then((slug) => {
+    detectRegionByGeo(regions.results).then((slug) => {
       if (slug) setRegion(slug);
       regionInitialized.current = true;
       setGeoDetecting(false);
@@ -106,10 +106,10 @@ export default function Catalog() {
   // Гость без кеша
   useEffect(() => {
     if (regionInitialized.current) return;
-    if (!regions?.length) return;
+    if (!regions?.results?.length) return;
     if (token) return;
     setGeoDetecting(true);
-    detectRegionByGeo(regions).then((slug) => {
+    detectRegionByGeo(regions.results).then((slug) => {
       if (slug) setRegion(slug);
       regionInitialized.current = true;
       setGeoDetecting(false);
@@ -126,7 +126,7 @@ export default function Catalog() {
   });
 
   const userDefaultRegion = currentUser?.regionId
-    ? regions?.find(r => r.id === currentUser.regionId)?.slug ?? ""
+    ? regions?.results?.find(r => r.id === currentUser.regionId)?.slug ?? ""
     : "";
 
   const resetFilters = () => {
@@ -138,7 +138,7 @@ export default function Catalog() {
   };
 
   const hasActiveFilters = !!(category || search || minPrice || maxPrice);
-  const selectedRegionName = regions?.find(r => r.slug === region)?.name ?? "";
+  const selectedRegionName = regions?.results?.find(r => r.slug === region)?.name ?? "";
 
   return (
     <Layout>
@@ -168,7 +168,7 @@ export default function Catalog() {
             >
               Все категории
             </button>
-            {categories?.map(c => (
+            {categories?.results && categories.results.map(c => (
               <button
                 key={c.id}
                 onClick={() => setCategory(category === c.slug ? "" : c.slug)}
@@ -211,7 +211,7 @@ export default function Catalog() {
               className="bg-transparent border-none outline-none text-sm font-medium cursor-pointer appearance-none w-full"
             >
               <option value="">Все регионы</option>
-              {regions?.map(r => (
+              {regions?.results?.map(r => (
                 <option key={r.id} value={r.slug}>{r.name}</option>
               ))}
             </select>
@@ -280,7 +280,7 @@ export default function Catalog() {
             <p className="font-bold text-lg mb-2">Упс! Произошла ошибка</p>
             <p>Не удалось загрузить каталог. Попробуйте обновить страницу.</p>
           </div>
-        ) : data?.listings.length === 0 ? (
+        ) : !data?.results?.length ? (
           <div className="bg-white border border-border p-12 rounded-2xl text-center flex flex-col items-center justify-center">
             <Search className="w-16 h-16 text-muted-foreground mb-4 opacity-50" />
             <h3 className="text-xl font-bold mb-2">Ничего не найдено</h3>
@@ -294,7 +294,7 @@ export default function Catalog() {
         ) : (
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {data?.listings.map(listing => (
+              {data?.results && data.results.map(listing => (
                 <ListingCard key={listing.id} listing={listing} />
               ))}
             </div>

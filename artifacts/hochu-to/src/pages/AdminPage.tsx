@@ -441,11 +441,11 @@ function UserDetailPanel({ userId, onClose, onChanged }: {
           )}
 
           {/* Listings */}
-          {data.listings?.length > 0 && (
+          {data?.listings?.length > 0 && (
             <div>
               <h4 className="font-semibold text-stone-700 mb-2 flex items-center gap-2 text-sm"><Package className="w-4 h-4" /> Объявления ({data.listings.length})</h4>
               <div className="space-y-2">
-                {data.listings.slice(0, 5).map((l: any) => (
+                {data?.listings?.slice(0, 5).map((l: any) => (
                   <a key={l.id} href={`/listings/${l.id}`} target="_blank" rel="noreferrer"
                     className="flex items-center justify-between p-3 bg-stone-50 rounded-xl hover:bg-stone-100 transition">
                     <div className="text-sm font-medium text-stone-700 truncate flex-1">{l.title}</div>
@@ -460,11 +460,11 @@ function UserDetailPanel({ userId, onClose, onChanged }: {
           )}
 
           {/* Recent bookings */}
-          {data.bookings?.length > 0 && (
+          {data?.bookings?.length > 0 && (
             <div>
               <h4 className="font-semibold text-stone-700 mb-2 flex items-center gap-2 text-sm"><CalendarDays className="w-4 h-4" /> Бронирования ({data.bookings.length})</h4>
               <div className="space-y-2">
-                {data.bookings.slice(0, 5).map((b: any) => (
+                {data?.bookings?.slice(0, 5).map((b: any) => (
                   <div key={b.id} className="flex items-center justify-between p-3 bg-stone-50 rounded-xl">
                     <div className="text-xs font-mono text-stone-400">{b.booking_number}</div>
                     <div className="text-sm text-stone-700 truncate flex-1 mx-3">{b.listing_title}</div>
@@ -632,11 +632,11 @@ function ListingDetailPanel({ listingId, onClose, onChanged }: {
           )}
 
           {/* Booking history */}
-          {data.bookings?.length > 0 && (
+          {data?.bookings?.length > 0 && (
             <div>
               <h4 className="font-semibold text-stone-700 mb-2 text-sm flex items-center gap-2"><CalendarDays className="w-4 h-4" /> История бронирований ({data.bookings.length})</h4>
               <div className="space-y-2">
-                {data.bookings.map((b: any) => (
+                {data?.bookings?.map((b: any) => (
                   <div key={b.id} className="flex items-center gap-3 p-3 bg-stone-50 rounded-xl text-sm">
                     <div className="font-mono text-xs text-stone-400 flex-shrink-0">{b.booking_number}</div>
                     <div className="flex-1 min-w-0 truncate text-stone-600">{b.renter_name}</div>
@@ -772,7 +772,7 @@ function OverviewTab({ onBroadcast }: { onBroadcast: () => void }) {
           <div className="bg-white rounded-xl border border-stone-200 p-5">
             <h4 className="text-sm font-semibold text-stone-700 mb-4 flex items-center gap-2"><BarChart2 className="w-4 h-4 text-stone-400" /> Бронирования за 30 дней</h4>
             <ResponsiveContainer width="100%" height={180}>
-              <BarChart data={analytics.bookingsByDay.map((d: any) => ({ day: d.day?.slice(5), count: Number(d.count) }))}>
+              <BarChart data={analytics?.bookingsByDay?.map((d: any) => ({ day: d.day?.slice(5), count: Number(d.count) }))}>
                 <XAxis dataKey="day" tick={{ fontSize: 10 }} />
                 <YAxis tick={{ fontSize: 10 }} />
                 <Tooltip />
@@ -785,7 +785,7 @@ function OverviewTab({ onBroadcast }: { onBroadcast: () => void }) {
           <div className="bg-white rounded-xl border border-stone-200 p-5">
             <h4 className="text-sm font-semibold text-stone-700 mb-4 flex items-center gap-2"><Users className="w-4 h-4 text-stone-400" /> Регистрации за 30 дней</h4>
             <ResponsiveContainer width="100%" height={180}>
-              <LineChart data={analytics.usersByDay.map((d: any) => ({ day: d.day?.slice(5), count: Number(d.count) }))}>
+              <LineChart data={analytics?.usersByDay?.map((d: any) => ({ day: d.day?.slice(5), count: Number(d.count) }))}>
                 <XAxis dataKey="day" tick={{ fontSize: 10 }} />
                 <YAxis tick={{ fontSize: 10 }} />
                 <Tooltip />
@@ -811,7 +811,7 @@ function OverviewTab({ onBroadcast }: { onBroadcast: () => void }) {
           <div className="bg-white rounded-xl border border-stone-200 p-5">
             <h4 className="text-sm font-semibold text-stone-700 mb-3 flex items-center gap-2"><Package className="w-4 h-4 text-stone-400" /> Топ объявлений</h4>
             <div className="space-y-2">
-              {analytics.topListings.slice(0, 5).map((l: any, i: number) => (
+              {analytics?.topListings?.slice(0, 5).map((l: any, i: number) => (
                 <div key={l.id} className="flex items-center gap-3 text-sm">
                   <span className="w-5 text-stone-400 text-xs font-bold">{i + 1}</span>
                   <a href={`/listings/${l.id}`} target="_blank" rel="noreferrer"
@@ -837,7 +837,7 @@ function UsersTab() {
   useEffect(() => { const t = setTimeout(() => { setDq(q); setPage(1); }, 400); return () => clearTimeout(t); }, [q]);
 
   const url = `${API}/api/admin/users?page=${page}&limit=20${dq ? `&q=${encodeURIComponent(dq)}` : ""}${roleFilter ? `&role=${roleFilter}` : ""}${bannedFilter ? `&banned=${bannedFilter}` : ""}`;
-  const { data, loading } = useFetch<{ users: AdminUser[]; pagination: any }>(url, [rev, roleFilter, bannedFilter]);
+  const { data, loading } = useFetch<{ results: AdminUser[]; pagination: any }>(url, [rev, roleFilter, bannedFilter]);
 
   return (
     <div className="space-y-4">
@@ -877,7 +877,7 @@ function UsersTab() {
               </tr>
             </thead>
             <tbody className="divide-y divide-stone-100">
-              {data?.users.map(u => (
+              {data?.results?.map(u => (
                 <tr key={u.id} className={`${u.isBanned ? "bg-red-50" : "hover:bg-stone-50"} cursor-pointer`} onClick={() => setSelectedId(u.id)}>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
@@ -933,7 +933,7 @@ function ListingsTab() {
   useEffect(() => { const t = setTimeout(() => { setDq(q); setPage(1); }, 400); return () => clearTimeout(t); }, [q]);
 
   const url = `${API}/api/admin/listings?page=${page}&limit=20${dq ? `&q=${encodeURIComponent(dq)}` : ""}${availableFilter ? `&available=${availableFilter}` : ""}`;
-  const { data, loading } = useFetch<{ listings: AdminListing[]; pagination: any }>(url, [rev, availableFilter]);
+  const { data, loading } = useFetch<{ results: AdminListing[]; pagination: any }>(url, [rev, availableFilter]);
 
   return (
     <div className="space-y-4">
@@ -965,7 +965,7 @@ function ListingsTab() {
               </tr>
             </thead>
             <tbody className="divide-y divide-stone-100">
-              {data?.listings.map(l => (
+              {data?.results?.map(l => (
                 <tr key={l.id} className={`${!l.isActive ? "opacity-60" : "hover:bg-stone-50"} cursor-pointer`} onClick={() => setSelectedId(l.id)}>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
@@ -1022,7 +1022,7 @@ function BookingsTab() {
   useEffect(() => { const t = setTimeout(() => { setDq(q); setPage(1); }, 400); return () => clearTimeout(t); }, [q]);
 
   const url = `${API}/api/admin/bookings?page=${page}&limit=20${dq ? `&q=${encodeURIComponent(dq)}` : ""}${statusFilter ? `&status=${statusFilter}` : ""}`;
-  const { data, loading } = useFetch<{ bookings: AdminBooking[]; pagination: any }>(url, [rev, statusFilter]);
+  const { data, loading } = useFetch<{ results: AdminBooking[]; pagination: any }>(url, [rev, statusFilter]);
 
   return (
     <div className="space-y-4">
@@ -1056,7 +1056,7 @@ function BookingsTab() {
               </tr>
             </thead>
             <tbody className="divide-y divide-stone-100">
-              {data?.bookings.map(b => (
+              {data?.results?.map(b => (
                 <tr key={b.id} className="hover:bg-stone-50">
                   <td className="px-4 py-3 font-mono text-xs text-stone-500">{b.bookingNumber}</td>
                   <td className="px-4 py-3">
@@ -1107,7 +1107,7 @@ function SupportTab() {
   useEffect(() => { const t = setTimeout(() => { setDq(q); setPage(1); }, 400); return () => clearTimeout(t); }, [q]);
 
   const listUrl = `${API}/api/admin/tickets?page=${page}&limit=20${dq ? `&q=${encodeURIComponent(dq)}` : ""}${statusFilter ? `&status=${statusFilter}` : ""}${priorityFilter ? `&priority=${priorityFilter}` : ""}`;
-  const { data, loading } = useFetch<{ tickets: any[]; pagination: any }>(listUrl, [rev, statusFilter, priorityFilter]);
+  const { data, loading } = useFetch<{ results: any[]; pagination: any }>(listUrl, [rev, statusFilter, priorityFilter]);
 
   const { data: detail, loading: detailLoading, refresh: refreshDetail } = useFetch<any>(selected ? `${API}/api/admin/tickets/${selected.id}` : null, [selected?.id, rev]);
 
@@ -1172,7 +1172,7 @@ function SupportTab() {
               </div>
             </div>
             <div className="space-y-3">
-              {detail.messages.map((m: any) => (
+              {detail?.messages?.map((m: any) => (
                 <div key={m.id} className={`flex gap-3 ${m.isAdmin ? "flex-row-reverse" : ""}`}>
                   <div className={`w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center text-xs font-bold ${m.isAdmin ? "bg-[#C65D3B] text-white" : "bg-stone-200 text-stone-600"}`}>
                     {m.isAdmin ? "A" : m.authorName?.[0]?.toUpperCase() ?? "U"}
@@ -1246,7 +1246,7 @@ function SupportTab() {
               </tr>
             </thead>
             <tbody className="divide-y divide-stone-100">
-              {data?.tickets.map((t: any) => (
+              {data?.results?.map((t: any) => (
                 <tr key={t.id} className="hover:bg-stone-50 cursor-pointer" onClick={() => setSelected(t)}>
                   <td className="px-4 py-3">
                     <div className="font-medium text-stone-800 line-clamp-1">{t.subject}</div>
@@ -1265,7 +1265,7 @@ function SupportTab() {
                   <td className="px-4 py-3"><Badge cls={STATUS_COLORS[t.status] ?? ""} label={STATUS_LABEL[t.status] ?? t.status} /></td>
                 </tr>
               ))}
-              {data?.tickets.length === 0 && <tr><td colSpan={7} className="px-4 py-8 text-center text-stone-400">Тикетов нет</td></tr>}
+              {!data?.results?.length && <tr><td colSpan={7} className="px-4 py-8 text-center text-stone-400">Тикетов нет</td></tr>}
             </tbody>
           </table>
         </div>
@@ -1284,7 +1284,7 @@ function ReportsTab() {
   const [resolvedNote, setResolvedNote] = useState("");
 
   const url = `${API}/api/admin/reports?status=${statusFilter}&page=${page}&limit=20`;
-  const { data, loading } = useFetch<{ reports: any[]; pagination: any }>(url, [rev, statusFilter]);
+  const { data, loading } = useFetch<{ results: any[]; pagination: any }>(url, [rev, statusFilter]);
 
   async function handleResolve() {
     if (!resolveModal) return;
@@ -1311,8 +1311,8 @@ function ReportsTab() {
 
       {loading ? <div className="text-center py-8 text-stone-400">Загрузка…</div> : (
         <div className="space-y-3">
-          {data?.reports.length === 0 && <div className="text-center py-12 text-stone-400"><Flag className="w-10 h-10 mx-auto mb-2 opacity-30" />Жалоб нет</div>}
-          {data?.reports.map((r: any) => (
+          {!data?.results?.length && <div className="text-center py-12 text-stone-400"><Flag className="w-10 h-10 mx-auto mb-2 opacity-30" />Жалоб нет</div>}
+          {data?.results?.map((r: any) => (
             <div key={r.id} className="bg-white rounded-xl border border-stone-200 p-4">
               <div className="flex items-start justify-between gap-4 flex-wrap">
                 <div className="flex-1">
@@ -1396,7 +1396,7 @@ function ReportsTab() {
 function AuditLogTab() {
   const [page, setPage] = useState(1);
   const url = `${API}/api/admin/audit-log?page=${page}&limit=30`;
-  const { data, loading } = useFetch<{ entries: any[]; pagination: any }>(url, [page]);
+  const { data, loading } = useFetch<{ results: any[]; pagination: any }>(url, [page]);
 
   const ACTION_LABELS: Record<string, { label: string; color: string }> = {
     ban_user: { label: "Блокировка", color: "bg-red-100 text-red-700" },
@@ -1420,7 +1420,7 @@ function AuditLogTab() {
       <p className="text-sm text-stone-500">Все действия администраторов на платформе</p>
       {loading ? <div className="text-center py-8 text-stone-400">Загрузка…</div> : (
         <div className="space-y-2">
-          {data?.entries.map((e: any) => {
+          {data?.results?.map((e: any) => {
             const meta = ACTION_LABELS[e.action] ?? { label: e.action, color: "bg-stone-100 text-stone-600" };
             return (
               <div key={e.id} className="bg-white rounded-xl border border-stone-200 px-4 py-3 flex items-start gap-3">
@@ -1439,7 +1439,7 @@ function AuditLogTab() {
               </div>
             );
           })}
-          {data?.entries.length === 0 && <div className="text-center py-12 text-stone-400"><ScrollText className="w-10 h-10 mx-auto mb-2 opacity-30" />Действий пока нет</div>}
+          {!data?.results?.length && <div className="text-center py-12 text-stone-400"><ScrollText className="w-10 h-10 mx-auto mb-2 opacity-30" />Действий пока нет</div>}
         </div>
       )}
       <Pagination page={page} pages={data?.pagination.pages ?? 1} onChange={setPage} />

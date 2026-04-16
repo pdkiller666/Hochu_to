@@ -43,7 +43,10 @@ export default function Favorites() {
       const res = await fetch(`${API_BASE}/api/favorites`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (res.ok) setListings(await res.json());
+      if (res.ok) {
+        const data = await res.json();
+        setListings(data.results || []);
+      }
     } catch {}
     setLoading(false);
   }, []);

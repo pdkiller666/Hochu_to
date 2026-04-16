@@ -30,7 +30,7 @@ function useListings(sort: string, limit: number, region: string) {
     fetch(`${API_BASE}/api/listings?${params}`)
       .then((r) => r.json())
       .then((data) => {
-        setListings(data.listings ?? []);
+        setListings(data.results ?? []);
         setLoading(false);
       })
       .catch(() => setLoading(false));

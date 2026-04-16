@@ -55,7 +55,10 @@ export default function ListingDetail() {
   const fetchReviews = useCallback(async () => {
     try {
       const res = await fetch(`${API_BASE}/api/listings/${id}/reviews`);
-      if (res.ok) setReviews(await res.json());
+      if (res.ok) {
+        const data = await res.json();
+        setReviews(data.results || []);
+      }
     } catch {}
   }, [id]);
 
@@ -65,7 +68,8 @@ export default function ListingDetail() {
     try {
       const res = await fetch(`${API_BASE}/api/bookings`, { headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) return;
-      const bookings: any[] = await res.json();
+      const data = await res.json();
+      const bookings: any[] = data.results || [];
       const completed = bookings.find(b => b.listingId === id && b.status === "completed");
       if (!completed) return;
       const cr = await fetch(`${API_BASE}/api/reviews/can-review/${completed.id}`, { headers: { Authorization: `Bearer ${token}` } });

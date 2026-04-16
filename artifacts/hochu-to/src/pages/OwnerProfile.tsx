@@ -32,7 +32,7 @@ export default function OwnerProfile() {
   const id = Number(params?.id);
 
   const { data: user, isLoading: userLoading, error: userError } = useGetUserById(id);
-  const { data: listings, isLoading: listingsLoading } = useGetUserListings(id);
+  const { data: listingsData, isLoading: listingsLoading } = useGetUserListings(id);
 
   const [userReviews, setUserReviews] = useState<(ReviewData & { listingTitle?: string })[]>([]);
   const [reviewsLoading, setReviewsLoading] = useState(true);
@@ -41,8 +41,8 @@ export default function OwnerProfile() {
     if (!id) return;
     setReviewsLoading(true);
     fetch(`${API_BASE}/api/reviews/user/${id}`)
-      .then(r => r.ok ? r.json() : [])
-      .then(setUserReviews)
+      .then(r => r.ok ? r.json() : { results: [] })
+      .then(data => setUserReviews(data.results || []))
       .catch(() => setUserReviews([]))
       .finally(() => setReviewsLoading(false));
   }, [id]);
@@ -71,8 +71,8 @@ export default function OwnerProfile() {
   }
 
   const avatarSrc = getAvatarSrc(user.avatar);
-  const activeListings = listings?.filter((l) => l.isAvailable) ?? [];
-  const allListings = listings ?? [];
+  const allListings = listingsData?.results ?? [];
+  const activeListings = allListings.filter((l) => l.isAvailable);
 
   const memberSince = (() => {
     try {
