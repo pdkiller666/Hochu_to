@@ -1,12 +1,14 @@
 meta:
-  environment: nodejs
+  environment: node
   toolchain:
-    name: npm
-    version: "20"
+    name: pnpm
+    version: 9.15.9
+
 build:
-  # Мы явно ставим pnpm версии 9
-  additionalCommands: "npm install -g pnpm@9 && pnpm install --no-frozen-lockfile && pnpm run build"
-  artifacts:
-    "dist": "dist"
+  command: pnpm install && pnpm build
+
 run:
-  command: "npx serve -s dist"
+  command: pnpm --filter api-server start
+  persistence:
+    - mountPath: /data
+      name: data
