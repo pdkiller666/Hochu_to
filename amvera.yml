@@ -2,9 +2,10 @@ meta:
   environment: nodejs
   toolchain:
     name: npm
-    version: 20
+    version: "20"
 build:
-  command: npm install -g pnpm && pnpm install && pnpm run build
-  output: dist
+  additionalCommands: "npm install -g pnpm && pnpm install && pnpm run build"
+  artifacts:
+    "*": "dist"
 run:
-  command: npx serve -s dist
+  command: "npx serve -s dist"
