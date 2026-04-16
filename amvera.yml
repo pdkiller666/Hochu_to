@@ -5,13 +5,12 @@ meta:
     version: 20
 
 build:
-  # Мы сами ставим pnpm, чтобы не зависеть от настроек Amvera
-  # И добавляем PORT=3000, чтобы Vite в соседних папках не паниковал
-  command: npm install -g pnpm@9.15.9 && export PORT=3000 && pnpm install && pnpm --filter @workspace/api-server build
+  # Устанавливаем pnpm локально и собираем ТОЛЬКО api-server
+  # Переменная PORT нужна, чтобы Vite не ругался при сканировании воркспейса
+  command: npm install pnpm && export PORT=3000 && npx pnpm install && npx pnpm --filter @workspace/api-server build
 
 run:
-  # Запускаем только api-server
-  command: npm install -g pnpm@9.15.9 && pnpm --filter @workspace/api-server start
+  command: npx pnpm --filter @workspace/api-server start
   persistence:
     - mountPath: /data
       name: data
