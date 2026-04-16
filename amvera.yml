@@ -4,10 +4,9 @@ meta:
     name: npm
     version: "20"
 build:
-  # Ставим pnpm глобально и запускаем сборку всех пакетов
-  additionalCommands: "npm install -g pnpm && pnpm install --no-frozen-lockfile && pnpm run build"
+  # Мы явно ставим pnpm версии 9
+  additionalCommands: "npm install -g pnpm@9 && pnpm install --no-frozen-lockfile && pnpm run build"
   artifacts:
     "dist": "dist"
 run:
-  # Пробуем запустить из корня, если билд создаст там папку dist
   command: "npx serve -s dist"
