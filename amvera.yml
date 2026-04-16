@@ -4,10 +4,13 @@ meta:
     name: npm
     version: "20"
 build:
+  # 1. Ставим pnpm
+  # 2. Ставим зависимости (ограничиваем воркеры)
+  # 3. Собираем api-server
   additionalCommands: "npm install -g pnpm@9 && pnpm install --no-frozen-lockfile --child-concurrency=1 && npx pnpm --filter @workspace/api-server build"
-  # Сохраняем всё дерево проекта, чтобы pnpm мог работать
   artifacts:
-    ".": "."
+    # Берем содержимое собранной папки сервера и кладем в корень контейнера
+    "artifacts/api-server/dist": "."
 run:
-  # Запускаем через pnpm напрямую из нужного фильтра
-  command: "npx pnpm --filter @workspace/api-server start"
+  # Запускаем именно тот файл, который мы видим на скриншоте
+  command: "node --enable-source-maps index.mjs"
