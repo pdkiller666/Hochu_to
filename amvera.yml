@@ -8,7 +8,7 @@ build:
   command: pnpm install && pnpm build
 
 run:
-  command: pnpm --filter api-server start
+  command: pnpm --filter @workspace/api-server start
   persistence:
     - mountPath: /data
       name: data
