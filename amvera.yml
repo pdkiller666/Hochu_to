@@ -1,12 +1,6 @@
-meta:
-  environment: node
-  toolchain:
-    name: pnpm
-    version: 9.15.9
-
 build:
-  # Собираем только api-server и его зависимости, игнорируя sandbox
-  command: pnpm install && pnpm --filter @workspace/api-server build
+  # Мы добавили PORT=3000 перед установкой, чтобы Vite не падал
+  command: export PORT=3000 && pnpm install && pnpm --filter @workspace/api-server build
 
 run:
   command: pnpm --filter @workspace/api-server start
