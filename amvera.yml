@@ -5,12 +5,12 @@ meta:
     version: 20
 
 build:
-  # Устанавливаем pnpm локально и собираем ТОЛЬКО api-server
-  # Переменная PORT нужна, чтобы Vite не ругался при сканировании воркспейса
-  command: npm install pnpm && export PORT=3000 && npx pnpm install && npx pnpm --filter @workspace/api-server build
+  # Удаляем поле 'command', чтобы не было ошибки "unknown fields"
+  # Amvera автоматически выполнит 'npm run build' из корневого package.json
 
 run:
-  command: npx pnpm --filter @workspace/api-server start
+  # Если 'command' тут тоже вызовет ошибку, Amvera будет искать 'npm start'
+  scriptName: start 
   persistence:
     - mountPath: /data
       name: data
