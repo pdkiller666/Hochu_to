@@ -1,12 +1,13 @@
 meta:
-  environment: nodejs
+  environment: node
   toolchain:
     name: npm
     version: "20"
 build:
-  # Мы явно ставим pnpm версии 9
-  additionalCommands: "npm install -g pnpm@9 && pnpm install --no-frozen-lockfile && pnpm run build"
+  # Мы добавляем --child-concurrency=1, чтобы избежать ошибки Worker exited with code 1
+  additionalCommands: "export PORT=3000 && npm install -g pnpm@9 && pnpm install --no-frozen-lockfile --child-concurrency=1 && npm run build"
   artifacts:
-    "dist": "dist"
+    "artifacts/api-server/dist": "dist"
 run:
-  command: "npx serve -s dist"
+  # Указываем scriptName, чтобы Amvera дернула "start" из package.json
+  scriptName: start
