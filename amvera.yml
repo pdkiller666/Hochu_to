@@ -1,15 +1,12 @@
 meta:
-  environment: node
+  environment: nodejs
   toolchain:
     name: npm
-    version: 20
-
+    version: "20"
 build:
-  # Оставляем пустым. Amvera по умолчанию выполнит npm install и npm run build
-
+  # Мы явно ставим pnpm версии 9
+  additionalCommands: "npm install -g pnpm@9 && pnpm install --no-frozen-lockfile && pnpm run build"
+  artifacts:
+    "dist": "dist"
 run:
-  # scriptName — это стандартное поле, оно должно пройти
-  scriptName: start
-  persistence:
-    - mountPath: /data
-      name: data
+  command: "npx serve -s dist"
