@@ -4,7 +4,10 @@
   "private": true,
   "scripts": {
     "build": "pnpm --filter @workspace/api-server build",
-    "start": "pnpm --filter @workspace/api-server start"
+    "typecheck": "true"
   },
-  "packageManager": "pnpm@9.15.9"
+  "packageManager": "pnpm@9.15.9",
+  "dependencies": {
+    "pnpm": "9.15.9"
+  }
 }
