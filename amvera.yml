@@ -4,10 +4,10 @@ meta:
     name: npm
     version: "20"
 build:
-  # Мы добавляем лимиты для pnpm, чтобы он не ел всю память
-  additionalCommands: "export PORT=3000 && npm install -g pnpm@9 && pnpm install --no-frozen-lockfile --child-concurrency=1 && npm run build"
+  additionalCommands: "npm install -g pnpm@9 && pnpm install --no-frozen-lockfile --child-concurrency=1 && npx pnpm --filter @workspace/api-server build"
+  # Сохраняем всё дерево проекта, чтобы pnpm мог работать
   artifacts:
-    "artifacts/api-server/dist": "dist"
+    ".": "."
 run:
-  # Используем команду напрямую, чтобы точно знать, что запускается
-  command: "node dist/main.js"
+  # Запускаем через pnpm напрямую из нужного фильтра
+  command: "npx pnpm --filter @workspace/api-server start"
