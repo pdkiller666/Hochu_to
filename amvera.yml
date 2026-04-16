@@ -4,8 +4,9 @@ meta:
     name: npm
     version: "20"
 build:
-  additionalCommands: "npm install -g pnpm && pnpm install && pnpm run build"
+  # Мы принудительно ставим pnpm и используем только его
+  additionalCommands: "npm install -g pnpm && pnpm install --frozen-lockfile && pnpm run build"
   artifacts:
-    "*": "dist"
+    "dist": "dist"
 run:
   command: "npx serve -s dist"
