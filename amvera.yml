@@ -5,12 +5,10 @@ meta:
     version: 20
 
 build:
-  # Используем стандартное поле, которое Amvera ждет
-  # Она сама выполнит npm install && npm run build
-  args: []
+  # Оставляем пустым. Amvera по умолчанию выполнит npm install и npm run build
 
 run:
-  # Указываем имя скрипта из package.json
+  # scriptName — это стандартное поле, оно должно пройти
   scriptName: start
   persistence:
     - mountPath: /data
