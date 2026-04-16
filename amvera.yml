@@ -1,0 +1,9 @@
+meta:
+  environment: nodejs
+  tool: npm
+  nodeVersion: "20"
+build:
+  command: npm install && npm run build
+  output: dist
+run:
+  command: npm run dev # или укажи команду для запуска сервера
