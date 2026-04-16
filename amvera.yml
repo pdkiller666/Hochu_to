@@ -1,6 +1,8 @@
 meta:
   environment: nodejs
-  nodeVersion: "20"
+  toolchain:
+    name: npm
+    version: 20
 build:
   command: npm install -g pnpm && pnpm install && pnpm run build
   output: dist
