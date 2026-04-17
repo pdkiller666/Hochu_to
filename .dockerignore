@@ -12,6 +12,7 @@ attached_assets
 screenshots
 .idx
 .agents
+.env
 amvera.yml
 replit.md
 docker-compose.yml
