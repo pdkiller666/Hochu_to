@@ -17,24 +17,32 @@ import {
 } from "../lib/refresh-token";
 
 const router = Router();
+
+// В Amvera мы всегда работаем через HTTPS, поэтому принудительно ставим true для безопасности
 const isProduction = process.env.NODE_ENV === "production";
 
+/**
+ * ИСПРАВЛЕННЫЕ НАСТРОЙКИ КУК ДЛЯ ОБЛАКА
+ * 1. path: "/" — кука доступна для всего сайта
+ * 2. sameSite: "none" — позволяет передавать куку между прокси-серверами
+ * 3. secure: true — обязателен для HTTPS в Amvera
+ */
 function setRefreshCookie(res: Response, token: string) {
   res.cookie(REFRESH_TOKEN_COOKIE, token, {
     httpOnly: true,
-    secure: isProduction,
-    sameSite: "lax",
-    path: "/api/auth",
-    maxAge: 30 * 24 * 60 * 60 * 1000,
+    secure: true, 
+    sameSite: "none", 
+    path: "/", 
+    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 дней
   });
 }
 
 function clearRefreshCookie(res: Response) {
   res.clearCookie(REFRESH_TOKEN_COOKIE, {
     httpOnly: true,
-    secure: isProduction,
-    sameSite: "lax",
-    path: "/api/auth",
+    secure: true,
+    sameSite: "none",
+    path: "/",
   });
 }
 
@@ -52,6 +60,7 @@ function formatUser(user: typeof usersTable.$inferSelect, regionName?: string) {
   };
 }
 
+// Роут регистрации
 router.post("/register", async (req, res) => {
   const parsed = RegisterUserBody.safeParse(req.body);
   if (!parsed.success) {
@@ -85,15 +94,18 @@ router.post("/register", async (req, res) => {
 
   const token = issueAccessToken(newUser.id);
   const refreshToken = generateRefreshToken();
+  
   await db.insert(authSessionsTable).values({
     userId: newUser.id,
     tokenHash: hashRefreshToken(refreshToken),
     expiresAt: getRefreshExpiresAt(),
   });
+
   setRefreshCookie(res, refreshToken);
   res.status(201).json({ user: formatUser(newUser, regionName), token });
 });
 
+// Роут логина
 router.post("/login", async (req, res) => {
   const parsed = LoginUserBody.safeParse(req.body);
   if (!parsed.success) {
@@ -131,17 +143,21 @@ router.post("/login", async (req, res) => {
 
   const token = issueAccessToken(user.id);
   const refreshToken = generateRefreshToken();
+
   await db.insert(authSessionsTable).values({
     userId: user.id,
     tokenHash: hashRefreshToken(refreshToken),
     expiresAt: getRefreshExpiresAt(),
   });
+
   setRefreshCookie(res, refreshToken);
   res.json({ user: formatUser(user, regionName), token });
 });
 
+// Роут обновления токена (Refresh)
 router.post("/refresh", async (req, res) => {
   const refreshToken = req.cookies?.[REFRESH_TOKEN_COOKIE];
+  
   if (typeof refreshToken !== "string" || refreshToken.length === 0) {
     res.status(401).json({ error: "unauthorized", message: "Refresh token отсутствует" });
     return;
@@ -183,6 +199,7 @@ router.post("/refresh", async (req, res) => {
   res.json({ token: accessToken });
 });
 
+// Роут выхода
 router.post("/logout", async (req, res) => {
   const refreshToken = req.cookies?.[REFRESH_TOKEN_COOKIE];
   if (typeof refreshToken === "string" && refreshToken.length > 0) {
@@ -195,6 +212,7 @@ router.post("/logout", async (req, res) => {
   res.json({ success: true, message: "Вы вышли из системы" });
 });
 
+// Роут проверки текущего пользователя
 router.get("/me", async (req, res) => {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith("Bearer ")) {
@@ -214,14 +232,6 @@ router.get("/me", async (req, res) => {
 
     if (!user) {
       res.status(401).json({ error: "unauthorized", message: "Пользователь не найден" });
-      return;
-    }
-
-    if (user.isBanned) {
-      res.status(403).json({
-        error: "banned",
-        message: `Ваш аккаунт заблокирован${user.banReason ? `: ${user.banReason}` : ". Обратитесь в поддержку."}`,
-      });
       return;
     }
 
