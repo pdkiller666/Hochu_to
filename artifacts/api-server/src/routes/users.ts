@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db, usersTable, listingsTable, bookingsTable, categoriesTable, regionsTable, reviewsTable } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
 import { requireAuth, AuthRequest } from "../middleware/auth.js";
+import bcrypt from "bcryptjs";
 import multer from "multer";
 import path from "path";
 import { randomUUID } from "crypto";
@@ -177,6 +178,71 @@ router.post("/:id/avatar", requireAuth, uploadAvatar.single("avatar"), async (re
     regionName,
     createdAt: updated.createdAt.toISOString(),
   });
+});
+
+router.put("/:id/credentials", requireAuth, async (req: AuthRequest, res) => {
+  const id = parseInt(req.params.id);
+
+  if (id !== req.userId) {
+    res.status(403).json({ error: "forbidden", message: "Нет доступа" });
+    return;
+  }
+
+  const { currentPassword, newEmail, newPassword } = req.body as {
+    currentPassword?: string;
+    newEmail?: string;
+    newPassword?: string;
+  };
+
+  if (!currentPassword) {
+    res.status(400).json({ error: "validation_error", message: "Введите текущий пароль" });
+    return;
+  }
+
+  if (!newEmail && !newPassword) {
+    res.status(400).json({ error: "validation_error", message: "Укажите новый email или пароль" });
+    return;
+  }
+
+  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, id)).limit(1);
+  if (!user) {
+    res.status(404).json({ error: "not_found", message: "Пользователь не найден" });
+    return;
+  }
+
+  const valid = await bcrypt.compare(currentPassword, user.passwordHash);
+  if (!valid) {
+    res.status(401).json({ error: "wrong_password", message: "Неверный текущий пароль" });
+    return;
+  }
+
+  const updates: Record<string, unknown> = {};
+
+  if (newEmail && newEmail !== user.email) {
+    const existing = await db.select().from(usersTable).where(eq(usersTable.email, newEmail)).limit(1);
+    if (existing.length > 0) {
+      res.status(409).json({ error: "conflict", message: "Этот email уже используется" });
+      return;
+    }
+    updates.email = newEmail;
+  }
+
+  if (newPassword) {
+    if (newPassword.length < 6) {
+      res.status(400).json({ error: "validation_error", message: "Пароль должен быть не менее 6 символов" });
+      return;
+    }
+    updates.passwordHash = await bcrypt.hash(newPassword, 10);
+  }
+
+  if (Object.keys(updates).length === 0) {
+    res.json({ success: true, message: "Нет изменений" });
+    return;
+  }
+
+  await db.update(usersTable).set(updates).where(eq(usersTable.id, id));
+
+  res.json({ success: true, message: "Данные успешно обновлены" });
 });
 
 router.get("/:id/listings", async (req, res) => {

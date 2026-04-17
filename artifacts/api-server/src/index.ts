@@ -1,6 +1,9 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 import { startScheduler } from "./lib/scheduler";
+import { db, usersTable } from "@workspace/db";
+import { sql } from "drizzle-orm";
+import bcrypt from "bcryptjs";
 
 const rawPort = process.env["PORT"];
 
@@ -16,12 +19,31 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
-app.listen(port, (err) => {
+async function seedDefaultAdmin() {
+  const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(usersTable);
+  if (count > 0) return;
+
+  const defaultEmail = process.env["ADMIN_EMAIL"] ?? "admin@hochu.to";
+  const defaultPassword = process.env["ADMIN_PASSWORD"] ?? "Admin123!";
+  const passwordHash = await bcrypt.hash(defaultPassword, 10);
+
+  await db.insert(usersTable).values({
+    name: "Администратор",
+    email: defaultEmail,
+    passwordHash,
+    role: "admin",
+  });
+
+  logger.info({ email: defaultEmail }, "Default admin created. Change password after first login.");
+}
+
+app.listen(port, async (err) => {
   if (err) {
     logger.error({ err }, "Error listening on port");
     process.exit(1);
   }
 
   logger.info({ port }, "Server listening");
+  await seedDefaultAdmin();
   startScheduler();
 });

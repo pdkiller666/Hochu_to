@@ -222,6 +222,10 @@ export default function Dashboard() {
     bio: "", telegram: "", website: "",
   });
   const [profileSaved, setProfileSaved] = useState(false);
+  const [credForm, setCredForm] = useState({ newEmail: "", currentPassword: "", newPassword: "", confirmPassword: "" });
+  const [credSaved, setCredSaved] = useState(false);
+  const [credError, setCredError] = useState("");
+  const [credPending, setCredPending] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [updatingId, setUpdatingId] = useState<number | null>(null);
@@ -656,6 +660,39 @@ export default function Dashboard() {
     queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
     setProfileSaved(true);
     setTimeout(() => setProfileSaved(false), 3000);
+  }
+
+  async function handleCredentialsSave(e: React.FormEvent) {
+    e.preventDefault();
+    setCredError("");
+    const { newEmail, currentPassword, newPassword, confirmPassword } = credForm;
+    if (!currentPassword) { setCredError("Введите текущий пароль"); return; }
+    if (!newEmail && !newPassword) { setCredError("Укажите новый email или пароль"); return; }
+    if (newPassword && newPassword !== confirmPassword) { setCredError("Пароли не совпадают"); return; }
+    if (newPassword && newPassword.length < 6) { setCredError("Пароль должен быть не менее 6 символов"); return; }
+    setCredPending(true);
+    try {
+      const API_BASE = import.meta.env.VITE_API_URL ?? "";
+      const res = await fetch(`${API_BASE}/api/users/${user!.id}/credentials`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({
+          currentPassword,
+          ...(newEmail ? { newEmail } : {}),
+          ...(newPassword ? { newPassword } : {}),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setCredError(data.message ?? "Ошибка"); return; }
+      setCredForm({ newEmail: "", currentPassword: "", newPassword: "", confirmPassword: "" });
+      setCredSaved(true);
+      setTimeout(() => setCredSaved(false), 3000);
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
+    } catch {
+      setCredError("Ошибка соединения");
+    } finally {
+      setCredPending(false);
+    }
   }
 
   async function handleAvatarUpload(file: File) {
@@ -2122,7 +2159,7 @@ export default function Dashboard() {
                           <label className="block text-sm font-semibold mb-2">Email</label>
                           <input type="email" className="input-field w-full bg-muted text-muted-foreground cursor-not-allowed"
                             defaultValue={user.email} disabled />
-                          <p className="text-xs text-muted-foreground mt-1">Email нельзя изменить</p>
+                          <p className="text-xs text-muted-foreground mt-1">Чтобы сменить email или пароль — используйте раздел «Безопасность» ниже</p>
                         </div>
 
                         <div>
@@ -2181,6 +2218,81 @@ export default function Dashboard() {
                       className="btn-primary w-full flex items-center justify-center gap-2 py-3">
                       {updateProfile.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
                       {profileSaved ? "✓ Сохранено!" : "Сохранить изменения"}
+                    </button>
+                  </form>
+                </div>
+
+                {/* ── Security card: email + password ── */}
+                <div className="bg-white border border-border rounded-2xl p-6 shadow-sm mt-4">
+                  <h3 className="text-base font-bold flex items-center gap-2 mb-5">
+                    <span className="text-lg">🔒</span> Безопасность
+                  </h3>
+                  <form className="space-y-4" onSubmit={handleCredentialsSave}>
+                    <div>
+                      <label className="block text-xs font-bold mb-3 text-muted-foreground uppercase tracking-widest">Текущие данные</label>
+                      <div>
+                        <label className="block text-sm font-semibold mb-2">Текущий пароль <span className="text-red-500">*</span></label>
+                        <input
+                          type="password"
+                          className="input-field w-full"
+                          value={credForm.currentPassword}
+                          onChange={e => setCredForm(f => ({ ...f, currentPassword: e.target.value }))}
+                          placeholder="Введите текущий пароль"
+                          autoComplete="current-password"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="border-t border-border pt-4">
+                      <label className="block text-xs font-bold mb-3 text-muted-foreground uppercase tracking-widest">Что хотите изменить</label>
+                      <div className="space-y-4">
+                        <div>
+                          <label className="block text-sm font-semibold mb-2">Новый email</label>
+                          <input
+                            type="email"
+                            className="input-field w-full"
+                            value={credForm.newEmail}
+                            onChange={e => setCredForm(f => ({ ...f, newEmail: e.target.value }))}
+                            placeholder={user.email}
+                            autoComplete="email"
+                          />
+                          <p className="text-xs text-muted-foreground mt-1">Оставьте пустым, если не меняете</p>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-semibold mb-2">Новый пароль</label>
+                          <input
+                            type="password"
+                            className="input-field w-full"
+                            value={credForm.newPassword}
+                            onChange={e => setCredForm(f => ({ ...f, newPassword: e.target.value }))}
+                            placeholder="Минимум 6 символов"
+                            autoComplete="new-password"
+                          />
+                        </div>
+                        {credForm.newPassword && (
+                          <div>
+                            <label className="block text-sm font-semibold mb-2">Подтвердите новый пароль</label>
+                            <input
+                              type="password"
+                              className="input-field w-full"
+                              value={credForm.confirmPassword}
+                              onChange={e => setCredForm(f => ({ ...f, confirmPassword: e.target.value }))}
+                              placeholder="Повторите новый пароль"
+                              autoComplete="new-password"
+                            />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {credError && (
+                      <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{credError}</p>
+                    )}
+
+                    <button type="submit" disabled={credPending}
+                      className="btn-primary w-full flex items-center justify-center gap-2 py-3">
+                      {credPending && <Loader2 className="w-4 h-4 animate-spin" />}
+                      {credSaved ? "✓ Данные обновлены!" : "Сохранить"}
                     </button>
                   </form>
                 </div>
