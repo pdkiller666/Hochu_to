@@ -1,0 +1,17 @@
+node_modules
+.git
+.replit
+.replitignore
+.config
+.local
+.cache
+*.log
+dist
+artifacts/mockup-sandbox
+attached_assets
+screenshots
+.idx
+.agents
+amvera.yml
+replit.md
+docker-compose.yml

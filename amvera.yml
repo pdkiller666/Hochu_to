@@ -1,17 +1,12 @@
 meta:
-  environment: node
+  environment: docker
   toolchain:
-    name: npm
-    version: "20"
+    name: docker
+    version: "1"
+
 build:
-  # Мы явно указываем порт и ставим pnpm. 
-  # Добавил очистку перед билдом, чтобы не было старых хвостов.
-  additionalCommands: "npm install -g pnpm@9 && pnpm install --no-frozen-lockfile && npx pnpm --filter @workspace/api-server build"
-  artifacts:
-    # Важно: берем ТОЛЬКО содержимое папки dist нашего сервера 
-    # и кладем в корень запускаемого контейнера
-    "artifacts/api-server/dist": "."
+  dockerfile: Dockerfile
+
 run:
-  # Так как мы положили содержимое dist в корень, 
-  # файл index.mjs окажется прямо в /app/index.mjs
-  command: "node index.mjs"
+  persistenceMount: /data
+  containerPort: 8080
