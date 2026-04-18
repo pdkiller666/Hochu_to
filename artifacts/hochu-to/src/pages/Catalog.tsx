@@ -3,25 +3,9 @@ import { useGetListings, useGetCategories, useGetRegions, useGetCurrentUser } fr
 import { ListingCard } from "@/components/ui/ListingCard";
 import { useLocation } from "wouter";
 import { useState, useEffect, useRef } from "react";
-import { Search, X, SlidersHorizontal, MapPin, Loader2 } from "lucide-react";
+import { Search, X, SlidersHorizontal, MapPin } from "lucide-react";
 import { getToken, getAuthHeaders } from "@/lib/auth";
-
-const GEO_CACHE_KEY = "hochu_to_geo_region";
-const GEO_CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
-
-function getCachedGeoRegion(): string | null {
-  try {
-    const raw = localStorage.getItem(GEO_CACHE_KEY);
-    if (!raw) return null;
-    const { slug, ts } = JSON.parse(raw);
-    if (Date.now() - ts > GEO_CACHE_TTL) { localStorage.removeItem(GEO_CACHE_KEY); return null; }
-    return slug;
-  } catch { return null; }
-}
-
-function setCachedGeoRegion(slug: string) {
-  try { localStorage.setItem(GEO_CACHE_KEY, JSON.stringify({ slug, ts: Date.now() })); } catch {}
-}
+import { getCachedGeoRegion, setCachedGeoRegion, detectRegionByServerGeoIP } from "@/lib/region-context";
 
 function matchRegion(stateName: string, regions: { name: string; slug: string }[]): string | null {
   const norm = (s: string) => s.toLowerCase().replace(/[\u2014\u2013\-]/g, "-").replace(/\s+/g, " ").trim();
@@ -75,7 +59,6 @@ export default function Catalog() {
   const [minPrice, setMinPrice] = useState("");
   const [maxPrice, setMaxPrice] = useState("");
   const [showPriceFilter, setShowPriceFilter] = useState(false);
-  const [geoDetecting, setGeoDetecting] = useState(false);
   const regionInitialized = useRef(!!(urlRegion || getCachedGeoRegion()));
 
   const token = getToken();
@@ -86,35 +69,33 @@ export default function Catalog() {
     { query: { enabled: !!token } }
   );
 
-  // Приоритет: регион из профиля пользователя
   useEffect(() => {
     if (regionInitialized.current) return;
     if (!regions?.results?.length) return;
-    if (!currentUser) return;
-    if (currentUser.regionId) {
+    if (currentUser?.regionId) {
       const userRegion = regions.results.find(r => r.id === currentUser.regionId);
-      if (userRegion) { setRegion(userRegion.slug); regionInitialized.current = true; return; }
+      if (userRegion) {
+        setRegion(userRegion.slug);
+        setCachedGeoRegion(userRegion.slug);
+        regionInitialized.current = true;
+        return;
+      }
     }
-    setGeoDetecting(true);
-    detectRegionByGeo(regions.results).then((slug) => {
-      if (slug) setRegion(slug);
-      regionInitialized.current = true;
-      setGeoDetecting(false);
-    });
-  }, [currentUser, regions]);
 
-  // Гость без кеша
-  useEffect(() => {
-    if (regionInitialized.current) return;
-    if (!regions?.results?.length) return;
-    if (token) return;
-    setGeoDetecting(true);
-    detectRegionByGeo(regions.results).then((slug) => {
-      if (slug) setRegion(slug);
+    const detectGeo = async () => {
+      let slug = await detectRegionByGeo(regions.results);
+      if (!slug) {
+        slug = await detectRegionByServerGeoIP(regions.results);
+      }
+      if (slug) {
+        setRegion(slug);
+        setCachedGeoRegion(slug);
+      }
       regionInitialized.current = true;
-      setGeoDetecting(false);
-    });
-  }, [regions, token]);
+    };
+
+    detectGeo();
+  }, [regions?.results?.length, currentUser?.regionId]);
 
   const { data, isLoading, error } = useGetListings({
     category: category || undefined,
@@ -201,10 +182,7 @@ export default function Catalog() {
 
           {/* Region */}
           <div className="flex items-center gap-1.5 bg-white border border-border rounded-xl px-3 py-2.5 min-w-[160px]">
-            {geoDetecting
-              ? <Loader2 className="w-4 h-4 text-primary animate-spin flex-shrink-0" />
-              : <MapPin className="w-4 h-4 text-primary flex-shrink-0" />
-            }
+            <MapPin className="w-4 h-4 text-primary flex-shrink-0" />
             <select
               value={region}
               onChange={(e) => { setRegion(e.target.value); regionInitialized.current = true; }}

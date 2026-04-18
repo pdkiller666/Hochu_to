@@ -17,6 +17,27 @@ export function setCachedGeoRegion(slug: string) {
   try { localStorage.setItem(GEO_CACHE_KEY, JSON.stringify({ slug, ts: Date.now() })); } catch {}
 }
 
+export async function detectRegionByServerGeoIP(regions: { name: string; slug: string }[]): Promise<string | null> {
+  try {
+    const response = await fetch(
+      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/geoip`,
+      { headers: { "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY } }
+    );
+    const data = await response.json();
+    if (!data.city) return null;
+
+    const norm = (s: string) => s.toLowerCase().replace(/[\u2014\u2013\-]/g, "-").replace(/\s+/g, " ").trim();
+    const city = norm(data.city);
+    let match = regions.find(r => norm(r.name).includes(city) || city.includes(norm(r.name)));
+    if (!match) {
+      match = regions.find(r => norm(r.name) === city);
+    }
+    return match?.slug ?? null;
+  } catch {
+    return null;
+  }
+}
+
 interface RegionContextValue {
   selectedRegion: string;
   setSelectedRegion: (slug: string) => void;

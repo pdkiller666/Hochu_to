@@ -200,7 +200,7 @@ importers:
         specifier: ^3.0.0
         version: 3.0.0
       '@types/cookie-parser':
-        specifier: ^1.4.10
+        specifier: ^1.4.7
         version: 1.4.10(@types/express@5.0.6)
       '@types/cors':
         specifier: ^2.8.19
