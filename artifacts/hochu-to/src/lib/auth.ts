@@ -62,7 +62,13 @@ export function useAuthState() {
 
   useEffect(() => {
     const bootstrapRefresh = async () => {
-      if (!getToken()) return;
+      // Если токен уже есть в localStorage — доверяем ему.
+      // customFetch сам обновит его при 401. Не ротируем refresh token на каждом монтировании.
+      if (getToken()) {
+        setIsAuthenticated(true);
+        return;
+      }
+      // Токена нет — пробуем восстановить сессию из httpOnly куки
       const refreshed = await refreshAccessToken();
       if (!refreshed) {
         removeToken();
