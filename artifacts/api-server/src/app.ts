@@ -46,11 +46,11 @@ if (process.env.NODE_ENV === "production") {
   app.use(express.static(staticDir));
 
   /**
-   * КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ ДЛЯ EXPRESS 5:
-   * Вместо "*" или "/*" используем "(.*)". 
-   * Это единственный способ сделать catch-all роут в новой версии без ошибок.
+   * CATCH-ALL ДЛЯ EXPRESS 5 + path-to-regexp v8:
+   * Единственный валидный синтаксис: /{*wildcard}
+   * Варианты /*, /:path*, /(.*)  — все вызывают PathError в новой версии.
    */
-  app.get("/(.*)", (req, res) => {
+  app.get("/{*wildcard}", (req, res) => {
     // Если это запрос к API, который не отработал выше — отдаем 404
     if (req.path.startsWith("/api")) {
       return res.status(404).json({ error: "not_found", message: "API endpoint not found" });
