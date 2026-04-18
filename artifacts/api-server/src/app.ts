@@ -7,21 +7,19 @@ import { fileURLToPath } from "url";
 import { logger } from "./lib/logger";
 import routes from "./routes";
 
-// Настройка путей для ES-модулей (необходима, так как в package.json type: module)
+// Настройка для работы с путями в ES-модулях
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app: Express = express();
 
 /**
- * 1. ДОВЕРИЕ К ПРОКСИ
- * Критично для Amvera, чтобы сервер понимал, что запросы идут через HTTPS
+ * 1. ДОВЕРИЕ К ПРОКСИ (ДЛЯ AMVERA)
  */
 app.set('trust proxy', 1);
 
 /**
  * 2. НАСТРОЙКА CORS
- * credentials: true позволяет браузеру сохранять и передавать куки (Refresh Token)
  */
 app.use(cors({
   origin: true, 
@@ -29,8 +27,7 @@ app.use(cors({
 }));
 
 /**
- * 3. ЧТЕНИЕ КУК
- * ПодключаемcookieParser ПЕРЕД роутами, чтобы бэкенд видел Refresh Token
+ * 3. ПОДКЛЮЧЕНИЕ COOKIE PARSER
  */
 app.use(cookieParser()); 
 
@@ -38,7 +35,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 /**
- * 4. ЛОГГИРОВАНИЕ (Твой оригинальный pino-http)
+ * 4. ЛОГГИРОВАНИЕ
  */
 app.use(
   pinoHttp({
@@ -53,22 +50,20 @@ app.use(
 app.use("/api", routes);
 
 /**
- * 6. РАЗДАЧА ФРОНТЕНДА (Static Files)
- * Настройка для продакшена в облаке Amvera
+ * 6. РАЗДАЧА ФРОНТЕНДА (ДЛЯ ПРОДАКШЕНА)
  */
 if (process.env.NODE_ENV === "production") {
-  // Убедись, что фронтенд после сборки попадает именно в папку public
   const staticDir = path.resolve(__dirname, "public");
   
+  // Раздаем статические файлы (js, css, картинки)
   app.use(express.static(staticDir));
 
   /**
-   * ИСПРАВЛЕНИЕ ДЛЯ EXPRESS 5.0:
-   * В 5-й версии нельзя использовать просто "*", так как это вызывает PathError.
-   * Используем "/*" — это корректный catch-all роут для SPA.
+   * ИСПРАВЛЕНИЕ ДЛЯ EXPRESS 5:
+   * Вместо "*" используем "/:path*", чтобы избежать ошибки "Missing parameter name".
    */
-  app.get("/*", (req, res) => {
-    // Если запрос пришел на несуществующий API-эндпоинт, отдаем 404 в JSON
+  app.get("/:path*", (req, res) => {
+    // Если это запрос к API, который не нашелся выше — отдаем 404
     if (req.path.startsWith("/api")) {
       return res.status(404).json({ 
         error: "not_found", 
@@ -76,11 +71,10 @@ if (process.env.NODE_ENV === "production") {
       });
     }
     
-    // Все остальные запросы (на роуты фронтенда типа /auth) перенаправляем на index.html
+    // Все остальные запросы (навигация фронтенда) отправляем в index.html
     res.sendFile(path.join(staticDir, "index.html"), (err) => {
       if (err) {
-        // Если index.html не найден, значит сборка фронтенда не попала в папку public
-        res.status(500).send("index.html not found. Check if the frontend build is in the 'public' folder.");
+        res.status(500).send("index.html not found in public folder. Check build production.");
       }
     });
   });
