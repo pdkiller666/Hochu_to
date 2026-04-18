@@ -1,34 +1,45 @@
 import express, { Express } from "express";
 import cors from "cors";
-import cookieParser from "cookie-parser"; 
+import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
 import path from "path";
 import { fileURLToPath } from "url";
 import { logger } from "./lib/logger";
 import routes from "./routes";
 
-// Восстанавливаем работу с путями для ESM (как было в твоем оригинале)
+// Настройка путей для ES-модулей (необходима, так как в package.json type: module)
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app: Express = express();
 
-// 1. КРИТИЧНО: Доверие к прокси Amvera для работы сессий через HTTPS
+/**
+ * 1. ДОВЕРИЕ К ПРОКСИ
+ * Критично для Amvera, чтобы сервер понимал, что запросы идут через HTTPS
+ */
 app.set('trust proxy', 1);
 
-// 2. ИСПРАВЛЕНО: Настройка CORS (credentials: true обязателен для кук)
+/**
+ * 2. НАСТРОЙКА CORS
+ * credentials: true позволяет браузеру сохранять и передавать куки (Refresh Token)
+ */
 app.use(cors({
   origin: true, 
   credentials: true 
 }));
 
-// 3. НОВОЕ: Чтение кук (без этого refresh-token не будет виден серверу)
+/**
+ * 3. ЧТЕНИЕ КУК
+ * ПодключаемcookieParser ПЕРЕД роутами, чтобы бэкенд видел Refresh Token
+ */
 app.use(cookieParser()); 
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Твой оригинальный логгер pino
+/**
+ * 4. ЛОГГИРОВАНИЕ (Твой оригинальный pino-http)
+ */
 app.use(
   pinoHttp({
     logger,
@@ -36,30 +47,40 @@ app.use(
   })
 );
 
-// Твои API роуты
+/**
+ * 5. API РОУТЫ
+ */
 app.use("/api", routes);
 
 /**
- * РАЗДАЧА ФРОНТЕНДА
- * Исправляем ошибку "Cannot GET /auth", которая возникла из-за опечаток в путях
+ * 6. РАЗДАЧА ФРОНТЕНДА (Static Files)
+ * Настройка для продакшена в облаке Amvera
  */
 if (process.env.NODE_ENV === "production") {
-  // Путь к папке со статикой (убедись, что после сборки папка называется public)
+  // Убедись, что фронтенд после сборки попадает именно в папку public
   const staticDir = path.resolve(__dirname, "public");
   
   app.use(express.static(staticDir));
 
-  // Исправленный "Catch-all" роут для SPA. 
-  // Любой путь (кроме /api) будет отдавать index.html
-  app.get("*", (req, res) => {
+  /**
+   * ИСПРАВЛЕНИЕ ДЛЯ EXPRESS 5.0:
+   * В 5-й версии нельзя использовать просто "*", так как это вызывает PathError.
+   * Используем "/*" — это корректный catch-all роут для SPA.
+   */
+  app.get("/*", (req, res) => {
+    // Если запрос пришел на несуществующий API-эндпоинт, отдаем 404 в JSON
     if (req.path.startsWith("/api")) {
-      return res.status(404).json({ error: "not_found", message: "API endpoint not found" });
+      return res.status(404).json({ 
+        error: "not_found", 
+        message: "API endpoint not found" 
+      });
     }
     
+    // Все остальные запросы (на роуты фронтенда типа /auth) перенаправляем на index.html
     res.sendFile(path.join(staticDir, "index.html"), (err) => {
       if (err) {
-        // Если файла нет, выводим понятную ошибку вместо "Cannot GET"
-        res.status(500).send("index.html not found in public directory. Check build process.");
+        // Если index.html не найден, значит сборка фронтенда не попала в папку public
+        res.status(500).send("index.html not found. Check if the frontend build is in the 'public' folder.");
       }
     });
   });
