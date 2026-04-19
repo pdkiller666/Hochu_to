@@ -17,12 +17,46 @@ export function setCachedGeoRegion(slug: string) {
   try { localStorage.setItem(GEO_CACHE_KEY, JSON.stringify({ slug, ts: Date.now() })); } catch {}
 }
 
-// Заглушка: внешний GeoIP-сервис не подключён.
-// Определение региона идёт через navigator.geolocation + Nominatim в Catalog.tsx
+// Определяет регион по IP пользователя через наш бэкенд /api/geoip.
+// Бэкенд берёт реальный IP из заголовков Amvera-прокси и обращается к ip-api.com / ipwho.is.
 export async function detectRegionByServerGeoIP(
-  _regions: { name: string; slug: string }[]
+  regions: { name: string; slug: string }[]
 ): Promise<string | null> {
-  return null;
+  try {
+    const API_BASE = (import.meta as { env: Record<string, string> }).env.VITE_API_BASE_URL || "";
+    const resp = await fetch(`${API_BASE}/api/geoip`, { credentials: "include" });
+    if (!resp.ok) return null;
+
+    const data = await resp.json() as { city?: string; error?: string };
+    if (!data.city) return null;
+
+    const norm = (s: string) =>
+      s.toLowerCase()
+        .replace(/[\u2014\u2013\-]/g, "-")
+        .replace(/\s+/g, " ")
+        .trim();
+
+    const city = norm(data.city);
+
+    // Точное совпадение
+    let match = regions.find(r => norm(r.name) === city);
+    if (match) return match.slug;
+
+    // Частичное совпадение (город содержит название региона или наоборот)
+    match = regions.find(r => city.includes(norm(r.name)) || norm(r.name).includes(city));
+    if (match) return match.slug;
+
+    // По ключевым словам длиннее 4 символов
+    match = regions.find(r => {
+      const rn = norm(r.name);
+      const words = city.split(" ").filter(w => w.length > 4);
+      return words.length > 0 && words.some(w => rn.includes(w));
+    });
+
+    return match?.slug ?? null;
+  } catch {
+    return null;
+  }
 }
 
 interface RegionContextValue {
