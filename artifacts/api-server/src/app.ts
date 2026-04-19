@@ -36,7 +36,11 @@ app.use(
   })
 );
 
-// 5. API РОУТЫ
+// 5. Раздача загруженных файлов (всегда — и в dev, и в prod)
+const uploadsDir = path.resolve("uploads");
+app.use("/uploads", express.static(uploadsDir));
+
+// 6. API РОУТЫ
 app.use("/api", routes);
 
 // 6. РАЗДАЧА ФРОНТЕНДА
