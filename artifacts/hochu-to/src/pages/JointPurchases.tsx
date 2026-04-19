@@ -50,7 +50,7 @@ export default function JointPurchases() {
         <h2 className="text-3xl font-bold mb-8">Открытые сборы</h2>
         
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-20">
-          {purchases?.results?.map(p => (
+          {purchases?.map(p => (
             <div key={p.id} className="bg-white rounded-2xl border border-border p-6 shadow-sm hover:shadow-md transition-shadow">
               <div className="flex justify-between items-start mb-4">
                 <h3 className="font-bold text-lg leading-tight">{p.itemName}</h3>

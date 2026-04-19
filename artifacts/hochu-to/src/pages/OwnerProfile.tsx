@@ -71,7 +71,7 @@ export default function OwnerProfile() {
   }
 
   const avatarSrc = getAvatarSrc(user.avatar);
-  const allListings = listingsData?.results ?? [];
+  const allListings = listingsData ?? [];
   const activeListings = allListings.filter((l) => l.isAvailable);
 
   const memberSince = (() => {
