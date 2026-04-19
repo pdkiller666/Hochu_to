@@ -7,8 +7,8 @@ import {
 } from "@workspace/api-client-react";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { useEffect, useRef } from "react";
-import { RegionProvider, setCachedGeoRegion, getCachedGeoRegion, detectRegionByServerGeoIP } from "@/lib/region-context";
+import { useEffect } from "react";
+import { RegionProvider } from "@/lib/region-context";
 import { FavoritesProvider } from "@/lib/favorites-context";
 import { getToken, refreshAccessToken, logoutEverywhere } from "@/lib/auth";
 import NotFound from "@/pages/not-found";
@@ -79,9 +79,7 @@ function Router() {
   );
 }
 
-function AppWithGeo() {
-  const geoInitialized = useRef(false);
-
+function App() {
   useEffect(() => {
     setAuthTokenGetter(() => getToken());
     setAuthTokenRefresher(() => refreshAccessToken());
@@ -95,27 +93,6 @@ function AppWithGeo() {
     return () => {
       setUnauthorizedHandler(null);
     };
-  }, []);
-
-  useEffect(() => {
-    if (geoInitialized.current || getCachedGeoRegion()) return;
-    geoInitialized.current = true;
-
-    const initializeGeo = async () => {
-      try {
-        const regionsRes = await fetch(
-          `${import.meta.env.VITE_SUPABASE_URL}/rest/v1/regions?select=id,slug,name&limit=100`,
-          { headers: { "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY } }
-        );
-        const regionsData = await regionsRes.json();
-        if (Array.isArray(regionsData)) {
-          const slug = await detectRegionByServerGeoIP(regionsData);
-          if (slug) setCachedGeoRegion(slug);
-        }
-      } catch {}
-    };
-
-    initializeGeo();
   }, []);
 
   return (
@@ -132,10 +109,6 @@ function AppWithGeo() {
       </RegionProvider>
     </QueryClientProvider>
   );
-}
-
-function App() {
-  return <AppWithGeo />;
 }
 
 export default App;
