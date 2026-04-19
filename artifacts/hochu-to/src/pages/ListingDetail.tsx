@@ -2,7 +2,7 @@ import { Layout } from "@/components/layout/Layout";
 import { useRoute } from "wouter";
 import { useGetListingById, useGetListingUnavailableDates, useCreateBooking, useGetCurrentUser } from "@workspace/api-client-react";
 import { Loader2, MapPin, Star, Shield, ShieldOff, ShieldCheck, Info, User, ChevronLeft, CheckCircle2, AlertTriangle, Settings, CalendarDays, X, Expand, Hash, MessageSquare, Phone } from "lucide-react";
-import { formatPrice, calculateTotalPrice, getDeposit } from "@/lib/utils";
+import { formatPrice, calculateTotalPrice, calcDeposit, calcMaxProtectionLimit, calcFundContribution, type ItemCategory } from "@/lib/utils";
 import { useState, useEffect, useCallback } from "react";
 import { useAuthState } from "@/lib/auth";
 import { Link } from "wouter";
@@ -469,9 +469,10 @@ export default function ListingDetail() {
                   <span className="text-muted-foreground pb-1">/ сутки</span>
                 </div>
                 {(() => {
-                  const mv = (listing as any).marketValue as number | undefined;
-                  const deposit = getDeposit(mv ?? 0);
-                  const isHighValue = mv && mv > 100_000;
+                  const cat = ((listing as any).itemCategory ?? "tools") as ItemCategory;
+                  const maxProt = (listing as any).maxProtectionLimit as number | undefined;
+                  const deposit = calcDeposit(listing.pricePerDay);
+                  const ownerProt = (listing as any).ownerProtectionEnabled !== false;
                   return (
                     <div className="space-y-2 mt-4">
                       {/* Deposit block */}
@@ -479,18 +480,11 @@ export default function ListingDetail() {
                         <Info className="w-4 h-4 shrink-0 mt-0.5 text-primary" />
                         <div>
                           <p>Залог: <strong className="text-foreground">{formatPrice(deposit)}</strong> — возвращается сразу после сдачи вещи в том же состоянии.</p>
-                          {mv && mv > 0 && (
-                            <p className="text-xs mt-1 text-primary/80">Фонд компенсирует до 30% от стоимости при подтверждённом повреждении</p>
+                          {ownerProt && maxProt && maxProt > 0 && (
+                            <p className="text-xs mt-1 text-primary/80">Фонд «Стальной щит»: лимит компенсации <strong>{maxProt.toLocaleString("ru")} ₽</strong></p>
                           )}
                         </div>
                       </div>
-                      {/* High-value badge */}
-                      {isHighValue && (
-                        <div className="flex items-center gap-2 bg-violet-50 border border-violet-200 px-3 py-2 rounded-xl text-xs text-violet-700">
-                          <Shield className="w-3.5 h-3.5 shrink-0" />
-                          <span><strong>Высокая ценность</strong> — рекомендуется аккаунт с верификацией</span>
-                        </div>
-                      )}
                     </div>
                   );
                 })()}
@@ -540,11 +534,11 @@ export default function ListingDetail() {
                 <>
                   {/* ─── Consequence Modal ──────────────────────────────── */}
                   {showConsequenceModal && (() => {
-                    const mv = (listing as any).marketValue as number | undefined;
-                    const deposit = getDeposit(mv ?? 0);
+                    const cat = ((listing as any).itemCategory ?? "tools") as ItemCategory;
+                    const deposit = calcDeposit(listing.pricePerDay);
                     const savingsEstimate = totalDays > 0
                       ? (() => {
-                          const { combinedServiceFee } = calculateTotalPrice(listing.pricePerDay, mv ?? 0, totalDays);
+                          const { combinedServiceFee } = calculateTotalPrice(listing.pricePerDay, cat, totalDays);
                           return Math.round(combinedServiceFee);
                         })()
                       : 0;
@@ -741,10 +735,10 @@ export default function ListingDetail() {
                         <p className="text-xs text-orange-600 pt-1">Контакты владельца откроются сразу после оплаты</p>
                       </div>
                     ) : startDate && endDate && (() => {
-                      const mv = (listing as any).marketValue as number | undefined;
+                      const cat = ((listing as any).itemCategory ?? "tools") as ItemCategory;
                       const ownerProt = (listing as any).ownerProtectionEnabled !== false;
                       const { rent, combinedServiceFee, renterFundContribution, total, deposit } =
-                        calculateTotalPrice(listing.pricePerDay, mv ?? 0, totalDays, ownerProt, renterFundEnabled);
+                        calculateTotalPrice(listing.pricePerDay, cat, totalDays, ownerProt, renterFundEnabled);
                       return (
                         <div className="bg-primary/5 p-4 rounded-xl border border-primary/20 space-y-1.5 text-sm">
                           <div className="flex justify-between text-muted-foreground">

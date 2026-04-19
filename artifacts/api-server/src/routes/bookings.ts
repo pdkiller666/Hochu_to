@@ -247,39 +247,24 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
   const rent = days * pricePerDay;
   const serviceFee = parseFloat((rent * 0.10).toFixed(2));
   const taxFee = parseFloat((rent * 0.06).toFixed(2));
-  const mv = listing.marketValue ? parseFloat(listing.marketValue as unknown as string) : null;
 
-  // Защита от накрутки: владелец не может завысить стоимость для получения
-  // несправедливо большой компенсации. Кап: pricePerDay * 200 (0.5% ставка аренды).
-  const clampedMv = mv ? Math.min(mv, pricePerDay * 200) : null;
+  // ─── Модель «Стальной щит» ────────────────────────────────────────────────
+  // Лимит фонда уже рассчитан и сохранён в объявлении (maxProtectionLimit)
+  const maxProt = listing.maxProtectionLimit ?? 0;
+  // Взнос в фонд: maxProt * 0.5%, мин. 99 ₽/сутки
+  const perDayFund = maxProt > 0 ? Math.max(parseFloat((maxProt * 0.005).toFixed(2)), 99) : 0;
 
-  // Регрессивная ставка фонда: 0.5% до 50к, 0.2% до 150к, 0.1% выше
-  const getFundRate = (marketValue: number) => {
-    if (marketValue <= 50_000) return 0.005;
-    if (marketValue <= 150_000) return 0.002;
-    return 0.001;
-  };
-  // Взнос в фонд для одной стороны: минимум 50 ₽/день (считаем от скорректированной стоимости)
-  const calcFundContrib = (marketValue: number) => {
-    const rate = getFundRate(marketValue);
-    const raw = marketValue * rate * days;
-    return parseFloat(Math.max(raw, 50 * days).toFixed(2));
-  };
-  // Взнос владельца — только если ownerProtectionEnabled на объявлении
   const ownerProtEnabled = listing.ownerProtectionEnabled !== false;
-  const fundContribution = clampedMv && ownerProtEnabled ? calcFundContrib(clampedMv) : 0;
-  // Взнос арендатора — независимо от владельца
-  const renterFundContrib = clampedMv && renterProtectionEnabled ? calcFundContrib(clampedMv) : 0;
+  const fundContribution = ownerProtEnabled && maxProt > 0
+    ? parseFloat((perDayFund * days).toFixed(2))
+    : 0;
+  const renterFundContrib = renterProtectionEnabled && maxProt > 0
+    ? parseFloat((perDayFund * days).toFixed(2))
+    : 0;
 
-  // Залог: если указана рыночная стоимость — ступенчатый расчёт;
-  // если владелец задал залог вручную (нет marketValue) — используем его значение.
-  const getStepDeposit = (marketValue: number) => {
-    if (marketValue < 10_000) return 2_000;
-    if (marketValue < 50_000) return 5_000;
-    return 10_000;
-  };
+  // Залог: Math.max(1500, pricePerDay * 2) — небольшой, не отпугивает арендаторов
   const listingDeposit = listing.deposit ? parseFloat(listing.deposit as unknown as string) : null;
-  const depositAmount = mv ? getStepDeposit(mv) : (listingDeposit ?? 5_000);
+  const depositAmount = listingDeposit ?? Math.max(1500, pricePerDay * 2);
 
   const totalPrice = parseFloat((rent + serviceFee + taxFee + fundContribution + renterFundContrib).toFixed(2));
 
@@ -422,6 +407,18 @@ router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
     status,
     ...(status === "rejected" && { ownerComment: ownerComment?.trim() || null }),
   }).where(eq(bookingsTable.id, id)).returning();
+
+  // Завершена сделка — увеличиваем счётчик у обеих сторон
+  if (status === "completed") {
+    await Promise.all([
+      db.update(usersTable)
+        .set({ completedDealsCount: sql`${usersTable.completedDealsCount} + 1` })
+        .where(eq(usersTable.id, booking.ownerId)),
+      db.update(usersTable)
+        .set({ completedDealsCount: sql`${usersTable.completedDealsCount} + 1` })
+        .where(eq(usersTable.id, booking.renterId)),
+    ]);
+  }
 
   const [listing] = await db.select().from(listingsTable).where(eq(listingsTable.id, updated.listingId)).limit(1);
   const [owner] = await db.select().from(usersTable).where(eq(usersTable.id, updated.ownerId)).limit(1);

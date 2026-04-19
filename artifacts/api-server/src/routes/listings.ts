@@ -36,7 +36,9 @@ async function getListingWithDetails(id: number) {
       description: listingsTable.description,
       pricePerDay: listingsTable.pricePerDay,
       deposit: listingsTable.deposit,
-      marketValue: listingsTable.marketValue,
+      itemCategory: listingsTable.itemCategory,
+      maxProtectionLimit: listingsTable.maxProtectionLimit,
+      requiresManualVerification: listingsTable.requiresManualVerification,
       ownerProtectionEnabled: listingsTable.ownerProtectionEnabled,
       categoryId: listingsTable.categoryId,
       categoryName: categoriesTable.name,
@@ -62,6 +64,14 @@ async function getListingWithDetails(id: number) {
     .limit(1);
 
   return listing;
+}
+
+/** Вычисляет лимит защитного фонда по категории с учётом опыта владельца */
+function calcMaxProtection(pricePerDay: number, itemCategory: string | null, completedDealsCount: number): number {
+  const multipliers: Record<string, number> = { electronics: 60, tools: 30, leisure: 15 };
+  const multiplier = multipliers[itemCategory ?? "tools"] ?? 30;
+  const raw = pricePerDay * multiplier;
+  return completedDealsCount < 3 ? Math.min(raw, 25_000) : raw;
 }
 
 router.get("/", async (req, res) => {
@@ -110,7 +120,9 @@ router.get("/", async (req, res) => {
       description: listingsTable.description,
       pricePerDay: listingsTable.pricePerDay,
       deposit: listingsTable.deposit,
-      marketValue: listingsTable.marketValue,
+      itemCategory: listingsTable.itemCategory,
+      maxProtectionLimit: listingsTable.maxProtectionLimit,
+      requiresManualVerification: listingsTable.requiresManualVerification,
       ownerProtectionEnabled: listingsTable.ownerProtectionEnabled,
       categoryId: listingsTable.categoryId,
       categoryName: categoriesTable.name,
@@ -171,7 +183,6 @@ router.get("/", async (req, res) => {
       ...l,
       pricePerDay: parseFloat(l.pricePerDay as unknown as string),
       deposit: l.deposit ? parseFloat(l.deposit as unknown as string) : undefined,
-      marketValue: l.marketValue ? parseFloat(l.marketValue as unknown as string) : undefined,
       createdAt: l.createdAt.toISOString(),
       rating: ratingResult?.avg ?? 0,
       reviewCount: ratingResult?.count ?? 0,
@@ -210,13 +221,28 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
     return;
   }
 
-  const { title, description, pricePerDay, categoryId, regionId, city, lat, lng, meetingAddress, photos, deposit, marketValue, ownerProtectionEnabled, isAvailable } = parsed.data;
+  const { title, description, pricePerDay, categoryId, regionId, city, lat, lng, meetingAddress, photos, itemCategory, ownerProtectionEnabled, isAvailable } = parsed.data;
+
+  // Загружаем кол-во завершённых сделок владельца для расчёта кепа фонда
+  const [owner] = await db.select({ completedDealsCount: usersTable.completedDealsCount })
+    .from(usersTable).where(eq(usersTable.id, req.userId!)).limit(1);
+  const completedDeals = owner?.completedDealsCount ?? 0;
+
+  const maxProtectionLimit = calcMaxProtection(pricePerDay, itemCategory ?? null, completedDeals);
+
+  // Детектор аномальной цены (>3× от среднего по категории)
+  const categoryAvg: Record<string, number> = { electronics: 2500, tools: 1000, leisure: 500 };
+  const avg = categoryAvg[itemCategory ?? "tools"] ?? 1000;
+  const requiresManualVerification = pricePerDay > avg * 3;
 
   const [listing] = await db.insert(listingsTable).values({
     title,
     description: description ?? null,
     pricePerDay: pricePerDay.toString(),
     categoryId,
+    itemCategory: itemCategory ?? null,
+    maxProtectionLimit,
+    requiresManualVerification,
     regionId,
     city: city ?? null,
     lat: lat ?? null,
@@ -224,8 +250,6 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
     meetingAddress: meetingAddress ?? null,
     ownerId: req.userId!,
     photos: photos ?? [],
-    deposit: deposit ? deposit.toString() : null,
-    marketValue: marketValue ? marketValue.toString() : null,
     ownerProtectionEnabled: ownerProtectionEnabled !== false,
     isAvailable: isAvailable ?? true,
   }).returning();
@@ -284,7 +308,6 @@ router.get("/:id", async (req, res) => {
     ...listing,
     pricePerDay: parseFloat(listing.pricePerDay as unknown as string),
     deposit: listing.deposit ? parseFloat(listing.deposit as unknown as string) : undefined,
-    marketValue: listing.marketValue ? parseFloat(listing.marketValue as unknown as string) : undefined,
     createdAt: listing.createdAt.toISOString(),
     rating: ratingResult?.avg ?? 0,
     reviewCount: ratingResult?.count ?? 0,
@@ -311,26 +334,43 @@ router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
     return;
   }
 
-  const { title, description, pricePerDay, categoryId, regionId, city, lat, lng, meetingAddress, photos, deposit, marketValue, ownerProtectionEnabled: ownerProt, isAvailable } = req.body;
+  const { title, description, pricePerDay, categoryId, regionId, city, lat, lng, meetingAddress, photos, itemCategory, ownerProtectionEnabled: ownerProt, isAvailable } = req.body;
 
   if (photos !== undefined && Array.isArray(existing.photos)) {
     const removed = (existing.photos as string[]).filter(p => !photos.includes(p));
     deleteUploadedFiles(removed);
   }
 
+  // Пересчитываем лимит фонда при изменении цены или категории
+  let newMaxProtection: number | undefined;
+  if (pricePerDay !== undefined || itemCategory !== undefined) {
+    const [owner] = await db.select({ completedDealsCount: usersTable.completedDealsCount })
+      .from(usersTable).where(eq(usersTable.id, req.userId!)).limit(1);
+    const completedDeals = owner?.completedDealsCount ?? 0;
+    const ppd = pricePerDay ?? parseFloat(existing.pricePerDay as unknown as string);
+    const cat = itemCategory ?? existing.itemCategory;
+    newMaxProtection = calcMaxProtection(ppd, cat, completedDeals);
+  }
+
+  const categoryAvg: Record<string, number> = { electronics: 2500, tools: 1000, leisure: 500 };
+  const ppd = pricePerDay ?? parseFloat(existing.pricePerDay as unknown as string);
+  const cat = itemCategory ?? existing.itemCategory ?? "tools";
+  const newRequiresVerification = ppd > (categoryAvg[cat] ?? 1000) * 3;
+
   await db.update(listingsTable).set({
     ...(title && { title }),
     ...(description !== undefined && { description }),
     ...(pricePerDay !== undefined && { pricePerDay: pricePerDay.toString() }),
     ...(categoryId && { categoryId }),
+    ...(itemCategory !== undefined && { itemCategory }),
+    ...(newMaxProtection !== undefined && { maxProtectionLimit: newMaxProtection }),
+    requiresManualVerification: newRequiresVerification,
     ...(regionId && { regionId }),
     ...(city !== undefined && { city: city || null }),
     ...(lat !== undefined && { lat: lat ?? null }),
     ...(lng !== undefined && { lng: lng ?? null }),
     ...(meetingAddress !== undefined && { meetingAddress: meetingAddress || null }),
     ...(photos !== undefined && { photos }),
-    ...(deposit !== undefined && { deposit: deposit?.toString() ?? null }),
-    ...(marketValue !== undefined && { marketValue: marketValue?.toString() ?? null }),
     ...(ownerProt !== undefined && { ownerProtectionEnabled: ownerProt }),
     ...(isAvailable !== undefined && { isAvailable }),
   }).where(eq(listingsTable.id, id));
@@ -340,7 +380,6 @@ router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
     ...updated,
     pricePerDay: parseFloat(updated!.pricePerDay as unknown as string),
     deposit: updated!.deposit ? parseFloat(updated!.deposit as unknown as string) : undefined,
-    marketValue: updated!.marketValue ? parseFloat(updated!.marketValue as unknown as string) : undefined,
     createdAt: updated!.createdAt.toISOString(),
   });
 });

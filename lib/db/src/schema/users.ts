@@ -16,6 +16,8 @@ export const usersTable = pgTable("users", {
   telegram: text("telegram"),
   website: text("website"),
   regionId: integer("region_id"),
+  /** Количество завершённых сделок (влияет на кап фонда) */
+  completedDealsCount: integer("completed_deals_count").default(0).notNull(),
   isBanned: boolean("is_banned").notNull().default(false),
   banReason: text("ban_reason"),
   createdAt: timestamp("created_at").defaultNow().notNull(),

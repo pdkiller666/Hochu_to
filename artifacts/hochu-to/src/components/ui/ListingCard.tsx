@@ -1,7 +1,7 @@
 import { Link } from "wouter";
 import { MapPin, Star, Heart, Info } from "lucide-react";
 import { Listing } from "@workspace/api-client-react";
-import { formatPrice, calculateTotalPrice } from "@/lib/utils";
+import { formatPrice, calculateTotalPrice, calcDeposit, type ItemCategory } from "@/lib/utils";
 import { useState } from "react";
 import { ListingPlaceholder } from "@/components/ui/ListingPlaceholder";
 import { useFavorites } from "@/lib/favorites-context";
@@ -124,10 +124,10 @@ export function ListingCard({ listing }: ListingCardProps) {
 
           {/* Total with protection (1 day estimate) */}
           {(() => {
-            const mv = (listing as any).marketValue as number | undefined | null;
-            if (!mv || mv <= 0) return null;
+            const cat = ((listing as any).itemCategory ?? "tools") as ItemCategory;
             const ownerProt = (listing as any).ownerProtectionEnabled !== false;
-            const { total, combinedServiceFee, deposit } = calculateTotalPrice(listing.pricePerDay, mv, 1, ownerProt);
+            const { total, combinedServiceFee } = calculateTotalPrice(listing.pricePerDay, cat, 1, ownerProt);
+            const deposit = calcDeposit(listing.pricePerDay);
             return (
               <div className="relative">
                 <div

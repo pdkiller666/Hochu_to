@@ -13,102 +13,109 @@ export function formatPrice(price: number): string {
   }).format(price);
 }
 
+// ─── Категории защитного фонда ───────────────────────────────────────────────
+
+export type ItemCategory = "electronics" | "tools" | "leisure";
+
+export const ITEM_CATEGORY_LABELS: Record<ItemCategory, string> = {
+  electronics: "Электроника",
+  tools: "Инструменты",
+  leisure: "Отдых и спорт",
+};
+
+/** Средние цены аренды по категориям — для детектора аномалий */
+export const CATEGORY_AVG_PRICE: Record<ItemCategory, number> = {
+  electronics: 2500,
+  tools: 1000,
+  leisure: 500,
+};
+
+/** Множители для расчёта лимита выплаты из фонда */
+const CATEGORY_MULTIPLIERS: Record<ItemCategory, number> = {
+  electronics: 60,
+  tools: 30,
+  leisure: 15,
+};
+
 /**
- * Максимально правдоподобная рыночная стоимость исходя из цены аренды.
- * Типичная ставка аренды в РФ: 0.5–2% от стоимости в сутки.
- * Используем нижнюю границу (0.5%) как «потолок»: pricePerDay / 0.005 = pricePerDay * 200.
- * Если владелец указал ВЫШЕ этого порога — стоимость подозрительно завышена.
+ * Максимальный лимит компенсации из фонда «Стальной щит».
+ * При < 3 завершённых сделок — жёсткий кап 25 000 ₽ (защита от фрода).
  */
-export function getMaxSensibleMarketValue(pricePerDay: number): number {
-  return pricePerDay * 200;
+export function calcMaxProtectionLimit(
+  pricePerDay: number,
+  itemCategory: ItemCategory,
+  completedDealsCount = 0,
+): number {
+  const multiplier = CATEGORY_MULTIPLIERS[itemCategory];
+  const raw = pricePerDay * multiplier;
+  if (completedDealsCount < 3) {
+    return Math.min(raw, 25_000);
+  }
+  return raw;
 }
 
 /**
- * Ограничиваем рыночную стоимость для расчёта фонда, чтобы
- * владелец не завышал стоимость и не получал несправедливую компенсацию.
+ * Взнос в Гарантийный фонд за 1 сутки.
+ * Формула: maxProtectionLimit * 0.5%, минимум 99 ₽.
  */
-export function clampMarketValueForFund(marketValue: number, pricePerDay: number): number {
-  const maxSensible = getMaxSensibleMarketValue(pricePerDay);
-  return Math.min(marketValue, maxSensible);
+export function calcFundContribution(maxProtectionLimit: number): number {
+  return Math.max(parseFloat((maxProtectionLimit * 0.005).toFixed(2)), 99);
 }
+
+/**
+ * Залог арендатора: Math.max(1500, pricePerDay * 2).
+ * Небольшой, чтобы не отпугивать арендаторов.
+ */
+export function calcDeposit(pricePerDay: number): number {
+  return Math.max(1500, pricePerDay * 2);
+}
+
+// ─── Итоговый расчёт стоимости бронирования ─────────────────────────────────
 
 export interface PriceBreakdown {
   rent: number;
   serviceFee: number;
   taxFee: number;
-  ownerFundContribution: number;
+  fundContribution: number;
   renterFundContribution: number;
-  /** Комиссия сервиса объединённая: serviceFee + taxFee + ownerFundContribution */
+  /** Сервисная комиссия + налог СЗ + взнос владельца в фонд (одной строкой для арендатора) */
   combinedServiceFee: number;
-  fundRate: number;
+  maxProtectionLimit: number;
   total: number;
   deposit: number;
 }
 
-/**
- * Регрессивная ставка взноса в Гарантийный фонд «Стальной щит».
- * Чем дороже вещь — тем меньше процент.
- */
-export function getFundRate(marketValue: number): number {
-  if (marketValue <= 50_000) return 0.005;
-  if (marketValue <= 150_000) return 0.002;
-  return 0.001;
-}
-
-/**
- * Ступенчатый залог по рыночной стоимости вещи.
- */
-export function getDeposit(marketValue: number): number {
-  if (marketValue < 10_000) return 2_000;
-  if (marketValue < 50_000) return 5_000;
-  return 10_000;
-}
-
-/**
- * Взнос в фонд для одной стороны (владелец или арендатор).
- * Минимум 50 ₽/день.
- */
-function calcFundContrib(marketValue: number, days: number): number {
-  const rate = getFundRate(marketValue);
-  const raw = marketValue * rate * days;
-  return parseFloat(Math.max(raw, 50 * days).toFixed(2));
-}
-
 export function calculateTotalPrice(
   pricePerDay: number,
-  marketValue: number,
+  itemCategory: ItemCategory | null | undefined,
   days: number,
   ownerProtectionEnabled = true,
   renterProtectionEnabled = false,
+  completedDealsCount = 0,
 ): PriceBreakdown {
   const rent = pricePerDay * days;
   const serviceFee = parseFloat((rent * 0.10).toFixed(2));
   const taxFee = parseFloat((rent * 0.06).toFixed(2));
 
-  // Для фонда используем скорректированную стоимость (защита от накрутки)
-  const clampedMV = clampMarketValueForFund(marketValue, pricePerDay);
-  const fundRate = getFundRate(clampedMV);
+  const cat = itemCategory ?? "tools";
+  const maxProt = calcMaxProtectionLimit(pricePerDay, cat, completedDealsCount);
+  const perDayFund = calcFundContribution(maxProt);
 
-  const ownerFundContribution = ownerProtectionEnabled && clampedMV > 0
-    ? calcFundContrib(clampedMV, days)
-    : 0;
+  const fundContribution = ownerProtectionEnabled ? parseFloat((perDayFund * days).toFixed(2)) : 0;
+  const renterFundContribution = renterProtectionEnabled ? parseFloat((perDayFund * days).toFixed(2)) : 0;
 
-  const renterFundContribution = renterProtectionEnabled && clampedMV > 0
-    ? calcFundContrib(clampedMV, days)
-    : 0;
-
-  const combinedServiceFee = parseFloat((serviceFee + taxFee + ownerFundContribution).toFixed(2));
+  const combinedServiceFee = parseFloat((serviceFee + taxFee + fundContribution).toFixed(2));
   const total = parseFloat((rent + combinedServiceFee + renterFundContribution).toFixed(2));
-  const deposit = marketValue > 0 ? getDeposit(marketValue) : 0;
+  const deposit = calcDeposit(pricePerDay);
 
   return {
     rent,
     serviceFee,
     taxFee,
-    ownerFundContribution,
+    fundContribution,
     renterFundContribution,
     combinedServiceFee,
-    fundRate,
+    maxProtectionLimit: maxProt,
     total,
     deposit,
   };

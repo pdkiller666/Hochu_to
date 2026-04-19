@@ -144,7 +144,7 @@ export const GetListingsResponse = zod.object({
 export const CreateListingBody = zod.object({
   title: zod.string(),
   description: zod.string().optional(),
-  pricePerDay: zod.number(),
+  pricePerDay: zod.number().min(100),
   categoryId: zod.number(),
   regionId: zod.number(),
   city: zod.string().optional(),
@@ -152,8 +152,7 @@ export const CreateListingBody = zod.object({
   lng: zod.number().optional(),
   meetingAddress: zod.string().optional(),
   photos: zod.array(zod.string()).optional(),
-  deposit: zod.number().optional(),
-  marketValue: zod.number().optional(),
+  itemCategory: zod.enum(["electronics", "tools", "leisure"]).optional(),
   ownerProtectionEnabled: zod.boolean().optional(),
   isAvailable: zod.boolean().optional(),
 });
@@ -221,12 +220,16 @@ export const UpdateListingParams = zod.object({
 export const UpdateListingBody = zod.object({
   title: zod.string(),
   description: zod.string().optional(),
-  pricePerDay: zod.number(),
+  pricePerDay: zod.number().min(100),
   categoryId: zod.number(),
   regionId: zod.number(),
+  city: zod.string().optional(),
+  lat: zod.number().optional(),
+  lng: zod.number().optional(),
+  meetingAddress: zod.string().optional(),
   photos: zod.array(zod.string()).optional(),
-  deposit: zod.number().optional(),
-  marketValue: zod.number().optional(),
+  itemCategory: zod.enum(["electronics", "tools", "leisure"]).optional(),
+  ownerProtectionEnabled: zod.boolean().optional(),
   isAvailable: zod.boolean().optional(),
 });
 

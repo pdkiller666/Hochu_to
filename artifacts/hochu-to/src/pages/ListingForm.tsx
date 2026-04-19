@@ -7,7 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ChevronLeft, Loader2, ImagePlus, X, ShieldCheck, ShieldOff, AlertTriangle, Info } from "lucide-react";
 import { Link } from "wouter";
 import { LocationPicker } from "@/components/ui/LocationPicker";
-import { calculateTotalPrice, getDeposit, getMaxSensibleMarketValue } from "@/lib/utils";
+import { calculateTotalPrice, calcMaxProtectionLimit, calcDeposit, calcFundContribution, ITEM_CATEGORY_LABELS, CATEGORY_AVG_PRICE, type ItemCategory } from "@/lib/utils";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "";
 const DRAFT_KEY = "hochu_to_listing_draft";
@@ -39,8 +39,7 @@ export default function ListingForm() {
     categoryId: "",
     regionId: "",
     city: "",
-    deposit: "",
-    marketValue: "",
+    itemCategory: "" as "" | "electronics" | "tools" | "leisure",
     ownerProtectionEnabled: true,
     isAvailable: true,
     lat: null as number | null,
@@ -74,20 +73,6 @@ export default function ListingForm() {
     return [];
   });
 
-  // Режим залога: авто (из рыночной стоимости) или вручную
-  const [depositMode, setDepositMode] = useState<"auto" | "manual">(() => {
-    if (!isEditing) {
-      try {
-        const saved = localStorage.getItem(DRAFT_KEY);
-        if (saved) {
-          const parsed = JSON.parse(saved);
-          return parsed.depositMode ?? "auto";
-        }
-      } catch {}
-    }
-    return "auto";
-  });
-
   const [uploading, setUploading] = useState(false);
   const uploadInputId = "photo-upload-input";
 
@@ -95,10 +80,10 @@ export default function ListingForm() {
   useEffect(() => {
     if (!isEditing) {
       try {
-        localStorage.setItem(DRAFT_KEY, JSON.stringify({ formData, photos, depositMode }));
+        localStorage.setItem(DRAFT_KEY, JSON.stringify({ formData, photos }));
       } catch {}
     }
-  }, [formData, photos, depositMode, isEditing]);
+  }, [formData, photos, isEditing]);
 
   useEffect(() => {
     // Ждём завершения начальной проверки сессии, иначе форма очищается
@@ -108,11 +93,6 @@ export default function ListingForm() {
 
   useEffect(() => {
     if (isEditing && listingData) {
-      const mv = (listingData as any).marketValue;
-      const dep = listingData.deposit;
-      // Если есть рыночная стоимость — авторежим, иначе вручную
-      const mode: "auto" | "manual" = mv && Number(mv) > 0 ? "auto" : "manual";
-      setDepositMode(mode);
       setFormData({
         title: listingData.title,
         description: listingData.description || "",
@@ -120,8 +100,7 @@ export default function ListingForm() {
         categoryId: listingData.categoryId.toString(),
         regionId: listingData.regionId.toString(),
         city: (listingData as any).city || "",
-        deposit: dep?.toString() || "",
-        marketValue: mv?.toString() || "",
+        itemCategory: (listingData as any).itemCategory || "",
         ownerProtectionEnabled: (listingData as any).ownerProtectionEnabled !== false,
         lat: (listingData as any).lat ?? null,
         lng: (listingData as any).lng ?? null,
@@ -182,8 +161,11 @@ export default function ListingForm() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Авторежим: отправляем рыночную стоимость, залог считается API
-    // Вручную: отправляем залог, рыночная стоимость не задана
+    if (!formData.pricePerDay || Number(formData.pricePerDay) < 100) {
+      toast({ title: "Минимальная цена — 100 ₽/сутки", variant: "destructive" });
+      return;
+    }
+
     const payload = {
       title: formData.title,
       description: formData.description,
@@ -194,8 +176,7 @@ export default function ListingForm() {
       lat: formData.lat ?? undefined,
       lng: formData.lng ?? undefined,
       meetingAddress: formData.meetingAddress.trim() || undefined,
-      deposit: depositMode === "manual" && formData.deposit ? Number(formData.deposit) : undefined,
-      marketValue: depositMode === "auto" && formData.marketValue ? Number(formData.marketValue) : undefined,
+      itemCategory: (formData.itemCategory || undefined) as "electronics" | "tools" | "leisure" | undefined,
       ownerProtectionEnabled: formData.ownerProtectionEnabled,
       isAvailable: formData.isAvailable,
       photos,
@@ -320,112 +301,90 @@ export default function ListingForm() {
           <div className="space-y-4 pt-6 border-t border-border">
             <h3 className="text-xl font-bold">Цены и условия</h3>
 
-            {/* Цена за сутки */}
-            <div className="max-w-xs">
-              <label className="block text-sm font-bold mb-2">Цена за сутки (₽)</label>
-              <input required type="number" min="1" className="input-field" placeholder="500" value={formData.pricePerDay} onChange={e => setFormData({ ...formData, pricePerDay: e.target.value })} />
+            {/* ─── Цена и категория защиты ──────────────────────────────────── */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-bold mb-2">Цена за сутки (₽) <span className="text-red-500">*</span></label>
+                <input
+                  required
+                  type="number"
+                  min="100"
+                  step="1"
+                  className="input-field"
+                  placeholder="Минимум 100 ₽"
+                  value={formData.pricePerDay}
+                  onChange={e => setFormData({ ...formData, pricePerDay: e.target.value })}
+                />
+                <p className="text-xs text-muted-foreground mt-1">Минимальная цена: 100 ₽/сутки</p>
+              </div>
+              <div>
+                <label className="block text-sm font-bold mb-2">Категория для защиты фонда</label>
+                <select
+                  className="input-field appearance-none"
+                  value={formData.itemCategory}
+                  onChange={e => setFormData({ ...formData, itemCategory: e.target.value as any })}
+                >
+                  <option value="">Не указана (инструменты по умолчанию)</option>
+                  <option value="electronics">Электроника (множитель ×60)</option>
+                  <option value="tools">Инструменты (множитель ×30)</option>
+                  <option value="leisure">Отдых и спорт (множитель ×15)</option>
+                </select>
+                <p className="text-xs text-muted-foreground mt-1">Определяет лимит компенсации из фонда</p>
+              </div>
             </div>
 
-            {/* ─── Режим залога ─────────────────────────────────────────────── */}
-            <div>
-              <label className="block text-sm font-bold mb-2">Залог</label>
-              <div className="flex rounded-xl border border-border overflow-hidden w-fit mb-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDepositMode("auto");
-                    setFormData(f => ({ ...f, deposit: "" }));
-                  }}
-                  className={`px-4 py-2 text-sm font-semibold transition-colors ${depositMode === "auto" ? "bg-primary text-white" : "bg-background text-muted-foreground hover:bg-muted"}`}
-                >
-                  Авто (по стоимости)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDepositMode("manual");
-                    setFormData(f => ({ ...f, marketValue: "" }));
-                  }}
-                  className={`px-4 py-2 text-sm font-semibold transition-colors border-l border-border ${depositMode === "manual" ? "bg-primary text-white" : "bg-background text-muted-foreground hover:bg-muted"}`}
-                >
-                  Указать вручную
-                </button>
-              </div>
+            {/* ─── Live Preview: защита + залог ────────────────────────────── */}
+            {formData.pricePerDay && Number(formData.pricePerDay) >= 100 && (() => {
+              const ppd = Number(formData.pricePerDay);
+              const cat = (formData.itemCategory || "tools") as ItemCategory;
+              const avgPrice = CATEGORY_AVG_PRICE[cat];
+              const isAnomaly = ppd > avgPrice * 3;
+              const maxProt = calcMaxProtectionLimit(ppd, cat, 0); // 0 сделок — самый консервативный кап
+              const deposit = calcDeposit(ppd);
+              const fundPerDay = calcFundContribution(maxProt);
+              const { rent, combinedServiceFee, total } = calculateTotalPrice(ppd, cat, 1, formData.ownerProtectionEnabled);
 
-              {/* Авторежим: поле рыночной стоимости */}
-              {depositMode === "auto" && (() => {
-                const mv = Number(formData.marketValue);
-                const ppd = Number(formData.pricePerDay);
-                const maxSensible = ppd > 0 ? getMaxSensibleMarketValue(ppd) : 0;
-                const isTooLow = mv > 0 && ppd > 0 && mv < ppd * 10;
-                const isTooHigh = mv > 0 && ppd > 0 && mv > maxSensible;
-                const autoDeposit = mv > 0 ? getDeposit(mv) : null;
-                return (
-                  <div className="space-y-2">
-                    <label className="block text-sm text-muted-foreground font-medium">Рыночная стоимость вещи (₽)</label>
-                    <input
-                      type="number"
-                      min="0"
-                      className={`input-field max-w-xs ${isTooLow ? "border-amber-400 focus:ring-amber-400" : isTooHigh ? "border-red-400 focus:ring-red-400" : ""}`}
-                      placeholder="например, 15000"
-                      value={formData.marketValue}
-                      onChange={e => setFormData({ ...formData, marketValue: e.target.value })}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Реальная цена в магазине. Залог рассчитывается автоматически.
-                      {ppd > 0 && <span className="text-muted-foreground"> Ориентир: до {maxSensible.toLocaleString("ru")} ₽</span>}
-                    </p>
-                    {isTooLow && (
-                      <div className="flex items-start gap-2 bg-amber-50 border border-amber-300 rounded-xl p-3 text-sm">
-                        <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-                        <p className="text-amber-800">Стоимость кажется заниженной. При повреждении фонд покроет ущерб только до указанной суммы.</p>
-                      </div>
-                    )}
-                    {isTooHigh && (
-                      <div className="flex items-start gap-2 bg-red-50 border border-red-300 rounded-xl p-3 text-sm">
-                        <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
-                        <p className="text-red-800">
-                          Стоимость превышает разумный ориентир для аренды в {ppd.toLocaleString("ru")} ₽/сутки.
-                          Для расчёта взноса в фонд будет использована скорректированная оценка <strong>{maxSensible.toLocaleString("ru")} ₽</strong>.
-                        </p>
-                      </div>
-                    )}
-                    {autoDeposit !== null && (
-                      <div className="flex items-center gap-2 bg-muted/50 border border-border rounded-xl p-3 text-sm">
-                        <Info className="w-4 h-4 text-primary shrink-0" />
-                        <span className="text-foreground">Залог для арендатора: <strong>{autoDeposit.toLocaleString("ru")} ₽</strong> (возврат после аренды)</span>
-                      </div>
-                    )}
-                  </div>
-                );
-              })()}
-
-              {/* Ручной режим: поле суммы залога */}
-              {depositMode === "manual" && (
-                <div className="space-y-2">
-                  <label className="block text-sm text-muted-foreground font-medium">Сумма залога (₽)</label>
-                  <input
-                    type="number"
-                    min="0"
-                    className="input-field max-w-xs"
-                    placeholder="например, 5000"
-                    value={formData.deposit}
-                    onChange={e => setFormData({ ...formData, deposit: e.target.value })}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Арендатор вносит эту сумму и получает её обратно после возврата вещи в целости.
-                  </p>
-                  {formData.ownerProtectionEnabled && (
-                    <div className="flex items-start gap-2 bg-muted/50 border border-border rounded-xl p-3 text-sm">
-                      <Info className="w-4 h-4 text-primary shrink-0 mt-0.5" />
-                      <p className="text-muted-foreground">
-                        Взнос в Гарантийный фонд будет рассчитан по оценочной стоимости вещи на основе цены аренды.
+              return (
+                <div className="space-y-3">
+                  {/* Аномальная цена */}
+                  {isAnomaly && (
+                    <div className="flex items-start gap-2 bg-amber-50 border border-amber-300 rounded-xl p-3 text-sm">
+                      <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                      <p className="text-amber-800">
+                        <strong>Высокая цена аренды.</strong> Для категории «{ITEM_CATEGORY_LABELS[cat]}» средняя цена — {avgPrice.toLocaleString("ru")} ₽/сутки.
+                        Объявление попадёт на ручную проверку модератором перед публикацией.
                       </p>
                     </div>
                   )}
+
+                  {/* Preview-карточка */}
+                  <div className="bg-primary/5 border border-primary/20 rounded-2xl p-4 space-y-3">
+                    <p className="text-sm font-bold text-foreground">Ваша защита и условия для арендатора</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="bg-white rounded-xl p-3 text-center border border-border">
+                        <p className="text-xs text-muted-foreground mb-1">Ваша защита (фонд)</p>
+                        <p className="text-lg font-black text-primary">{maxProt.toLocaleString("ru")} ₽</p>
+                        {maxProt <= 25_000 && <p className="text-[10px] text-amber-600 mt-0.5">кап для новых аккаунтов</p>}
+                      </div>
+                      <div className="bg-white rounded-xl p-3 text-center border border-border">
+                        <p className="text-xs text-muted-foreground mb-1">Залог арендатора</p>
+                        <p className="text-lg font-black text-foreground">{deposit.toLocaleString("ru")} ₽</p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">возврат после аренды</p>
+                      </div>
+                    </div>
+                    <div className="bg-white rounded-xl p-3 text-sm space-y-1 border border-border">
+                      <p className="font-semibold text-foreground text-xs mb-1.5">Что видит арендатор за 1 сутки</p>
+                      <div className="flex justify-between text-muted-foreground text-xs"><span>Аренда</span><span>{rent.toLocaleString("ru")} ₽</span></div>
+                      <div className="flex justify-between text-muted-foreground text-xs">
+                        <span>Комиссия сервиса {formData.ownerProtectionEnabled ? `(включая взнос ${fundPerDay.toLocaleString("ru")} ₽ в фонд)` : ""}</span>
+                        <span>{combinedServiceFee.toLocaleString("ru", { maximumFractionDigits: 0 })} ₽</span>
+                      </div>
+                      <div className="flex justify-between font-bold border-t border-border pt-1 text-xs text-foreground"><span>Итого</span><span>{total.toLocaleString("ru", { maximumFractionDigits: 0 })} ₽</span></div>
+                    </div>
+                  </div>
                 </div>
-              )}
-            </div>
+              );
+            })()}
 
             {/* ─── Тоггл Гарантийного фонда для владельца ─────────────────── */}
             <div className={`rounded-2xl border-2 p-4 transition-colors ${formData.ownerProtectionEnabled ? "border-primary/30 bg-primary/5" : "border-amber-300 bg-amber-50"}`}>
@@ -437,15 +396,15 @@ export default function ListingForm() {
                   }
                   <div>
                     <p className={`font-bold text-sm ${formData.ownerProtectionEnabled ? "text-primary" : "text-amber-800"}`}>
-                      {formData.ownerProtectionEnabled ? "Гарантийный фонд подключён" : "Гарантийный фонд отключён"}
+                      {formData.ownerProtectionEnabled ? "Гарантийный фонд «Стальной щит» подключён" : "Гарантийный фонд отключён"}
                     </p>
                     {formData.ownerProtectionEnabled ? (
                       <p className="text-xs text-muted-foreground mt-0.5 leading-tight">
-                        Взнос включён в комиссию сервиса. При подтверждённом повреждении фонд компенсирует до 30% от рыночной стоимости.
+                        Взнос включён в комиссию сервиса. При подтверждённом повреждении — компенсация до лимита фонда. Без автоматических выплат, всё через модератора.
                       </p>
                     ) : (
                       <p className="text-xs text-amber-700 mt-0.5 leading-tight">
-                        ⚠️ Без фонда вы несёте весь риск самостоятельно. При повреждении вещи компенсация не гарантирована — только залог арендатора.
+                        ⚠️ Без фонда вы несёте весь риск самостоятельно. При повреждении вещи компенсация не гарантирована.
                       </p>
                     )}
                   </div>
@@ -461,24 +420,6 @@ export default function ListingForm() {
                 </button>
               </div>
             </div>
-
-            {/* ─── Предварительный расчёт (авто-режим + рыночная стоимость задана) ─── */}
-            {depositMode === "auto" && formData.marketValue && Number(formData.marketValue) > 0 && formData.pricePerDay && Number(formData.pricePerDay) > 0 && (() => {
-              const { rent, combinedServiceFee, total, deposit } =
-                calculateTotalPrice(Number(formData.pricePerDay), Number(formData.marketValue), 1, formData.ownerProtectionEnabled);
-              return (
-                <div className="bg-muted/40 border border-border rounded-xl p-4 text-sm space-y-1.5">
-                  <p className="font-bold text-foreground mb-2">Что увидит арендатор (за 1 день)</p>
-                  <div className="flex justify-between text-muted-foreground"><span>Аренда × 1 день</span><span>{rent.toLocaleString("ru")} ₽</span></div>
-                  <div className="flex justify-between text-muted-foreground">
-                    <span>Комиссия сервиса <span className="text-xs">(включает все сборы)</span></span>
-                    <span>{combinedServiceFee.toLocaleString("ru", { maximumFractionDigits: 0 })} ₽</span>
-                  </div>
-                  <div className="flex justify-between font-bold border-t border-border pt-1.5 mt-1"><span>Итого</span><span>{total.toLocaleString("ru", { maximumFractionDigits: 0 })} ₽</span></div>
-                  <div className="flex justify-between text-amber-700 text-xs pt-0.5"><span>+ залог (возврат после сдачи)</span><span className="font-medium">{deposit.toLocaleString("ru")} ₽</span></div>
-                </div>
-              );
-            })()}
           </div>
 
           <div className="space-y-4 pt-6 border-t border-border">
