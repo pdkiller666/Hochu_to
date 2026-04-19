@@ -1,0 +1,48 @@
+Отлично, что начал тестировать на конкретных ролях (Андрей и Вася). Именно так всплывают «детские болезни» интерфейса. Давай разберем оба момента: и технический баг, и логику оценки.
+
+### 1. Баг с перезагрузкой страницы (Data Loss)
+Это происходит из-за того, что в Replit (или при деплое) срабатывает **Hot Reload** (автоматическая перезагрузка при сохранении) или ошибка в `useEffect`. Когда форма «тяжелая» и ты долго вносишь данные, соединение может моргнуть, и страница обновляется, стирая всё в `useState`.
+
+**Как лечим:** Нужно внедрить **автосохранение в LocalStorage**. Даже если страница упадет или перезагрузится, данные подтянутся обратно в поля.
+
+### 2. Проблема с мангалом (Ловушка коэффициента)
+Моя предыдущая рекомендация про «минимум x30» сработала слишком жестко. Для дешевых вещей (мангалы, колонки, зарядки) аренда часто выше $3\%$ от цены, поэтому коэффициент x30 превращает мангал за 3000₽ в «золотой мангал» за 9000₽.
+
+**Новая логика:** Мы должны разрешить пользователю ставить любую цену, но **предупреждать**, если она слишком низкая.
+
+---
+
+### Обновленное ТЗ для Replit Agent (Копируй и отправляй)
+
+> **Prompt для Replit Agent:**
+>
+> "I found two critical issues during testing:
+> 
+> **Task 1: Fix Form Persistence (Prevent Data Loss)**
+> - On the 'Add Item' page, the form resets if the page reloads. 
+> - **Solution:** Implement saving form state to `localStorage`. When the page loads, check if there's saved data and pre-fill the fields. Clear `localStorage` only after a successful form submission.
+>
+> **Task 2: Update Market Value Validation (The Mangal Case)**
+> - Currently, the system blocks market values that are less than 30x the rent price. This is wrong for cheap items like a grill (mangal).
+> - **Change:** Remove the strict 'min x30' block. Allow any market value.
+> - **Add a Warning instead:** If `marketValue < (pricePerDay * 10)`, show a message: 'Attention: You set a low market value. In case of damage, the Security Fund will only cover up to this amount.'
+>
+> **Task 3: Refined Financial Model 2.0 (Lowering barriers)**
+> - Set **Deposit (Залог)** to a flat amount based on price tiers:
+>   - Market Value < 10,000 RUB -> Deposit: 2,000 RUB
+>   - Market Value 10,000 - 50,000 RUB -> Deposit: 5,000 RUB
+>   - Market Value > 50,000 RUB -> Deposit: 10,000 RUB
+> - Adjust the **Fund Fee (Security Fee)**:
+>   - Use 0.5% for items under 50k, but cap the minimum fee at 50 RUB/day, so cheap items like the grill (3000 RUB) don't have a 15 RUB fee (too small for processing), but rather something like 50-100 RUB total for protection."
+
+---
+
+### Почему это сработает для «Мангала Васи»:
+1. **Вася** сможет поставить 3000₽ (система его пропустит).
+2. **Андрей** (арендатор) увидит: Аренда 300₽ + Защита 100₽ + Залог 2000₽. 
+3. **Итог:** Сделка на 400₽ с возвращаемым залогом 2000₽ выглядит абсолютно реально и безопасно для пикника.
+
+**Что делать с мошенничеством?**
+Так как залог (2000₽) почти равен цене мангала (3000₽), другу Васи нет смысла «красть» мангал — он потеряет залог, а Вася получит компенсацию из фонда. Сговор становится экономически бессмысленным.
+
+**Отправляй ТЗ Агенту. Как он допишет `localStorage`, попробуй снова заполнить форму — она больше не должна «сбрасываться».**

@@ -34,11 +34,13 @@ export function getFundRate(marketValue: number): number {
 }
 
 /**
- * Реалистичный залог: 2× суточная цена, мин. 5 000 ₽, макс. 15 000 ₽.
- * Психологически комфортно — это не «заморозить стоимость Макбука».
+ * Ступенчатый залог по рыночной стоимости вещи.
+ * Мин. барьер снижен: мангал за 3 000 ₽ → залог 2 000 ₽, а не 5 000 ₽.
  */
-export function getDeposit(pricePerDay: number): number {
-  return Math.min(Math.max(Math.round(pricePerDay * 2), 5_000), 15_000);
+export function getDeposit(marketValue: number): number {
+  if (marketValue < 10_000) return 2_000;
+  if (marketValue < 50_000) return 5_000;
+  return 10_000;
 }
 
 export function calculateTotalPrice(
@@ -50,8 +52,10 @@ export function calculateTotalPrice(
   const serviceFee = parseFloat((rent * 0.10).toFixed(2));
   const taxFee = parseFloat((rent * 0.06).toFixed(2));
   const fundRate = getFundRate(marketValue);
-  const fundContribution = parseFloat((marketValue * fundRate * days).toFixed(2));
+  // Минимальный взнос в фонд: 50 ₽/день, чтобы дешёвые вещи не давали смешные 15 ₽
+  const rawFundContribution = marketValue * fundRate * days;
+  const fundContribution = parseFloat(Math.max(rawFundContribution, 50 * days).toFixed(2));
   const total = parseFloat((rent + serviceFee + taxFee + fundContribution).toFixed(2));
-  const deposit = getDeposit(pricePerDay);
+  const deposit = getDeposit(marketValue);
   return { rent, serviceFee, taxFee, fundContribution, fundRate, total, deposit };
 }

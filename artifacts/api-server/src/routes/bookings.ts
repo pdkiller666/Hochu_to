@@ -256,10 +256,17 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
     return 0.001;
   };
   const fundRate = mv ? getFundRate(mv) : 0;
-  const fundContribution = mv ? parseFloat((mv * fundRate * days).toFixed(2)) : 0;
+  // Минимальный взнос 50 ₽/день (дешёвые вещи не дают смешные 15 ₽)
+  const rawFund = mv ? mv * fundRate * days : 0;
+  const fundContribution = mv ? parseFloat(Math.max(rawFund, 50 * days).toFixed(2)) : 0;
 
-  // Реалистичный залог: 2× суточная цена, мин. 5 000, макс. 15 000 ₽
-  const depositAmount = Math.min(Math.max(Math.round(pricePerDay * 2), 5_000), 15_000);
+  // Ступенчатый залог по рыночной стоимости: <10к → 2к, <50к → 5к, >50к → 10к
+  const getDeposit = (marketValue: number) => {
+    if (marketValue < 10_000) return 2_000;
+    if (marketValue < 50_000) return 5_000;
+    return 10_000;
+  };
+  const depositAmount = mv ? getDeposit(mv) : 5_000;
 
   const totalPrice = parseFloat((rent + serviceFee + taxFee + fundContribution).toFixed(2));
 

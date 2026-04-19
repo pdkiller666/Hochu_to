@@ -7,9 +7,10 @@ import { useToast } from "@/hooks/use-toast";
 import { ChevronLeft, Loader2, ImagePlus, X } from "lucide-react";
 import { Link } from "wouter";
 import { LocationPicker } from "@/components/ui/LocationPicker";
-import { calculateTotalPrice, getDeposit } from "@/lib/utils";
+import { calculateTotalPrice } from "@/lib/utils";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "";
+const DRAFT_KEY = "hochu_to_listing_draft";
 
 export default function ListingForm() {
   const [, params] = useRoute("/dashboard/listings/:id/edit");
@@ -31,7 +32,7 @@ export default function ListingForm() {
   const createMutation = useCreateListing({ request: { headers: { Authorization: `Bearer ${token}` } } });
   const updateMutation = useUpdateListing({ request: { headers: { Authorization: `Bearer ${token}` } } });
 
-  const [formData, setFormData] = useState({
+  const defaultFormData = {
     title: "",
     description: "",
     pricePerDay: "",
@@ -44,11 +45,45 @@ export default function ListingForm() {
     lat: null as number | null,
     lng: null as number | null,
     meetingAddress: "",
+  };
+
+  const [formData, setFormData] = useState(() => {
+    if (!isEditing) {
+      try {
+        const saved = localStorage.getItem(DRAFT_KEY);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          return { ...defaultFormData, ...parsed.formData };
+        }
+      } catch {}
+    }
+    return defaultFormData;
   });
 
-  const [photos, setPhotos] = useState<string[]>([]);
+  const [photos, setPhotos] = useState<string[]>(() => {
+    if (!isEditing) {
+      try {
+        const saved = localStorage.getItem(DRAFT_KEY);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          return parsed.photos ?? [];
+        }
+      } catch {}
+    }
+    return [];
+  });
+
   const [uploading, setUploading] = useState(false);
   const uploadInputId = "photo-upload-input";
+
+  // Автосохранение черновика для новых объявлений
+  useEffect(() => {
+    if (!isEditing) {
+      try {
+        localStorage.setItem(DRAFT_KEY, JSON.stringify({ formData, photos }));
+      } catch {}
+    }
+  }, [formData, photos, isEditing]);
 
   useEffect(() => {
     // Ждём завершения начальной проверки сессии, иначе форма очищается
@@ -152,6 +187,7 @@ export default function ListingForm() {
     } else {
       createMutation.mutate({ data: payload }, {
         onSuccess: () => {
+          try { localStorage.removeItem(DRAFT_KEY); } catch {}
           toast({ title: "Успех", description: "Объявление добавлено" });
           setLocation("/dashboard");
         },
@@ -272,7 +308,7 @@ export default function ListingForm() {
                   className={`input-field ${
                     formData.marketValue && formData.pricePerDay &&
                     Number(formData.marketValue) > 0 &&
-                    Number(formData.marketValue) < Number(formData.pricePerDay)
+                    Number(formData.marketValue) < Number(formData.pricePerDay) * 10
                       ? "border-amber-400 focus:ring-amber-400"
                       : ""
                   }`}
@@ -282,11 +318,11 @@ export default function ListingForm() {
                 />
                 {formData.marketValue && formData.pricePerDay &&
                   Number(formData.marketValue) > 0 &&
-                  Number(formData.marketValue) < Number(formData.pricePerDay) ? (
+                  Number(formData.marketValue) < Number(formData.pricePerDay) * 10 ? (
                   <div className="mt-2 flex items-start gap-2 bg-amber-50 border border-amber-300 rounded-xl p-3 text-sm">
                     <span className="text-amber-500 text-base shrink-0">⚠️</span>
                     <p className="text-amber-800">
-                      Рыночная стоимость меньше суточной цены аренды — это нетипично. Проверьте данные.
+                      Внимание: вы указали низкую рыночную стоимость. При повреждении вещи Гарантийный фонд покроет ущерб только до этой суммы.
                     </p>
                   </div>
                 ) : (
