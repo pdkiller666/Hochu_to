@@ -837,7 +837,7 @@ function UsersTab() {
   useEffect(() => { const t = setTimeout(() => { setDq(q); setPage(1); }, 400); return () => clearTimeout(t); }, [q]);
 
   const url = `${API}/api/admin/users?page=${page}&limit=20${dq ? `&q=${encodeURIComponent(dq)}` : ""}${roleFilter ? `&role=${roleFilter}` : ""}${bannedFilter ? `&banned=${bannedFilter}` : ""}`;
-  const { data, loading } = useFetch<{ results: AdminUser[]; pagination: any }>(url, [rev, roleFilter, bannedFilter]);
+  const { data, loading } = useFetch<{ users: AdminUser[]; pagination: any }>(url, [rev, roleFilter, bannedFilter]);
 
   return (
     <div className="space-y-4">
@@ -933,7 +933,7 @@ function ListingsTab() {
   useEffect(() => { const t = setTimeout(() => { setDq(q); setPage(1); }, 400); return () => clearTimeout(t); }, [q]);
 
   const url = `${API}/api/admin/listings?page=${page}&limit=20${dq ? `&q=${encodeURIComponent(dq)}` : ""}${availableFilter ? `&available=${availableFilter}` : ""}`;
-  const { data, loading } = useFetch<{ results: AdminListing[]; pagination: any }>(url, [rev, availableFilter]);
+  const { data, loading } = useFetch<{ listings: AdminListing[]; pagination: any }>(url, [rev, availableFilter]);
 
   return (
     <div className="space-y-4">
@@ -1022,7 +1022,7 @@ function BookingsTab() {
   useEffect(() => { const t = setTimeout(() => { setDq(q); setPage(1); }, 400); return () => clearTimeout(t); }, [q]);
 
   const url = `${API}/api/admin/bookings?page=${page}&limit=20${dq ? `&q=${encodeURIComponent(dq)}` : ""}${statusFilter ? `&status=${statusFilter}` : ""}`;
-  const { data, loading } = useFetch<{ results: AdminBooking[]; pagination: any }>(url, [rev, statusFilter]);
+  const { data, loading } = useFetch<{ bookings: AdminBooking[]; pagination: any }>(url, [rev, statusFilter]);
 
   return (
     <div className="space-y-4">
@@ -1107,7 +1107,7 @@ function SupportTab() {
   useEffect(() => { const t = setTimeout(() => { setDq(q); setPage(1); }, 400); return () => clearTimeout(t); }, [q]);
 
   const listUrl = `${API}/api/admin/tickets?page=${page}&limit=20${dq ? `&q=${encodeURIComponent(dq)}` : ""}${statusFilter ? `&status=${statusFilter}` : ""}${priorityFilter ? `&priority=${priorityFilter}` : ""}`;
-  const { data, loading } = useFetch<{ results: any[]; pagination: any }>(listUrl, [rev, statusFilter, priorityFilter]);
+  const { data, loading } = useFetch<{ tickets: any[]; pagination: any }>(listUrl, [rev, statusFilter, priorityFilter]);
 
   const { data: detail, loading: detailLoading, refresh: refreshDetail } = useFetch<any>(selected ? `${API}/api/admin/tickets/${selected.id}` : null, [selected?.id, rev]);
 
@@ -1284,7 +1284,7 @@ function ReportsTab() {
   const [resolvedNote, setResolvedNote] = useState("");
 
   const url = `${API}/api/admin/reports?status=${statusFilter}&page=${page}&limit=20`;
-  const { data, loading } = useFetch<{ results: any[]; pagination: any }>(url, [rev, statusFilter]);
+  const { data, loading } = useFetch<{ reports: any[]; pagination: any }>(url, [rev, statusFilter]);
 
   async function handleResolve() {
     if (!resolveModal) return;
@@ -1396,7 +1396,7 @@ function ReportsTab() {
 function AuditLogTab() {
   const [page, setPage] = useState(1);
   const url = `${API}/api/admin/audit-log?page=${page}&limit=30`;
-  const { data, loading } = useFetch<{ results: any[]; pagination: any }>(url, [page]);
+  const { data, loading } = useFetch<{ entries: any[]; pagination: any }>(url, [page]);
 
   const ACTION_LABELS: Record<string, { label: string; color: string }> = {
     ban_user: { label: "Блокировка", color: "bg-red-100 text-red-700" },

@@ -711,12 +711,13 @@ router.get("/reports", requireAuth, requireAdmin, async (req: AuthRequest, res) 
     LIMIT ${limit} OFFSET ${offset}
   `).then(r => r.rows as any[]);
 
-  const [{ count }] = await db.execute(sql`SELECT COUNT(*) FROM reports WHERE status = ${status}`)
+  const [countRow] = await db.execute(sql`SELECT COUNT(*) AS total FROM reports WHERE status = ${status}`)
     .then(r => r.rows as any[]);
+  const total = Number(countRow?.total ?? 0);
 
   res.json({
     reports: rows,
-    pagination: { page, limit, total: Number(count.count), pages: Math.ceil(Number(count.count) / limit) },
+    pagination: { page, limit, total, pages: Math.ceil(total / limit) },
   });
 });
 
