@@ -45,7 +45,7 @@ export default function Favorites() {
       });
       if (res.ok) {
         const data = await res.json();
-        setListings(data.results || []);
+        setListings(Array.isArray(data) ? data : []);
       }
     } catch {}
     setLoading(false);

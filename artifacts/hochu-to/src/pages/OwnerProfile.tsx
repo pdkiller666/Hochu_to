@@ -41,8 +41,8 @@ export default function OwnerProfile() {
     if (!id) return;
     setReviewsLoading(true);
     fetch(`${API_BASE}/api/reviews/user/${id}`)
-      .then(r => r.ok ? r.json() : { results: [] })
-      .then(data => setUserReviews(data.results || []))
+      .then(r => r.ok ? r.json() : [])
+      .then(data => setUserReviews(Array.isArray(data) ? data : []))
       .catch(() => setUserReviews([]))
       .finally(() => setReviewsLoading(false));
   }, [id]);

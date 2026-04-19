@@ -57,7 +57,7 @@ export default function ListingDetail() {
       const res = await fetch(`${API_BASE}/api/listings/${id}/reviews`);
       if (res.ok) {
         const data = await res.json();
-        setReviews(data.results || []);
+        setReviews(Array.isArray(data) ? data : []);
       }
     } catch {}
   }, [id]);
@@ -69,7 +69,7 @@ export default function ListingDetail() {
       const res = await fetch(`${API_BASE}/api/bookings`, { headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) return;
       const data = await res.json();
-      const bookings: any[] = data.results || [];
+      const bookings: any[] = Array.isArray(data) ? data : [];
       const completed = bookings.find(b => b.listingId === id && b.status === "completed");
       if (!completed) return;
       const cr = await fetch(`${API_BASE}/api/reviews/can-review/${completed.id}`, { headers: { Authorization: `Bearer ${token}` } });

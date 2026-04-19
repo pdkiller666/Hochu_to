@@ -258,7 +258,7 @@ export default function Catalog() {
             <p className="font-bold text-lg mb-2">Упс! Произошла ошибка</p>
             <p>Не удалось загрузить каталог. Попробуйте обновить страницу.</p>
           </div>
-        ) : !data?.results?.length ? (
+        ) : !data?.listings?.length ? (
           <div className="bg-white border border-border p-12 rounded-2xl text-center flex flex-col items-center justify-center">
             <Search className="w-16 h-16 text-muted-foreground mb-4 opacity-50" />
             <h3 className="text-xl font-bold mb-2">Ничего не найдено</h3>
@@ -272,7 +272,7 @@ export default function Catalog() {
         ) : (
           <>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-              {data?.results && data.results.map(listing => (
+              {data?.listings && data.listings.map(listing => (
                 <ListingCard key={listing.id} listing={listing} />
               ))}
             </div>

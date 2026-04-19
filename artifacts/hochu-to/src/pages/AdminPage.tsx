@@ -877,7 +877,7 @@ function UsersTab() {
               </tr>
             </thead>
             <tbody className="divide-y divide-stone-100">
-              {data?.results?.map(u => (
+              {data?.users?.map(u => (
                 <tr key={u.id} className={`${u.isBanned ? "bg-red-50" : "hover:bg-stone-50"} cursor-pointer`} onClick={() => setSelectedId(u.id)}>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
@@ -965,7 +965,7 @@ function ListingsTab() {
               </tr>
             </thead>
             <tbody className="divide-y divide-stone-100">
-              {data?.results?.map(l => (
+              {data?.listings?.map(l => (
                 <tr key={l.id} className={`${!l.isActive ? "opacity-60" : "hover:bg-stone-50"} cursor-pointer`} onClick={() => setSelectedId(l.id)}>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
@@ -1056,7 +1056,7 @@ function BookingsTab() {
               </tr>
             </thead>
             <tbody className="divide-y divide-stone-100">
-              {data?.results?.map(b => (
+              {data?.bookings?.map(b => (
                 <tr key={b.id} className="hover:bg-stone-50">
                   <td className="px-4 py-3 font-mono text-xs text-stone-500">{b.bookingNumber}</td>
                   <td className="px-4 py-3">
@@ -1246,7 +1246,7 @@ function SupportTab() {
               </tr>
             </thead>
             <tbody className="divide-y divide-stone-100">
-              {data?.results?.map((t: any) => (
+              {data?.tickets?.map((t: any) => (
                 <tr key={t.id} className="hover:bg-stone-50 cursor-pointer" onClick={() => setSelected(t)}>
                   <td className="px-4 py-3">
                     <div className="font-medium text-stone-800 line-clamp-1">{t.subject}</div>
@@ -1265,7 +1265,7 @@ function SupportTab() {
                   <td className="px-4 py-3"><Badge cls={STATUS_COLORS[t.status] ?? ""} label={STATUS_LABEL[t.status] ?? t.status} /></td>
                 </tr>
               ))}
-              {!data?.results?.length && <tr><td colSpan={7} className="px-4 py-8 text-center text-stone-400">Тикетов нет</td></tr>}
+              {!data?.tickets?.length && <tr><td colSpan={7} className="px-4 py-8 text-center text-stone-400">Тикетов нет</td></tr>}
             </tbody>
           </table>
         </div>
@@ -1311,8 +1311,8 @@ function ReportsTab() {
 
       {loading ? <div className="text-center py-8 text-stone-400">Загрузка…</div> : (
         <div className="space-y-3">
-          {!data?.results?.length && <div className="text-center py-12 text-stone-400"><Flag className="w-10 h-10 mx-auto mb-2 opacity-30" />Жалоб нет</div>}
-          {data?.results?.map((r: any) => (
+          {!data?.reports?.length && <div className="text-center py-12 text-stone-400"><Flag className="w-10 h-10 mx-auto mb-2 opacity-30" />Жалоб нет</div>}
+          {data?.reports?.map((r: any) => (
             <div key={r.id} className="bg-white rounded-xl border border-stone-200 p-4">
               <div className="flex items-start justify-between gap-4 flex-wrap">
                 <div className="flex-1">
@@ -1420,7 +1420,7 @@ function AuditLogTab() {
       <p className="text-sm text-stone-500">Все действия администраторов на платформе</p>
       {loading ? <div className="text-center py-8 text-stone-400">Загрузка…</div> : (
         <div className="space-y-2">
-          {data?.results?.map((e: any) => {
+          {data?.entries?.map((e: any) => {
             const meta = ACTION_LABELS[e.action] ?? { label: e.action, color: "bg-stone-100 text-stone-600" };
             return (
               <div key={e.id} className="bg-white rounded-xl border border-stone-200 px-4 py-3 flex items-start gap-3">
@@ -1439,7 +1439,7 @@ function AuditLogTab() {
               </div>
             );
           })}
-          {!data?.results?.length && <div className="text-center py-12 text-stone-400"><ScrollText className="w-10 h-10 mx-auto mb-2 opacity-30" />Действий пока нет</div>}
+          {!data?.entries?.length && <div className="text-center py-12 text-stone-400"><ScrollText className="w-10 h-10 mx-auto mb-2 opacity-30" />Действий пока нет</div>}
         </div>
       )}
       <Pagination page={page} pages={data?.pagination.pages ?? 1} onChange={setPage} />
