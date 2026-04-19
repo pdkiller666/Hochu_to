@@ -248,7 +248,7 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
   const serviceFee = parseFloat((rent * 0.10).toFixed(2));
   const taxFee = parseFloat((rent * 0.06).toFixed(2));
 
-  // ─── Модель «Стальной щит» ────────────────────────────────────────────────
+  // ─── Гарантийный фонд ─────────────────────────────────────────────────────
   // Лимит фонда уже рассчитан и сохранён в объявлении (maxProtectionLimit)
   const maxProt = listing.maxProtectionLimit ?? 0;
   // Взнос в фонд: maxProt * 0.5%, мин. 99 ₽/сутки

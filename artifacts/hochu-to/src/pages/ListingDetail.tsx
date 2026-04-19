@@ -481,7 +481,7 @@ export default function ListingDetail() {
                         <div>
                           <p>Залог: <strong className="text-foreground">{formatPrice(deposit)}</strong> — возвращается сразу после сдачи вещи в том же состоянии.</p>
                           {ownerProt && maxProt && maxProt > 0 && (
-                            <p className="text-xs mt-1 text-primary/80">Фонд «Стальной щит»: лимит компенсации <strong>{maxProt.toLocaleString("ru")} ₽</strong></p>
+                            <p className="text-xs mt-1 text-primary/80">Гарантийный фонд: лимит компенсации <strong>{maxProt.toLocaleString("ru")} ₽</strong></p>
                           )}
                         </div>
                       </div>

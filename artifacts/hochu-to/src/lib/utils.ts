@@ -38,7 +38,7 @@ const CATEGORY_MULTIPLIERS: Record<ItemCategory, number> = {
 };
 
 /**
- * Максимальный лимит компенсации из фонда «Стальной щит».
+ * Максимальный лимит компенсации из Гарантийного фонда.
  * При < 3 завершённых сделок — жёсткий кап 25 000 ₽ (защита от фрода).
  */
 export function calcMaxProtectionLimit(

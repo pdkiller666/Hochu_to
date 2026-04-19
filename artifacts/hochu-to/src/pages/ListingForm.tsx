@@ -396,7 +396,7 @@ export default function ListingForm() {
                   }
                   <div>
                     <p className={`font-bold text-sm ${formData.ownerProtectionEnabled ? "text-primary" : "text-amber-800"}`}>
-                      {formData.ownerProtectionEnabled ? "Гарантийный фонд «Стальной щит» подключён" : "Гарантийный фонд отключён"}
+                      {formData.ownerProtectionEnabled ? "Гарантийный фонд подключён" : "Гарантийный фонд отключён"}
                     </p>
                     {formData.ownerProtectionEnabled ? (
                       <p className="text-xs text-muted-foreground mt-0.5 leading-tight">
