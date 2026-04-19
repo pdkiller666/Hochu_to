@@ -1,8 +1,8 @@
 import { Layout } from "@/components/layout/Layout";
 import { useRoute } from "wouter";
 import { useGetListingById, useGetListingUnavailableDates, useCreateBooking, useGetCurrentUser } from "@workspace/api-client-react";
-import { Loader2, MapPin, Star, Shield, ShieldOff, Info, User, ChevronLeft, CheckCircle2, AlertTriangle, Settings, CalendarDays, X, Expand, Hash, MessageSquare, Phone } from "lucide-react";
-import { formatPrice, calculateTotalPrice, getFundRate, getDeposit } from "@/lib/utils";
+import { Loader2, MapPin, Star, Shield, ShieldOff, ShieldCheck, Info, User, ChevronLeft, CheckCircle2, AlertTriangle, Settings, CalendarDays, X, Expand, Hash, MessageSquare, Phone } from "lucide-react";
+import { formatPrice, calculateTotalPrice, getDeposit } from "@/lib/utils";
 import { useState, useEffect, useCallback } from "react";
 import { useAuthState } from "@/lib/auth";
 import { Link } from "wouter";
@@ -40,6 +40,7 @@ export default function ListingDetail() {
   const [message, setMessage] = useState("");
   const [bookingSuccess, setBookingSuccess] = useState(false);
   const [protectionEnabled, setProtectionEnabled] = useState(true);
+  const [renterFundEnabled, setRenterFundEnabled] = useState(true);
   const [showConsequenceModal, setShowConsequenceModal] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
@@ -165,6 +166,7 @@ export default function ListingDetail() {
         endDate: endDate || undefined,
         message,
         protectionEnabled,
+        renterProtectionEnabled: renterFundEnabled,
       } as any
     }, {
       onSuccess: () => setBookingSuccess(true),
@@ -468,7 +470,7 @@ export default function ListingDetail() {
                 </div>
                 {(() => {
                   const mv = (listing as any).marketValue as number | undefined;
-                  const deposit = getDeposit(listing.pricePerDay);
+                  const deposit = getDeposit(mv ?? 0);
                   const isHighValue = mv && mv > 100_000;
                   return (
                     <div className="space-y-2 mt-4">
@@ -539,11 +541,11 @@ export default function ListingDetail() {
                   {/* ─── Consequence Modal ──────────────────────────────── */}
                   {showConsequenceModal && (() => {
                     const mv = (listing as any).marketValue as number | undefined;
-                    const deposit = getDeposit(listing.pricePerDay);
+                    const deposit = getDeposit(mv ?? 0);
                     const savingsEstimate = totalDays > 0
                       ? (() => {
-                          const { serviceFee, taxFee, fundContribution } = calculateTotalPrice(listing.pricePerDay, mv ?? 0, totalDays);
-                          return Math.round(serviceFee + taxFee + fundContribution);
+                          const { combinedServiceFee } = calculateTotalPrice(listing.pricePerDay, mv ?? 0, totalDays);
+                          return Math.round(combinedServiceFee);
                         })()
                       : 0;
                     return (
@@ -652,6 +654,40 @@ export default function ListingDetail() {
                       </div>
                     </div>
 
+                    {/* ─── Тоггл фонда для арендатора (только Сценарий А) ── */}
+                    {protectionEnabled && (
+                      <div className={`rounded-2xl border-2 p-4 transition-colors ${renterFundEnabled ? "border-green-300 bg-green-50" : "border-border bg-muted/30"}`}>
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-start gap-2.5">
+                            {renterFundEnabled
+                              ? <ShieldCheck className="w-5 h-5 text-green-600 shrink-0 mt-0.5" />
+                              : <ShieldOff className="w-5 h-5 text-muted-foreground shrink-0 mt-0.5" />
+                            }
+                            <div>
+                              <p className={`font-bold text-sm ${renterFundEnabled ? "text-green-700" : "text-foreground"}`}>
+                                {renterFundEnabled ? "Моя защита из фонда" : "Защита арендатора отключена"}
+                              </p>
+                              <p className="text-xs text-muted-foreground mt-0.5 leading-tight">
+                                {renterFundEnabled
+                                  ? "Ваш взнос в фонд покрывает споры о состоянии вещи и форс-мажоры. Независимо от выбора владельца."
+                                  : "Вы берёте на себя риск спорных ситуаций без дополнительной поддержки фонда."
+                                }
+                              </p>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={renterFundEnabled}
+                            onClick={() => setRenterFundEnabled(v => !v)}
+                            className={`relative w-12 h-6 rounded-full transition-colors shrink-0 ${renterFundEnabled ? "bg-green-500" : "bg-muted-foreground/30"}`}
+                          >
+                            <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-all ${renterFundEnabled ? "left-7" : "left-1"}`} />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Calendar section — shown only for Сценарий А */}
                     {protectionEnabled && (
                       <>
@@ -706,9 +742,9 @@ export default function ListingDetail() {
                       </div>
                     ) : startDate && endDate && (() => {
                       const mv = (listing as any).marketValue as number | undefined;
-                      const { rent, serviceFee, taxFee, fundContribution, fundRate, total, deposit } =
-                        calculateTotalPrice(listing.pricePerDay, mv ?? 0, totalDays);
-                      const fundPct = mv ? `${(fundRate * 100).toFixed(1)}%` : null;
+                      const ownerProt = (listing as any).ownerProtectionEnabled !== false;
+                      const { rent, combinedServiceFee, renterFundContribution, total, deposit } =
+                        calculateTotalPrice(listing.pricePerDay, mv ?? 0, totalDays, ownerProt, renterFundEnabled);
                       return (
                         <div className="bg-primary/5 p-4 rounded-xl border border-primary/20 space-y-1.5 text-sm">
                           <div className="flex justify-between text-muted-foreground">
@@ -716,24 +752,16 @@ export default function ListingDetail() {
                             <span>{formatPrice(rent)}</span>
                           </div>
                           <div className="flex justify-between text-muted-foreground">
-                            <span>Комиссия сервиса (10%)</span>
-                            <span>{formatPrice(serviceFee)}</span>
+                            <span>Комиссия сервиса</span>
+                            <span>{formatPrice(combinedServiceFee)}</span>
                           </div>
-                          <div className="flex justify-between text-muted-foreground">
-                            <span>Налог самозанятого (6%)</span>
-                            <span>{formatPrice(taxFee)}</span>
-                          </div>
-                          {mv && mv > 0 && fundContribution > 0 && (
-                            <div className="flex justify-between text-muted-foreground">
-                              <span>
-                                Гарантийный фонд
-                                {fundPct && (
-                                  <span className="ml-1 text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">
-                                    {fundPct}/день
-                                  </span>
-                                )}
+                          {renterFundEnabled && renterFundContribution > 0 && (
+                            <div className="flex justify-between text-green-700">
+                              <span className="flex items-center gap-1">
+                                <ShieldCheck className="w-3.5 h-3.5" />
+                                Моя защита из фонда
                               </span>
-                              <span>{formatPrice(fundContribution)}</span>
+                              <span>{formatPrice(renterFundContribution)}</span>
                             </div>
                           )}
                           <div className="flex justify-between items-center font-bold border-t border-primary/20 pt-1.5 mt-1">

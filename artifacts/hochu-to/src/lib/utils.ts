@@ -17,7 +17,10 @@ export interface PriceBreakdown {
   rent: number;
   serviceFee: number;
   taxFee: number;
-  fundContribution: number;
+  ownerFundContribution: number;
+  renterFundContribution: number;
+  /** Комиссия сервиса объединённая: serviceFee + taxFee + ownerFundContribution */
+  combinedServiceFee: number;
   fundRate: number;
   total: number;
   deposit: number;
@@ -43,19 +46,49 @@ export function getDeposit(marketValue: number): number {
   return 10_000;
 }
 
+/**
+ * Взнос в фонд для одной стороны (владелец или арендатор).
+ * Минимум 50 ₽/день чтобы не было смешных 15 ₽.
+ */
+function calcFundContrib(marketValue: number, days: number): number {
+  const rate = getFundRate(marketValue);
+  const raw = marketValue * rate * days;
+  return parseFloat(Math.max(raw, 50 * days).toFixed(2));
+}
+
 export function calculateTotalPrice(
   pricePerDay: number,
   marketValue: number,
-  days: number
+  days: number,
+  ownerProtectionEnabled = true,
+  renterProtectionEnabled = false,
 ): PriceBreakdown {
   const rent = pricePerDay * days;
   const serviceFee = parseFloat((rent * 0.10).toFixed(2));
   const taxFee = parseFloat((rent * 0.06).toFixed(2));
   const fundRate = getFundRate(marketValue);
-  // Минимальный взнос в фонд: 50 ₽/день, чтобы дешёвые вещи не давали смешные 15 ₽
-  const rawFundContribution = marketValue * fundRate * days;
-  const fundContribution = parseFloat(Math.max(rawFundContribution, 50 * days).toFixed(2));
-  const total = parseFloat((rent + serviceFee + taxFee + fundContribution).toFixed(2));
-  const deposit = getDeposit(marketValue);
-  return { rent, serviceFee, taxFee, fundContribution, fundRate, total, deposit };
+
+  const ownerFundContribution = ownerProtectionEnabled && marketValue > 0
+    ? calcFundContrib(marketValue, days)
+    : 0;
+
+  const renterFundContribution = renterProtectionEnabled && marketValue > 0
+    ? calcFundContrib(marketValue, days)
+    : 0;
+
+  const combinedServiceFee = parseFloat((serviceFee + taxFee + ownerFundContribution).toFixed(2));
+  const total = parseFloat((rent + combinedServiceFee + renterFundContribution).toFixed(2));
+  const deposit = marketValue > 0 ? getDeposit(marketValue) : 0;
+
+  return {
+    rent,
+    serviceFee,
+    taxFee,
+    ownerFundContribution,
+    renterFundContribution,
+    combinedServiceFee,
+    fundRate,
+    total,
+    deposit,
+  };
 }

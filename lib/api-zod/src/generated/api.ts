@@ -154,6 +154,7 @@ export const CreateListingBody = zod.object({
   photos: zod.array(zod.string()).optional(),
   deposit: zod.number().optional(),
   marketValue: zod.number().optional(),
+  ownerProtectionEnabled: zod.boolean().optional(),
   isAvailable: zod.boolean().optional(),
 });
 
@@ -315,6 +316,7 @@ export const CreateBookingBody = zod.object({
   endDate: zod.string().optional(),
   message: zod.string().optional(),
   protectionEnabled: zod.boolean().optional(),
+  renterProtectionEnabled: zod.boolean().optional(),
 });
 
 /**

@@ -126,7 +126,8 @@ export function ListingCard({ listing }: ListingCardProps) {
           {(() => {
             const mv = (listing as any).marketValue as number | undefined | null;
             if (!mv || mv <= 0) return null;
-            const { total, serviceFee, taxFee, fundContribution, fundRate, deposit } = calculateTotalPrice(listing.pricePerDay, mv, 1);
+            const ownerProt = (listing as any).ownerProtectionEnabled !== false;
+            const { total, combinedServiceFee, deposit } = calculateTotalPrice(listing.pricePerDay, mv, 1, ownerProt);
             return (
               <div className="relative">
                 <div
@@ -146,14 +147,7 @@ export function ListingCard({ listing }: ListingCardProps) {
                       <span>Аренда</span><span>{formatPrice(listing.pricePerDay)}</span>
                     </div>
                     <div className="flex justify-between text-muted-foreground">
-                      <span>Комиссия (10%)</span><span>{formatPrice(serviceFee)}</span>
-                    </div>
-                    <div className="flex justify-between text-muted-foreground">
-                      <span>Налог СЗ (6%)</span><span>{formatPrice(taxFee)}</span>
-                    </div>
-                    <div className="flex justify-between text-muted-foreground">
-                      <span>Фонд «Стальной щит» ({(fundRate * 100).toFixed(1)}%)</span>
-                      <span>{formatPrice(fundContribution)}</span>
+                      <span>Комиссия сервиса</span><span>{formatPrice(combinedServiceFee)}</span>
                     </div>
                     <div className="flex justify-between font-bold border-t border-border pt-1 text-foreground">
                       <span>Итого</span><span>{formatPrice(total)}</span>

@@ -37,6 +37,7 @@ async function getListingWithDetails(id: number) {
       pricePerDay: listingsTable.pricePerDay,
       deposit: listingsTable.deposit,
       marketValue: listingsTable.marketValue,
+      ownerProtectionEnabled: listingsTable.ownerProtectionEnabled,
       categoryId: listingsTable.categoryId,
       categoryName: categoriesTable.name,
       regionId: listingsTable.regionId,
@@ -110,6 +111,7 @@ router.get("/", async (req, res) => {
       pricePerDay: listingsTable.pricePerDay,
       deposit: listingsTable.deposit,
       marketValue: listingsTable.marketValue,
+      ownerProtectionEnabled: listingsTable.ownerProtectionEnabled,
       categoryId: listingsTable.categoryId,
       categoryName: categoriesTable.name,
       regionId: listingsTable.regionId,
@@ -208,7 +210,7 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
     return;
   }
 
-  const { title, description, pricePerDay, categoryId, regionId, city, lat, lng, meetingAddress, photos, deposit, marketValue, isAvailable } = parsed.data;
+  const { title, description, pricePerDay, categoryId, regionId, city, lat, lng, meetingAddress, photos, deposit, marketValue, ownerProtectionEnabled, isAvailable } = parsed.data;
 
   const [listing] = await db.insert(listingsTable).values({
     title,
@@ -224,6 +226,7 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
     photos: photos ?? [],
     deposit: deposit ? deposit.toString() : null,
     marketValue: marketValue ? marketValue.toString() : null,
+    ownerProtectionEnabled: ownerProtectionEnabled !== false,
     isAvailable: isAvailable ?? true,
   }).returning();
 
@@ -308,7 +311,7 @@ router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
     return;
   }
 
-  const { title, description, pricePerDay, categoryId, regionId, city, lat, lng, meetingAddress, photos, deposit, marketValue, isAvailable } = req.body;
+  const { title, description, pricePerDay, categoryId, regionId, city, lat, lng, meetingAddress, photos, deposit, marketValue, ownerProtectionEnabled: ownerProt, isAvailable } = req.body;
 
   if (photos !== undefined && Array.isArray(existing.photos)) {
     const removed = (existing.photos as string[]).filter(p => !photos.includes(p));
@@ -328,6 +331,7 @@ router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
     ...(photos !== undefined && { photos }),
     ...(deposit !== undefined && { deposit: deposit?.toString() ?? null }),
     ...(marketValue !== undefined && { marketValue: marketValue?.toString() ?? null }),
+    ...(ownerProt !== undefined && { ownerProtectionEnabled: ownerProt }),
     ...(isAvailable !== undefined && { isAvailable }),
   }).where(eq(listingsTable.id, id));
 

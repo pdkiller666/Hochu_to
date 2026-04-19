@@ -143,7 +143,7 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
     return;
   }
 
-  const { listingId, startDate: rawStart, endDate: rawEnd, message, protectionEnabled = true } = parsed.data;
+  const { listingId, startDate: rawStart, endDate: rawEnd, message, protectionEnabled = true, renterProtectionEnabled = false } = parsed.data;
 
   const CONTACT_FEE = 150;
 
@@ -255,10 +255,17 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
     if (marketValue <= 150_000) return 0.002;
     return 0.001;
   };
-  const fundRate = mv ? getFundRate(mv) : 0;
-  // Минимальный взнос 50 ₽/день (дешёвые вещи не дают смешные 15 ₽)
-  const rawFund = mv ? mv * fundRate * days : 0;
-  const fundContribution = mv ? parseFloat(Math.max(rawFund, 50 * days).toFixed(2)) : 0;
+  // Взнос в фонд для одной стороны: минимум 50 ₽/день
+  const calcFundContrib = (marketValue: number) => {
+    const rate = getFundRate(marketValue);
+    const raw = marketValue * rate * days;
+    return parseFloat(Math.max(raw, 50 * days).toFixed(2));
+  };
+  // Взнос владельца — только если ownerProtectionEnabled на объявлении
+  const ownerProtEnabled = listing.ownerProtectionEnabled !== false;
+  const fundContribution = mv && ownerProtEnabled ? calcFundContrib(mv) : 0;
+  // Взнос арендатора — независимо от владельца
+  const renterFundContrib = mv && renterProtectionEnabled ? calcFundContrib(mv) : 0;
 
   // Ступенчатый залог по рыночной стоимости: <10к → 2к, <50к → 5к, >50к → 10к
   const getDeposit = (marketValue: number) => {
@@ -268,7 +275,7 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
   };
   const depositAmount = mv ? getDeposit(mv) : 5_000;
 
-  const totalPrice = parseFloat((rent + serviceFee + taxFee + fundContribution).toFixed(2));
+  const totalPrice = parseFloat((rent + serviceFee + taxFee + fundContribution + renterFundContrib).toFixed(2));
 
   const [booking] = await db.insert(bookingsTable).values({
     listingId,
@@ -282,8 +289,10 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
     serviceFee: serviceFee.toString(),
     taxFee: taxFee.toString(),
     fundContribution: fundContribution.toString(),
+    renterFundContribution: renterFundContrib.toString(),
     depositAmount: depositAmount.toString(),
     protectionEnabled: true,
+    renterProtectionEnabled,
     status: "pending",
     message: message ?? null,
   }).returning();

@@ -4,7 +4,7 @@ import { useLocation, useRoute } from "wouter";
 import { useCreateListing, useUpdateListing, useGetListingById, useGetCategories, useGetRegions } from "@workspace/api-client-react";
 import { useAuthState } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
-import { ChevronLeft, Loader2, ImagePlus, X } from "lucide-react";
+import { ChevronLeft, Loader2, ImagePlus, X, ShieldCheck, ShieldOff } from "lucide-react";
 import { Link } from "wouter";
 import { LocationPicker } from "@/components/ui/LocationPicker";
 import { calculateTotalPrice } from "@/lib/utils";
@@ -41,6 +41,7 @@ export default function ListingForm() {
     city: "",
     deposit: "",
     marketValue: "",
+    ownerProtectionEnabled: true,
     isAvailable: true,
     lat: null as number | null,
     lng: null as number | null,
@@ -102,6 +103,7 @@ export default function ListingForm() {
         city: (listingData as any).city || "",
         deposit: listingData.deposit?.toString() || "",
         marketValue: (listingData as any).marketValue?.toString() || "",
+        ownerProtectionEnabled: (listingData as any).ownerProtectionEnabled !== false,
         lat: (listingData as any).lat ?? null,
         lng: (listingData as any).lng ?? null,
         meetingAddress: (listingData as any).meetingAddress || "",
@@ -173,6 +175,7 @@ export default function ListingForm() {
       meetingAddress: formData.meetingAddress.trim() || undefined,
       deposit: formData.deposit ? Number(formData.deposit) : undefined,
       marketValue: formData.marketValue ? Number(formData.marketValue) : undefined,
+      ownerProtectionEnabled: formData.ownerProtectionEnabled,
       isAvailable: formData.isAvailable,
       photos,
     };
@@ -339,21 +342,55 @@ export default function ListingForm() {
                 <p className="text-xs text-muted-foreground mt-1">Если указана рыночная стоимость, залог рассчитывается автоматически</p>
               </div>
             </div>
-            {formData.marketValue && Number(formData.marketValue) > 0 && formData.pricePerDay && Number(formData.pricePerDay) > 0 && (() => {
-              const { rent, serviceFee, taxFee, fundContribution, fundRate, total, deposit } =
-                calculateTotalPrice(Number(formData.pricePerDay), Number(formData.marketValue), 1);
-              return (
-                <div className="bg-primary/5 border border-primary/20 rounded-xl p-4 text-sm space-y-1">
-                  <p className="font-bold text-primary mb-2">Расчёт для арендатора (за 1 день)</p>
-                  <div className="flex justify-between text-muted-foreground"><span>Аренда × 1 день</span><span>{rent.toLocaleString("ru")} ₽</span></div>
-                  <div className="flex justify-between text-muted-foreground"><span>Комиссия сервиса (10%)</span><span>{serviceFee.toLocaleString("ru")} ₽</span></div>
-                  <div className="flex justify-between text-muted-foreground"><span>Налог самозанятого (6%)</span><span>{taxFee.toLocaleString("ru")} ₽</span></div>
-                  <div className="flex justify-between text-muted-foreground">
-                    <span>Гарантийный фонд <span className="text-xs bg-primary/10 text-primary px-1 rounded">({(fundRate * 100).toFixed(1)}%/день)</span></span>
-                    <span>{fundContribution.toLocaleString("ru")} ₽</span>
+
+            {/* ─── Тоггл Гарантийного фонда для владельца ─────────────────── */}
+            <div className={`rounded-2xl border-2 p-4 transition-colors ${formData.ownerProtectionEnabled ? "border-primary/30 bg-primary/5" : "border-amber-300 bg-amber-50"}`}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-2.5">
+                  {formData.ownerProtectionEnabled
+                    ? <ShieldCheck className="w-5 h-5 text-primary shrink-0 mt-0.5" />
+                    : <ShieldOff className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                  }
+                  <div>
+                    <p className={`font-bold text-sm ${formData.ownerProtectionEnabled ? "text-primary" : "text-amber-800"}`}>
+                      {formData.ownerProtectionEnabled ? "Гарантийный фонд подключён" : "Гарантийный фонд отключён"}
+                    </p>
+                    {formData.ownerProtectionEnabled ? (
+                      <p className="text-xs text-muted-foreground mt-0.5 leading-tight">
+                        Взнос владельца включён в комиссию сервиса. Фонд покрывает ремонт до 70% от рыночной стоимости при повреждении.
+                      </p>
+                    ) : (
+                      <p className="text-xs text-amber-700 mt-0.5 leading-tight">
+                        ⚠️ Без фонда вы несёте весь риск самостоятельно. При повреждении вещи компенсация не гарантирована — только залог арендатора.
+                      </p>
+                    )}
                   </div>
-                  <div className="flex justify-between font-bold border-t border-primary/20 pt-1 mt-1"><span>Итого с арендатора</span><span>{total.toLocaleString("ru", { maximumFractionDigits: 0 })} ₽</span></div>
-                  <div className="flex justify-between text-amber-700 font-medium mt-1"><span>Залог (возврат после сдачи)</span><span>{deposit.toLocaleString("ru")} ₽</span></div>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={formData.ownerProtectionEnabled}
+                  onClick={() => setFormData({ ...formData, ownerProtectionEnabled: !formData.ownerProtectionEnabled })}
+                  className={`relative w-12 h-6 rounded-full transition-colors shrink-0 ${formData.ownerProtectionEnabled ? "bg-primary" : "bg-amber-400"}`}
+                >
+                  <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-all ${formData.ownerProtectionEnabled ? "left-7" : "left-1"}`} />
+                </button>
+              </div>
+            </div>
+
+            {formData.marketValue && Number(formData.marketValue) > 0 && formData.pricePerDay && Number(formData.pricePerDay) > 0 && (() => {
+              const { rent, combinedServiceFee, total, deposit } =
+                calculateTotalPrice(Number(formData.pricePerDay), Number(formData.marketValue), 1, formData.ownerProtectionEnabled);
+              return (
+                <div className="bg-muted/40 border border-border rounded-xl p-4 text-sm space-y-1.5">
+                  <p className="font-bold text-foreground mb-2">Что увидит арендатор (за 1 день)</p>
+                  <div className="flex justify-between text-muted-foreground"><span>Аренда × 1 день</span><span>{rent.toLocaleString("ru")} ₽</span></div>
+                  <div className="flex justify-between text-muted-foreground">
+                    <span>Комиссия сервиса <span className="text-xs text-muted-foreground">(включает все сборы)</span></span>
+                    <span>{combinedServiceFee.toLocaleString("ru", { maximumFractionDigits: 0 })} ₽</span>
+                  </div>
+                  <div className="flex justify-between font-bold border-t border-border pt-1.5 mt-1"><span>Итого</span><span>{total.toLocaleString("ru", { maximumFractionDigits: 0 })} ₽</span></div>
+                  <div className="flex justify-between text-amber-700 text-xs pt-0.5"><span>+ залог (возврат после сдачи)</span><span className="font-medium">{deposit.toLocaleString("ru")} ₽</span></div>
                 </div>
               );
             })()}
