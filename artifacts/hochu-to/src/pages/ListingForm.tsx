@@ -7,6 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ChevronLeft, Loader2, ImagePlus, X } from "lucide-react";
 import { Link } from "wouter";
 import { LocationPicker } from "@/components/ui/LocationPicker";
+import { calculateTotalPrice, getDeposit } from "@/lib/utils";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "";
 
@@ -15,7 +16,7 @@ export default function ListingForm() {
   const isEditing = !!params?.id;
   const id = Number(params?.id);
 
-  const { isAuthenticated, token } = useAuthState();
+  const { isAuthenticated, isAuthLoading, token } = useAuthState();
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -50,8 +51,10 @@ export default function ListingForm() {
   const uploadInputId = "photo-upload-input";
 
   useEffect(() => {
-    if (!isAuthenticated) setLocation("/auth");
-  }, [isAuthenticated]);
+    // Ждём завершения начальной проверки сессии, иначе форма очищается
+    // в момент временного isAuthenticated=false при обновлении токена
+    if (!isAuthLoading && !isAuthenticated) setLocation("/auth");
+  }, [isAuthenticated, isAuthLoading]);
 
   useEffect(() => {
     if (isEditing && listingData) {
@@ -269,26 +272,27 @@ export default function ListingForm() {
                   className={`input-field ${
                     formData.marketValue && formData.pricePerDay &&
                     Number(formData.marketValue) > 0 &&
-                    Number(formData.marketValue) < Number(formData.pricePerDay) * 30
+                    Number(formData.marketValue) < Number(formData.pricePerDay)
                       ? "border-amber-400 focus:ring-amber-400"
                       : ""
                   }`}
-                  placeholder="50000"
+                  placeholder="например, 3000"
                   value={formData.marketValue}
                   onChange={e => setFormData({ ...formData, marketValue: e.target.value })}
                 />
                 {formData.marketValue && formData.pricePerDay &&
                   Number(formData.marketValue) > 0 &&
-                  Number(formData.marketValue) < Number(formData.pricePerDay) * 30 ? (
+                  Number(formData.marketValue) < Number(formData.pricePerDay) ? (
                   <div className="mt-2 flex items-start gap-2 bg-amber-50 border border-amber-300 rounded-xl p-3 text-sm">
                     <span className="text-amber-500 text-base shrink-0">⚠️</span>
                     <p className="text-amber-800">
-                      <strong>Низкая рыночная стоимость снижает вашу защиту</strong> в Гарантийном фонде «Стальной щит».
-                      Рекомендуем указать не менее <strong>{(Number(formData.pricePerDay) * 30).toLocaleString("ru")} ₽</strong> (30× от цены аренды).
+                      Рыночная стоимость меньше суточной цены аренды — это нетипично. Проверьте данные.
                     </p>
                   </div>
                 ) : (
-                  <p className="text-xs text-muted-foreground mt-1">Используется для расчёта залога (10%) и взноса в Гарантийный фонд (0,5%/день)</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Реальная цена вещи в магазине. Используется для взноса в Гарантийный фонд.
+                  </p>
                 )}
               </div>
             </div>
@@ -299,17 +303,24 @@ export default function ListingForm() {
                 <p className="text-xs text-muted-foreground mt-1">Если указана рыночная стоимость, залог рассчитывается автоматически</p>
               </div>
             </div>
-            {formData.marketValue && Number(formData.marketValue) > 0 && (
-              <div className="bg-primary/5 border border-primary/20 rounded-xl p-4 text-sm space-y-1">
-                <p className="font-bold text-primary mb-2">Расчёт для арендатора (пример за 1 день)</p>
-                <div className="flex justify-between text-muted-foreground"><span>Аренда × 1 день</span><span>{formData.pricePerDay ? Number(formData.pricePerDay).toLocaleString("ru") + " ₽" : "—"}</span></div>
-                <div className="flex justify-between text-muted-foreground"><span>Комиссия сервиса (10%)</span><span>{formData.pricePerDay ? (Number(formData.pricePerDay) * 0.1).toLocaleString("ru") + " ₽" : "—"}</span></div>
-                <div className="flex justify-between text-muted-foreground"><span>Налог самозанятого (6%)</span><span>{formData.pricePerDay ? (Number(formData.pricePerDay) * 0.06).toLocaleString("ru") + " ₽" : "—"}</span></div>
-                <div className="flex justify-between text-muted-foreground"><span>Гарантийный фонд (0,5%/день)</span><span>{(Number(formData.marketValue) * 0.005).toLocaleString("ru")} ₽</span></div>
-                <div className="flex justify-between font-bold border-t border-primary/20 pt-1 mt-1"><span>Итого с арендатора</span><span>{formData.pricePerDay ? (Number(formData.pricePerDay) * 1.16 + Number(formData.marketValue) * 0.005).toLocaleString("ru", { maximumFractionDigits: 0 }) + " ₽" : "—"}</span></div>
-                <div className="flex justify-between text-amber-700 font-medium mt-1"><span>Залог (10% от стоимости)</span><span>{(Number(formData.marketValue) * 0.1).toLocaleString("ru")} ₽</span></div>
-              </div>
-            )}
+            {formData.marketValue && Number(formData.marketValue) > 0 && formData.pricePerDay && Number(formData.pricePerDay) > 0 && (() => {
+              const { rent, serviceFee, taxFee, fundContribution, fundRate, total, deposit } =
+                calculateTotalPrice(Number(formData.pricePerDay), Number(formData.marketValue), 1);
+              return (
+                <div className="bg-primary/5 border border-primary/20 rounded-xl p-4 text-sm space-y-1">
+                  <p className="font-bold text-primary mb-2">Расчёт для арендатора (за 1 день)</p>
+                  <div className="flex justify-between text-muted-foreground"><span>Аренда × 1 день</span><span>{rent.toLocaleString("ru")} ₽</span></div>
+                  <div className="flex justify-between text-muted-foreground"><span>Комиссия сервиса (10%)</span><span>{serviceFee.toLocaleString("ru")} ₽</span></div>
+                  <div className="flex justify-between text-muted-foreground"><span>Налог самозанятого (6%)</span><span>{taxFee.toLocaleString("ru")} ₽</span></div>
+                  <div className="flex justify-between text-muted-foreground">
+                    <span>Гарантийный фонд <span className="text-xs bg-primary/10 text-primary px-1 rounded">({(fundRate * 100).toFixed(1)}%/день)</span></span>
+                    <span>{fundContribution.toLocaleString("ru")} ₽</span>
+                  </div>
+                  <div className="flex justify-between font-bold border-t border-primary/20 pt-1 mt-1"><span>Итого с арендатора</span><span>{total.toLocaleString("ru", { maximumFractionDigits: 0 })} ₽</span></div>
+                  <div className="flex justify-between text-amber-700 font-medium mt-1"><span>Залог (возврат после сдачи)</span><span>{deposit.toLocaleString("ru")} ₽</span></div>
+                </div>
+              );
+            })()}
           </div>
 
           <div className="space-y-4 pt-6 border-t border-border">

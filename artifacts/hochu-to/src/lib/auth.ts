@@ -59,6 +59,9 @@ export async function logoutEverywhere(): Promise<void> {
 // Custom hook to reactively track auth state across components
 export function useAuthState() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(!!getToken());
+  // isAuthLoading = true пока идёт начальная проверка сессии из куки.
+  // Пока true — не делать редирект на /auth, чтобы форма не очищалась.
+  const [isAuthLoading, setIsAuthLoading] = useState<boolean>(!getToken());
 
   useEffect(() => {
     const bootstrapRefresh = async () => {
@@ -66,6 +69,7 @@ export function useAuthState() {
       // customFetch сам обновит его при 401. Не ротируем refresh token на каждом монтировании.
       if (getToken()) {
         setIsAuthenticated(true);
+        setIsAuthLoading(false);
         return;
       }
       // Токена нет — пробуем восстановить сессию из httpOnly куки
@@ -74,6 +78,7 @@ export function useAuthState() {
         removeToken();
       }
       setIsAuthenticated(!!getToken());
+      setIsAuthLoading(false);
     };
     void bootstrapRefresh();
 
@@ -102,5 +107,5 @@ export function useAuthState() {
     setIsAuthenticated(false);
   };
 
-  return { isAuthenticated, login, logout, token: getToken() };
+  return { isAuthenticated, isAuthLoading, login, logout, token: getToken() };
 }
