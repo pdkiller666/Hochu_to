@@ -206,6 +206,13 @@ Located at `artifacts/api-server/src/lib/scheduler.ts`. Runs every hour via `nod
 - Reminders cleared ONLY on explicit tab click (not on initial page load)
 - Notification click routes to `/dashboard` for all reminder types
 
+## Agent Rules (обязательно выполнять)
+
+- **Язык общения**: всегда отвечать на русском
+- **Git push**: после каждой успешной итерации работы ОБЯЗАТЕЛЬНО выполнять `bash scripts/github-push.sh "описание"` — проект должен быть актуален на GitHub для деплоя через Amvera
+- Если `git add/commit` блокируется Replit (index.lock), скрипт всё равно пушит последний checkpoint-коммит
+- Деплой: GitHub webhook → Amvera (Docker)
+
 ## Future Scaling
 
 - Dokan/WooCommerce plugin readiness — multivendor architecture via owner roles
