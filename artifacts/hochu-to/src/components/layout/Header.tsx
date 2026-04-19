@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { MapPin, Menu, X, LogOut, Crosshair, Loader2, Bell, Heart } from "lucide-react";
+import { MapPin, Menu, X, LogOut, Crosshair, Loader2, Bell, Heart, Shield } from "lucide-react";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuthState, getToken, getAuthHeaders } from "@/lib/auth";
@@ -564,6 +564,16 @@ export function Header() {
                         <div className="text-sm text-muted-foreground">Личный кабинет</div>
                       </div>
                     </Link>
+                    {user.role === "admin" && (
+                      <Link
+                        href="/admin"
+                        onClick={() => setIsMobileMenuOpen(false)}
+                        className="flex items-center gap-3 px-3 py-3 rounded-xl bg-[#C65D3B]/10 border border-[#C65D3B]/30 text-[#C65D3B] font-semibold hover:bg-[#C65D3B]/20 transition-colors"
+                      >
+                        <Shield className="w-5 h-5 flex-shrink-0" />
+                        Панель администратора
+                      </Link>
+                    )}
                     <button onClick={() => { logout(); setIsMobileMenuOpen(false); }} className="w-full text-left px-3 py-3 rounded-xl text-destructive font-medium flex items-center gap-2 hover:bg-destructive/10">
                       <LogOut className="w-5 h-5" /> Выйти
                     </button>
