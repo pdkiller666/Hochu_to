@@ -480,7 +480,7 @@ export default function ListingDetail() {
                         <div>
                           <p>Залог: <strong className="text-foreground">{formatPrice(deposit)}</strong> — возвращается сразу после сдачи вещи в том же состоянии.</p>
                           {mv && mv > 0 && (
-                            <p className="text-xs mt-1 text-primary/80">Фонд покрывает ремонт до 70% от стоимости вещи</p>
+                            <p className="text-xs mt-1 text-primary/80">Фонд компенсирует до 30% от стоимости при подтверждённом повреждении</p>
                           )}
                         </div>
                       </div>

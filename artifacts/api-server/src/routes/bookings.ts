@@ -249,13 +249,17 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
   const taxFee = parseFloat((rent * 0.06).toFixed(2));
   const mv = listing.marketValue ? parseFloat(listing.marketValue as unknown as string) : null;
 
+  // Защита от накрутки: владелец не может завысить стоимость для получения
+  // несправедливо большой компенсации. Кап: pricePerDay * 200 (0.5% ставка аренды).
+  const clampedMv = mv ? Math.min(mv, pricePerDay * 200) : null;
+
   // Регрессивная ставка фонда: 0.5% до 50к, 0.2% до 150к, 0.1% выше
   const getFundRate = (marketValue: number) => {
     if (marketValue <= 50_000) return 0.005;
     if (marketValue <= 150_000) return 0.002;
     return 0.001;
   };
-  // Взнос в фонд для одной стороны: минимум 50 ₽/день
+  // Взнос в фонд для одной стороны: минимум 50 ₽/день (считаем от скорректированной стоимости)
   const calcFundContrib = (marketValue: number) => {
     const rate = getFundRate(marketValue);
     const raw = marketValue * rate * days;
@@ -263,17 +267,19 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
   };
   // Взнос владельца — только если ownerProtectionEnabled на объявлении
   const ownerProtEnabled = listing.ownerProtectionEnabled !== false;
-  const fundContribution = mv && ownerProtEnabled ? calcFundContrib(mv) : 0;
+  const fundContribution = clampedMv && ownerProtEnabled ? calcFundContrib(clampedMv) : 0;
   // Взнос арендатора — независимо от владельца
-  const renterFundContrib = mv && renterProtectionEnabled ? calcFundContrib(mv) : 0;
+  const renterFundContrib = clampedMv && renterProtectionEnabled ? calcFundContrib(clampedMv) : 0;
 
-  // Ступенчатый залог по рыночной стоимости: <10к → 2к, <50к → 5к, >50к → 10к
-  const getDeposit = (marketValue: number) => {
+  // Залог: если указана рыночная стоимость — ступенчатый расчёт;
+  // если владелец задал залог вручную (нет marketValue) — используем его значение.
+  const getStepDeposit = (marketValue: number) => {
     if (marketValue < 10_000) return 2_000;
     if (marketValue < 50_000) return 5_000;
     return 10_000;
   };
-  const depositAmount = mv ? getDeposit(mv) : 5_000;
+  const listingDeposit = listing.deposit ? parseFloat(listing.deposit as unknown as string) : null;
+  const depositAmount = mv ? getStepDeposit(mv) : (listingDeposit ?? 5_000);
 
   const totalPrice = parseFloat((rent + serviceFee + taxFee + fundContribution + renterFundContrib).toFixed(2));
 

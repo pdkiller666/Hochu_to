@@ -13,6 +13,25 @@ export function formatPrice(price: number): string {
   }).format(price);
 }
 
+/**
+ * Максимально правдоподобная рыночная стоимость исходя из цены аренды.
+ * Типичная ставка аренды в РФ: 0.5–2% от стоимости в сутки.
+ * Используем нижнюю границу (0.5%) как «потолок»: pricePerDay / 0.005 = pricePerDay * 200.
+ * Если владелец указал ВЫШЕ этого порога — стоимость подозрительно завышена.
+ */
+export function getMaxSensibleMarketValue(pricePerDay: number): number {
+  return pricePerDay * 200;
+}
+
+/**
+ * Ограничиваем рыночную стоимость для расчёта фонда, чтобы
+ * владелец не завышал стоимость и не получал несправедливую компенсацию.
+ */
+export function clampMarketValueForFund(marketValue: number, pricePerDay: number): number {
+  const maxSensible = getMaxSensibleMarketValue(pricePerDay);
+  return Math.min(marketValue, maxSensible);
+}
+
 export interface PriceBreakdown {
   rent: number;
   serviceFee: number;
@@ -28,17 +47,16 @@ export interface PriceBreakdown {
 
 /**
  * Регрессивная ставка взноса в Гарантийный фонд «Стальной щит».
- * Чем дороже вещь — тем меньше процент, чтобы аренда оставалась доступной.
+ * Чем дороже вещь — тем меньше процент.
  */
 export function getFundRate(marketValue: number): number {
-  if (marketValue <= 50_000) return 0.005;   // 0.5% — бюджетные вещи
-  if (marketValue <= 150_000) return 0.002;  // 0.2% — средний сегмент
-  return 0.001;                              // 0.1% — дорогие вещи
+  if (marketValue <= 50_000) return 0.005;
+  if (marketValue <= 150_000) return 0.002;
+  return 0.001;
 }
 
 /**
  * Ступенчатый залог по рыночной стоимости вещи.
- * Мин. барьер снижен: мангал за 3 000 ₽ → залог 2 000 ₽, а не 5 000 ₽.
  */
 export function getDeposit(marketValue: number): number {
   if (marketValue < 10_000) return 2_000;
@@ -48,7 +66,7 @@ export function getDeposit(marketValue: number): number {
 
 /**
  * Взнос в фонд для одной стороны (владелец или арендатор).
- * Минимум 50 ₽/день чтобы не было смешных 15 ₽.
+ * Минимум 50 ₽/день.
  */
 function calcFundContrib(marketValue: number, days: number): number {
   const rate = getFundRate(marketValue);
@@ -66,14 +84,17 @@ export function calculateTotalPrice(
   const rent = pricePerDay * days;
   const serviceFee = parseFloat((rent * 0.10).toFixed(2));
   const taxFee = parseFloat((rent * 0.06).toFixed(2));
-  const fundRate = getFundRate(marketValue);
 
-  const ownerFundContribution = ownerProtectionEnabled && marketValue > 0
-    ? calcFundContrib(marketValue, days)
+  // Для фонда используем скорректированную стоимость (защита от накрутки)
+  const clampedMV = clampMarketValueForFund(marketValue, pricePerDay);
+  const fundRate = getFundRate(clampedMV);
+
+  const ownerFundContribution = ownerProtectionEnabled && clampedMV > 0
+    ? calcFundContrib(clampedMV, days)
     : 0;
 
-  const renterFundContribution = renterProtectionEnabled && marketValue > 0
-    ? calcFundContrib(marketValue, days)
+  const renterFundContribution = renterProtectionEnabled && clampedMV > 0
+    ? calcFundContrib(clampedMV, days)
     : 0;
 
   const combinedServiceFee = parseFloat((serviceFee + taxFee + ownerFundContribution).toFixed(2));
