@@ -84,19 +84,19 @@ export function ListingCard({ listing }: ListingCardProps) {
       </Link>
 
       {/* Content */}
-      <div className="p-5 flex flex-col flex-grow">
-        <div className="flex justify-between items-start mb-2 gap-2">
-          <h3 className="font-bold text-lg leading-tight line-clamp-2" title={listing.title}>
+      <div className="p-3 sm:p-5 flex flex-col flex-grow">
+        <div className="flex justify-between items-start mb-1.5 gap-1.5">
+          <h3 className="font-bold text-sm sm:text-lg leading-tight line-clamp-2" title={listing.title}>
             {listing.title}
           </h3>
-          <div className="flex items-center gap-1 text-sm font-bold bg-amber-50 text-amber-600 px-2 py-1 rounded-md shrink-0">
-            <Star className="w-3.5 h-3.5 fill-current" />
+          <div className="flex items-center gap-0.5 text-xs sm:text-sm font-bold bg-amber-50 text-amber-600 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-md shrink-0">
+            <Star className="w-3 sm:w-3.5 h-3 sm:h-3.5 fill-current" />
             {listing.rating ? listing.rating.toFixed(1) : "Новое"}
           </div>
         </div>
 
-        <div className="flex items-center gap-1 text-muted-foreground text-sm mb-4">
-          <MapPin className="w-3.5 h-3.5 shrink-0" />
+        <div className="flex items-center gap-1 text-muted-foreground text-xs sm:text-sm mb-3">
+          <MapPin className="w-3 sm:w-3.5 h-3 sm:h-3.5 shrink-0" />
           <span className="truncate">
             {(listing as any).city
               ? `${(listing as any).city}, ${listing.regionName || ""}`
@@ -104,15 +104,18 @@ export function ListingCard({ listing }: ListingCardProps) {
           </span>
         </div>
 
-        <div className="mt-auto pt-4 border-t border-border flex items-center justify-between">
+        <div className="mt-auto pt-3 border-t border-border flex flex-wrap items-center justify-between gap-2">
           <div>
-            <div className="font-display font-bold text-xl text-primary">
+            <div className="font-display font-bold text-base sm:text-xl text-primary">
               {formatPrice(listing.pricePerDay)}
             </div>
-            <div className="text-xs text-muted-foreground">за сутки</div>
+            <div className="text-[10px] sm:text-xs text-muted-foreground">за сутки</div>
           </div>
 
-          <Link href={`/listings/${listing.id}`} className="btn-primary py-2 px-4 rounded-xl text-sm whitespace-nowrap">
+          <Link
+            href={`/listings/${listing.id}`}
+            className="btn-primary py-1.5 sm:py-2 px-3 sm:px-4 rounded-xl text-xs sm:text-sm whitespace-nowrap"
+          >
             Подробнее
           </Link>
         </div>

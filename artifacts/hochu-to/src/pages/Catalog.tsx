@@ -78,9 +78,9 @@ export default function Catalog() {
 
   useEffect(() => {
     if (regionInitialized.current) return;
-    if (!regions?.results?.length) return;
+    if (!regions?.length) return;
     if (currentUser?.regionId) {
-      const userRegion = regions.results.find(r => r.id === currentUser.regionId);
+      const userRegion = regions.find(r => r.id === currentUser.regionId);
       if (userRegion) {
         setRegion(userRegion.slug);
         setCachedGeoRegion(userRegion.slug);
@@ -90,13 +90,13 @@ export default function Catalog() {
     }
 
     const detectGeo = async () => {
-      let slug = await detectRegionByGeo(regions.results);
-      if (!slug) slug = await detectRegionByServerGeoIP(regions.results);
+      let slug = await detectRegionByGeo(regions);
+      if (!slug) slug = await detectRegionByServerGeoIP(regions);
       if (slug) { setRegion(slug); setCachedGeoRegion(slug); }
       regionInitialized.current = true;
     };
     detectGeo();
-  }, [regions?.results?.length, currentUser?.regionId]);
+  }, [regions?.length, currentUser?.regionId]);
 
   const { data, isLoading, error } = useGetListings({
     category: category || undefined,
@@ -116,7 +116,7 @@ export default function Catalog() {
   };
 
   const hasActiveFilters = !!(category || search || minPrice || maxPrice);
-  const selectedRegionName = regions?.results?.find(r => r.slug === region)?.name ?? "";
+  const selectedRegionName = regions?.find(r => r.slug === region)?.name ?? "";
   const activeFiltersCount = [category, minPrice || maxPrice].filter(Boolean).length;
 
   return (
@@ -160,7 +160,7 @@ export default function Catalog() {
                   className="bg-transparent border-none outline-none text-sm font-medium cursor-pointer appearance-none w-full truncate"
                 >
                   <option value="">Все регионы</option>
-                  {regions?.results?.map(r => (
+                  {regions?.map(r => (
                     <option key={r.id} value={r.slug}>{r.name}</option>
                   ))}
                 </select>
@@ -238,7 +238,7 @@ export default function Catalog() {
                 className="bg-transparent border-none outline-none text-sm font-medium cursor-pointer appearance-none w-full"
               >
                 <option value="">Все регионы</option>
-                {regions?.results?.map(r => (
+                {regions?.map(r => (
                   <option key={r.id} value={r.slug}>{r.name}</option>
                 ))}
               </select>
