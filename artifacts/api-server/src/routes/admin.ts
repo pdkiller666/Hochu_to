@@ -754,12 +754,13 @@ router.get("/audit-log", requireAuth, requireAdmin, async (req: AuthRequest, res
     LIMIT ${limit} OFFSET ${offset}
   `).then(r => r.rows as any[]);
 
-  const [{ count }] = await db.execute(sql`SELECT COUNT(*) FROM admin_audit_log`)
+  const [countRow] = await db.execute(sql`SELECT COUNT(*) AS total FROM admin_audit_log`)
     .then(r => r.rows as any[]);
+  const total = Number(countRow?.total ?? 0);
 
   res.json({
     entries: rows,
-    pagination: { page, limit, total: Number(count.count), pages: Math.ceil(Number(count.count) / limit) },
+    pagination: { page, limit, total, pages: Math.ceil(total / limit) },
   });
 });
 

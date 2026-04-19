@@ -261,7 +261,7 @@ export default function Catalog() {
             >
               Все категории
             </button>
-            {categories?.results && categories.results.map(c => (
+            {categories?.map(c => (
               <button
                 key={c.id}
                 onClick={() => setCategory(category === c.slug ? "" : c.slug)}

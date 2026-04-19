@@ -267,6 +267,32 @@ router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
   }
 
   const fromStatus = booking.status;
+  const isOwner = req.userId === booking.ownerId;
+  const isRenter = req.userId === booking.renterId;
+
+  // State transition matrix
+  const ownerAllowed: Record<string, string[]> = {
+    pending: ["confirmed", "rejected"],
+    confirmed: ["active", "rejected"],
+    active: ["return_pending"],
+    return_pending: ["completed"],
+  };
+  const renterAllowed: Record<string, string[]> = {
+    pending: ["cancelled"],
+    confirmed: ["cancelled"],
+  };
+
+  const allowedForActor = isOwner
+    ? (ownerAllowed[fromStatus] ?? [])
+    : (renterAllowed[fromStatus] ?? []);
+
+  if (!allowedForActor.includes(status)) {
+    res.status(422).json({
+      error: "invalid_transition",
+      message: `Переход из «${fromStatus}» в «${status}» недоступен для вашей роли`,
+    });
+    return;
+  }
 
   const [updated] = await db.update(bookingsTable).set({
     status,
