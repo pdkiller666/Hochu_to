@@ -126,7 +126,7 @@ export function ListingCard({ listing }: ListingCardProps) {
           {(() => {
             const mv = (listing as any).marketValue as number | undefined | null;
             if (!mv || mv <= 0) return null;
-            const { total, serviceFee, taxFee, fundContribution } = calculateTotalPrice(listing.pricePerDay, mv, 1);
+            const { total, serviceFee, taxFee, fundContribution, fundRate, deposit } = calculateTotalPrice(listing.pricePerDay, mv, 1);
             return (
               <div className="relative">
                 <div
@@ -140,7 +140,7 @@ export function ListingCard({ listing }: ListingCardProps) {
                 </div>
 
                 {showTooltip && (
-                  <div className="absolute bottom-full left-0 mb-2 z-30 bg-popover border border-border rounded-xl shadow-xl p-3 w-56 text-xs space-y-1 pointer-events-none">
+                  <div className="absolute bottom-full left-0 mb-2 z-30 bg-popover border border-border rounded-xl shadow-xl p-3 w-60 text-xs space-y-1 pointer-events-none">
                     <p className="font-bold text-foreground mb-1.5">Расчёт за 1 сутки:</p>
                     <div className="flex justify-between text-muted-foreground">
                       <span>Аренда</span><span>{formatPrice(listing.pricePerDay)}</span>
@@ -152,10 +152,14 @@ export function ListingCard({ listing }: ListingCardProps) {
                       <span>Налог СЗ (6%)</span><span>{formatPrice(taxFee)}</span>
                     </div>
                     <div className="flex justify-between text-muted-foreground">
-                      <span>Гарант. фонд (0,5%)</span><span>{formatPrice(fundContribution)}</span>
+                      <span>Фонд «Стальной щит» ({(fundRate * 100).toFixed(1)}%)</span>
+                      <span>{formatPrice(fundContribution)}</span>
                     </div>
                     <div className="flex justify-between font-bold border-t border-border pt-1 text-foreground">
                       <span>Итого</span><span>{formatPrice(total)}</span>
+                    </div>
+                    <div className="flex justify-between text-amber-600 border-t border-border pt-1">
+                      <span>+ залог (возврат)</span><span>{formatPrice(deposit)}</span>
                     </div>
                   </div>
                 )}

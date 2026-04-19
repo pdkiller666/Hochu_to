@@ -243,14 +243,24 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
     (new Date(endDate).getTime() - new Date(startDate).getTime()) / 86_400_000
   ));
 
-  const rent = days * parseFloat(listing.pricePerDay as unknown as string);
+  const pricePerDay = parseFloat(listing.pricePerDay as unknown as string);
+  const rent = days * pricePerDay;
   const serviceFee = parseFloat((rent * 0.10).toFixed(2));
   const taxFee = parseFloat((rent * 0.06).toFixed(2));
   const mv = listing.marketValue ? parseFloat(listing.marketValue as unknown as string) : null;
-  const fundContribution = mv ? parseFloat((mv * 0.005 * days).toFixed(2)) : 0;
-  const depositAmount = mv
-    ? parseFloat((mv * 0.10).toFixed(2))
-    : listing.deposit ? parseFloat(listing.deposit as unknown as string) : 0;
+
+  // Регрессивная ставка фонда: 0.5% до 50к, 0.2% до 150к, 0.1% выше
+  const getFundRate = (marketValue: number) => {
+    if (marketValue <= 50_000) return 0.005;
+    if (marketValue <= 150_000) return 0.002;
+    return 0.001;
+  };
+  const fundRate = mv ? getFundRate(mv) : 0;
+  const fundContribution = mv ? parseFloat((mv * fundRate * days).toFixed(2)) : 0;
+
+  // Реалистичный залог: 2× суточная цена, мин. 5 000, макс. 15 000 ₽
+  const depositAmount = Math.min(Math.max(Math.round(pricePerDay * 2), 5_000), 15_000);
+
   const totalPrice = parseFloat((rent + serviceFee + taxFee + fundContribution).toFixed(2));
 
   const [booking] = await db.insert(bookingsTable).values({
