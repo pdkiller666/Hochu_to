@@ -60,3 +60,9 @@ id = "iRP4lbmA5hl970EEcxtI_"
 uri = "file://attached_assets/stock_images/delonghi_coffee_machine.jpg"
 type = "image"
 title = "DeLonghi espresso coffee machine kitchen appliance"
+
+[[outputs]]
+id = "AanLVr9-rowCrm_EwetFQ"
+uri = "file://.local/AGENT_INSTRUCTIONS.md"
+type = "text"
+title = "AGENT_INSTRUCTIONS — инструкция для агента"
