@@ -21,9 +21,9 @@ if (Number.isNaN(port) || port <= 0) {
 
 async function seedDefaultAdmin() {
   const existingAdmin = await db.query.usersTable.findFirst({
-  where: eq(usersTable.role, "admin"),
-});
-if (existingAdmin) return;  // ← если админ уже существует, пропускаем
+    where: eq(usersTable.role, "admin"),
+  });
+  if (existingAdmin) return;
 
   const defaultEmail = process.env["ADMIN_EMAIL"] ?? "admin@hochu.to";
   const defaultPassword = process.env["ADMIN_PASSWORD"] ?? "Admin123!";
