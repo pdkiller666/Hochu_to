@@ -10,7 +10,7 @@ const router = Router();
 
 // POST /api/reports — submit a report
 router.post("/", requireAuth, async (req: AuthRequest, res) => {
-  const { reportType, reportedListingId, reportedUserId, reason, detail } = req.body;
+  const { reportType, reportedListingId, reportedUserId, reason, detail, comment } = req.body;
 
   if (!["listing", "user"].includes(reportType)) {
     res.status(400).json({ error: "bad_request", message: "Тип жалобы: listing или user" });
@@ -33,6 +33,22 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
     return;
   }
 
+  // Validate that the target entity exists
+  if (reportType === "listing") {
+    const [listing] = await db.execute(sql`SELECT id FROM listings WHERE id = ${reportedListingId} LIMIT 1`).then(r => r.rows as any[]);
+    if (!listing) {
+      res.status(400).json({ error: "not_found", message: "Объявление не найдено" });
+      return;
+    }
+  }
+  if (reportType === "user") {
+    const [user] = await db.execute(sql`SELECT id FROM users WHERE id = ${reportedUserId} LIMIT 1`).then(r => r.rows as any[]);
+    if (!user) {
+      res.status(400).json({ error: "not_found", message: "Пользователь не найден" });
+      return;
+    }
+  }
+
   // Prevent duplicate pending reports
   const [existing] = await db.execute(sql`
     SELECT id FROM reports
@@ -49,9 +65,10 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
     return;
   }
 
+  const commentValue = (comment ?? detail)?.trim() ?? null;
   await db.execute(sql`
-    INSERT INTO reports (reporter_user_id, report_type, reported_listing_id, reported_user_id, reason, detail, status)
-    VALUES (${req.userId}, ${reportType}, ${reportedListingId ?? null}, ${reportedUserId ?? null}, ${reason.trim()}, ${detail?.trim() ?? null}, 'pending')
+    INSERT INTO reports (reporter_user_id, report_type, reported_listing_id, reported_user_id, reason, comment, status)
+    VALUES (${req.userId}, ${reportType}, ${reportedListingId ?? null}, ${reportedUserId ?? null}, ${reason.trim()}, ${commentValue}, 'pending')
   `);
 
   res.status(201).json({ ok: true });
