@@ -263,8 +263,33 @@ export default function ListingForm() {
               </div>
               <div>
                 <label className="block text-sm font-bold mb-2">Рыночная стоимость вещи (₽)</label>
-                <input type="number" min="0" className="input-field" placeholder="50000" value={formData.marketValue} onChange={e => setFormData({ ...formData, marketValue: e.target.value })} />
-                <p className="text-xs text-muted-foreground mt-1">Используется для расчёта залога (10%) и взноса в Гарантийный фонд (0,5%/день)</p>
+                <input
+                  type="number"
+                  min="0"
+                  className={`input-field ${
+                    formData.marketValue && formData.pricePerDay &&
+                    Number(formData.marketValue) > 0 &&
+                    Number(formData.marketValue) < Number(formData.pricePerDay) * 30
+                      ? "border-amber-400 focus:ring-amber-400"
+                      : ""
+                  }`}
+                  placeholder="50000"
+                  value={formData.marketValue}
+                  onChange={e => setFormData({ ...formData, marketValue: e.target.value })}
+                />
+                {formData.marketValue && formData.pricePerDay &&
+                  Number(formData.marketValue) > 0 &&
+                  Number(formData.marketValue) < Number(formData.pricePerDay) * 30 ? (
+                  <div className="mt-2 flex items-start gap-2 bg-amber-50 border border-amber-300 rounded-xl p-3 text-sm">
+                    <span className="text-amber-500 text-base shrink-0">⚠️</span>
+                    <p className="text-amber-800">
+                      <strong>Низкая рыночная стоимость снижает вашу защиту</strong> в Гарантийном фонде «Стальной щит».
+                      Рекомендуем указать не менее <strong>{(Number(formData.pricePerDay) * 30).toLocaleString("ru")} ₽</strong> (30× от цены аренды).
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground mt-1">Используется для расчёта залога (10%) и взноса в Гарантийный фонд (0,5%/день)</p>
+                )}
               </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

@@ -1,7 +1,7 @@
 import { Link } from "wouter";
-import { MapPin, Star, Heart } from "lucide-react";
+import { MapPin, Star, Heart, Info } from "lucide-react";
 import { Listing } from "@workspace/api-client-react";
-import { formatPrice } from "@/lib/utils";
+import { formatPrice, calculateTotalPrice } from "@/lib/utils";
 import { useState } from "react";
 import { ListingPlaceholder } from "@/components/ui/ListingPlaceholder";
 import { useFavorites } from "@/lib/favorites-context";
@@ -20,6 +20,7 @@ function getPhotoSrc(url: string) {
 
 export function ListingCard({ listing }: ListingCardProps) {
   const [imgError, setImgError] = useState(false);
+  const [showTooltip, setShowTooltip] = useState(false);
   const hasPhoto = (listing.photos?.length ?? 0) > 0 && !imgError;
   const photoUrl = listing.photos?.[0] ? getPhotoSrc(listing.photos[0]) : null;
   const { isFavorite, toggle } = useFavorites();
@@ -104,20 +105,63 @@ export function ListingCard({ listing }: ListingCardProps) {
           </span>
         </div>
 
-        <div className="mt-auto pt-3 border-t border-border flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <div className="font-display font-bold text-base sm:text-xl text-primary">
-              {formatPrice(listing.pricePerDay)}
+        <div className="mt-auto pt-3 border-t border-border space-y-2">
+          {/* Base price */}
+          <div className="flex items-end justify-between">
+            <div>
+              <div className="font-display font-bold text-base sm:text-xl text-primary">
+                {formatPrice(listing.pricePerDay)}
+              </div>
+              <div className="text-[10px] sm:text-xs text-muted-foreground">за сутки</div>
             </div>
-            <div className="text-[10px] sm:text-xs text-muted-foreground">за сутки</div>
+            <Link
+              href={`/listings/${listing.id}`}
+              className="btn-primary py-1.5 sm:py-2 px-3 sm:px-4 rounded-xl text-xs sm:text-sm whitespace-nowrap"
+            >
+              Подробнее
+            </Link>
           </div>
 
-          <Link
-            href={`/listings/${listing.id}`}
-            className="btn-primary py-1.5 sm:py-2 px-3 sm:px-4 rounded-xl text-xs sm:text-sm whitespace-nowrap"
-          >
-            Подробнее
-          </Link>
+          {/* Total with protection (1 day estimate) */}
+          {(() => {
+            const mv = (listing as any).marketValue as number | undefined | null;
+            if (!mv || mv <= 0) return null;
+            const { total, serviceFee, taxFee, fundContribution } = calculateTotalPrice(listing.pricePerDay, mv, 1);
+            return (
+              <div className="relative">
+                <div
+                  className="flex items-center gap-1 text-[10px] sm:text-xs text-muted-foreground cursor-default"
+                  onMouseEnter={() => setShowTooltip(true)}
+                  onMouseLeave={() => setShowTooltip(false)}
+                >
+                  <span className="text-foreground font-semibold">{formatPrice(total)}</span>
+                  <span>с защитой / сутки</span>
+                  <Info className="w-3 h-3 text-primary/60 shrink-0" />
+                </div>
+
+                {showTooltip && (
+                  <div className="absolute bottom-full left-0 mb-2 z-30 bg-popover border border-border rounded-xl shadow-xl p-3 w-56 text-xs space-y-1 pointer-events-none">
+                    <p className="font-bold text-foreground mb-1.5">Расчёт за 1 сутки:</p>
+                    <div className="flex justify-between text-muted-foreground">
+                      <span>Аренда</span><span>{formatPrice(listing.pricePerDay)}</span>
+                    </div>
+                    <div className="flex justify-between text-muted-foreground">
+                      <span>Комиссия (10%)</span><span>{formatPrice(serviceFee)}</span>
+                    </div>
+                    <div className="flex justify-between text-muted-foreground">
+                      <span>Налог СЗ (6%)</span><span>{formatPrice(taxFee)}</span>
+                    </div>
+                    <div className="flex justify-between text-muted-foreground">
+                      <span>Гарант. фонд (0,5%)</span><span>{formatPrice(fundContribution)}</span>
+                    </div>
+                    <div className="flex justify-between font-bold border-t border-border pt-1 text-foreground">
+                      <span>Итого</span><span>{formatPrice(total)}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
       </div>
     </div>
