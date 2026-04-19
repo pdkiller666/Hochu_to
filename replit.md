@@ -213,6 +213,39 @@ Located at `artifacts/api-server/src/lib/scheduler.ts`. Runs every hour via `nod
 - Если `git add/commit` блокируется Replit (index.lock), скрипт всё равно пушит последний checkpoint-коммит
 - Деплой: GitHub webhook → Amvera (Docker)
 
+## Financial Model (PROJECT_BIBLE)
+
+Full price formula implemented in `artifacts/api-server/src/routes/bookings.ts`:
+
+```
+rent = pricePerDay × days
+serviceFee = rent × 0.10     (10% — платформа)
+taxFee = rent × 0.06         (6% — налог самозанятого + банк)
+fundContribution = marketValue × 0.005 × days  (0.5%/день — Гарантийный фонд)
+totalPrice = rent + serviceFee + taxFee + fundContribution
+
+depositAmount = marketValue × 0.10  (10% от рыночной стоимости, отдельно)
+```
+
+**Ключевые поля:**
+- `listings.market_value` — рыночная стоимость вещи (для расчёта залога и фонда)
+- `bookings.rent_amount` — базовая стоимость аренды
+- `bookings.service_fee` — комиссия сервиса (10%)
+- `bookings.tax_fee` — налог/банк (6%)
+- `bookings.fund_contribution` — взнос в Гарантийный фонд
+- `bookings.deposit_amount` — залог
+- `bookings.protection_enabled` — тумблер защиты (всегда true в MVP)
+
+**Если `market_value` не указан:** fund_contribution = 0, deposit = listings.deposit.
+
+## What Is NOT Yet Implemented (roadmap)
+
+- Цифровой Акт check-in/check-out (4 фото + видео + GPS)
+- Поток оплаты через СБП/QR + загрузка чека + подтверждение админом
+- Споры (dispute) с разбором категорий А/Б
+- ЮKassa-интеграция (Этап 2)
+- Trust Score (Этап 3)
+
 ## Future Scaling
 
 - Dokan/WooCommerce plugin readiness — multivendor architecture via owner roles

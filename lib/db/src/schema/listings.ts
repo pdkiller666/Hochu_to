@@ -17,6 +17,7 @@ export const listingsTable = pgTable("listings", {
   meetingAddress: text("meeting_address"),
   ownerId: integer("owner_id").notNull(),
   photos: text("photos").array().default([]),
+  marketValue: numeric("market_value", { precision: 12, scale: 2 }),
   isAvailable: boolean("is_available").default(true).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

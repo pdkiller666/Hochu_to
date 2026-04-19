@@ -1,4 +1,4 @@
-import { pgTable, serial, integer, text, numeric, timestamp, pgEnum, varchar } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, text, numeric, boolean, timestamp, pgEnum, varchar } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -14,6 +14,12 @@ export const bookingsTable = pgTable("bookings", {
   endDate: text("end_date").notNull(),
   totalDays: integer("total_days").notNull(),
   totalPrice: numeric("total_price", { precision: 10, scale: 2 }).notNull(),
+  rentAmount: numeric("rent_amount", { precision: 10, scale: 2 }),
+  serviceFee: numeric("service_fee", { precision: 10, scale: 2 }),
+  taxFee: numeric("tax_fee", { precision: 10, scale: 2 }),
+  fundContribution: numeric("fund_contribution", { precision: 10, scale: 2 }),
+  depositAmount: numeric("deposit_amount", { precision: 10, scale: 2 }),
+  protectionEnabled: boolean("protection_enabled").default(true),
   status: bookingStatusEnum("status").notNull().default("pending"),
   message: text("message"),
   ownerComment: text("owner_comment"),

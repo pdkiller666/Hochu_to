@@ -153,6 +153,7 @@ export const CreateListingBody = zod.object({
   meetingAddress: zod.string().optional(),
   photos: zod.array(zod.string()).optional(),
   deposit: zod.number().optional(),
+  marketValue: zod.number().optional(),
   isAvailable: zod.boolean().optional(),
 });
 
@@ -224,6 +225,7 @@ export const UpdateListingBody = zod.object({
   regionId: zod.number(),
   photos: zod.array(zod.string()).optional(),
   deposit: zod.number().optional(),
+  marketValue: zod.number().optional(),
   isAvailable: zod.boolean().optional(),
 });
 

@@ -36,6 +36,7 @@ async function getListingWithDetails(id: number) {
       description: listingsTable.description,
       pricePerDay: listingsTable.pricePerDay,
       deposit: listingsTable.deposit,
+      marketValue: listingsTable.marketValue,
       categoryId: listingsTable.categoryId,
       categoryName: categoriesTable.name,
       regionId: listingsTable.regionId,
@@ -108,6 +109,7 @@ router.get("/", async (req, res) => {
       description: listingsTable.description,
       pricePerDay: listingsTable.pricePerDay,
       deposit: listingsTable.deposit,
+      marketValue: listingsTable.marketValue,
       categoryId: listingsTable.categoryId,
       categoryName: categoriesTable.name,
       regionId: listingsTable.regionId,
@@ -167,6 +169,7 @@ router.get("/", async (req, res) => {
       ...l,
       pricePerDay: parseFloat(l.pricePerDay as unknown as string),
       deposit: l.deposit ? parseFloat(l.deposit as unknown as string) : undefined,
+      marketValue: l.marketValue ? parseFloat(l.marketValue as unknown as string) : undefined,
       createdAt: l.createdAt.toISOString(),
       rating: ratingResult?.avg ?? 0,
       reviewCount: ratingResult?.count ?? 0,
@@ -205,7 +208,7 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
     return;
   }
 
-  const { title, description, pricePerDay, categoryId, regionId, city, lat, lng, meetingAddress, photos, deposit, isAvailable } = parsed.data;
+  const { title, description, pricePerDay, categoryId, regionId, city, lat, lng, meetingAddress, photos, deposit, marketValue, isAvailable } = parsed.data;
 
   const [listing] = await db.insert(listingsTable).values({
     title,
@@ -220,6 +223,7 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
     ownerId: req.userId!,
     photos: photos ?? [],
     deposit: deposit ? deposit.toString() : null,
+    marketValue: marketValue ? marketValue.toString() : null,
     isAvailable: isAvailable ?? true,
   }).returning();
 
@@ -277,6 +281,7 @@ router.get("/:id", async (req, res) => {
     ...listing,
     pricePerDay: parseFloat(listing.pricePerDay as unknown as string),
     deposit: listing.deposit ? parseFloat(listing.deposit as unknown as string) : undefined,
+    marketValue: listing.marketValue ? parseFloat(listing.marketValue as unknown as string) : undefined,
     createdAt: listing.createdAt.toISOString(),
     rating: ratingResult?.avg ?? 0,
     reviewCount: ratingResult?.count ?? 0,
@@ -303,7 +308,7 @@ router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
     return;
   }
 
-  const { title, description, pricePerDay, categoryId, regionId, city, lat, lng, meetingAddress, photos, deposit, isAvailable } = req.body;
+  const { title, description, pricePerDay, categoryId, regionId, city, lat, lng, meetingAddress, photos, deposit, marketValue, isAvailable } = req.body;
 
   if (photos !== undefined && Array.isArray(existing.photos)) {
     const removed = (existing.photos as string[]).filter(p => !photos.includes(p));
@@ -322,6 +327,7 @@ router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
     ...(meetingAddress !== undefined && { meetingAddress: meetingAddress || null }),
     ...(photos !== undefined && { photos }),
     ...(deposit !== undefined && { deposit: deposit?.toString() ?? null }),
+    ...(marketValue !== undefined && { marketValue: marketValue?.toString() ?? null }),
     ...(isAvailable !== undefined && { isAvailable }),
   }).where(eq(listingsTable.id, id));
 
@@ -330,6 +336,7 @@ router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
     ...updated,
     pricePerDay: parseFloat(updated!.pricePerDay as unknown as string),
     deposit: updated!.deposit ? parseFloat(updated!.deposit as unknown as string) : undefined,
+    marketValue: updated!.marketValue ? parseFloat(updated!.marketValue as unknown as string) : undefined,
     createdAt: updated!.createdAt.toISOString(),
   });
 });

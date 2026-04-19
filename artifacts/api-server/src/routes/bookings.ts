@@ -66,6 +66,12 @@ function formatBooking(
     endDate: b.endDate,
     totalDays: days,
     totalPrice: parseFloat(b.totalPrice as unknown as string),
+    rentAmount: b.rentAmount ? parseFloat(b.rentAmount as unknown as string) : undefined,
+    serviceFee: b.serviceFee ? parseFloat(b.serviceFee as unknown as string) : undefined,
+    taxFee: b.taxFee ? parseFloat(b.taxFee as unknown as string) : undefined,
+    fundContribution: b.fundContribution ? parseFloat(b.fundContribution as unknown as string) : undefined,
+    depositAmount: b.depositAmount ? parseFloat(b.depositAmount as unknown as string) : undefined,
+    protectionEnabled: b.protectionEnabled ?? true,
     status: b.status,
     message: b.message ?? undefined,
     ownerComment: b.ownerComment ?? undefined,
@@ -165,7 +171,16 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
   const days = Math.max(1, Math.ceil(
     (new Date(endDate).getTime() - new Date(startDate).getTime()) / 86_400_000
   ));
-  const totalPrice = days * parseFloat(listing.pricePerDay as unknown as string);
+
+  const rent = days * parseFloat(listing.pricePerDay as unknown as string);
+  const serviceFee = parseFloat((rent * 0.10).toFixed(2));
+  const taxFee = parseFloat((rent * 0.06).toFixed(2));
+  const mv = listing.marketValue ? parseFloat(listing.marketValue as unknown as string) : null;
+  const fundContribution = mv ? parseFloat((mv * 0.005 * days).toFixed(2)) : 0;
+  const depositAmount = mv
+    ? parseFloat((mv * 0.10).toFixed(2))
+    : listing.deposit ? parseFloat(listing.deposit as unknown as string) : 0;
+  const totalPrice = parseFloat((rent + serviceFee + taxFee + fundContribution).toFixed(2));
 
   const [booking] = await db.insert(bookingsTable).values({
     listingId,
@@ -175,6 +190,12 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
     endDate,
     totalDays: days,
     totalPrice: totalPrice.toString(),
+    rentAmount: rent.toString(),
+    serviceFee: serviceFee.toString(),
+    taxFee: taxFee.toString(),
+    fundContribution: fundContribution.toString(),
+    depositAmount: depositAmount.toString(),
+    protectionEnabled: true,
     status: "pending",
     message: message ?? null,
   }).returning();

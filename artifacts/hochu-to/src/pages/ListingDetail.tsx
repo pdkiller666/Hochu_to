@@ -458,12 +458,16 @@ export default function ListingDetail() {
                   <span className="text-4xl font-display font-black text-primary">{formatPrice(listing.pricePerDay)}</span>
                   <span className="text-muted-foreground pb-1">/ сутки</span>
                 </div>
-                {listing.deposit && listing.deposit > 0 && (
-                  <div className="flex items-start gap-2 text-sm text-muted-foreground bg-muted p-3 rounded-xl mt-4">
-                    <Info className="w-4 h-4 shrink-0 mt-0.5 text-primary" />
-                    <p>Требуется залог: <strong className="text-foreground">{formatPrice(listing.deposit)}</strong>. Возвращается при сдаче вещи.</p>
-                  </div>
-                )}
+                {(() => {
+                  const mv = (listing as any).marketValue as number | undefined;
+                  const depositDisplay = mv ? mv * 0.10 : listing.deposit;
+                  return depositDisplay && depositDisplay > 0 ? (
+                    <div className="flex items-start gap-2 text-sm text-muted-foreground bg-muted p-3 rounded-xl mt-4">
+                      <Info className="w-4 h-4 shrink-0 mt-0.5 text-primary" />
+                      <p>Залог: <strong className="text-foreground">{formatPrice(depositDisplay)}</strong>{mv ? " (10% от стоимости вещи)" : ""}. Возвращается при сдаче.</p>
+                    </div>
+                  ) : null;
+                })()}
               </div>
 
               {!listing.isAvailable ? (
@@ -537,17 +541,47 @@ export default function ListingDetail() {
                   </div>
 
                   {/* Price summary */}
-                  {startDate && endDate && (
-                    <div className="bg-primary/5 p-4 rounded-xl border border-primary/20">
-                      <div className="flex justify-between items-center font-bold">
-                        <span className="text-sm">{totalDays} {totalDays === 1 ? "сутки" : totalDays < 5 ? "суток" : "суток"} × {formatPrice(listing.pricePerDay)}</span>
-                        <span className="text-xl text-primary">{formatPrice(listing.pricePerDay * totalDays)}</span>
+                  {startDate && endDate && (() => {
+                    const mv = (listing as any).marketValue as number | undefined;
+                    const rent = listing.pricePerDay * totalDays;
+                    const serviceFee = parseFloat((rent * 0.10).toFixed(2));
+                    const taxFee = parseFloat((rent * 0.06).toFixed(2));
+                    const fundContrib = mv ? parseFloat((mv * 0.005 * totalDays).toFixed(2)) : 0;
+                    const total = rent + serviceFee + taxFee + fundContrib;
+                    const deposit = mv ? parseFloat((mv * 0.10).toFixed(2)) : (listing.deposit ?? 0);
+                    return (
+                      <div className="bg-primary/5 p-4 rounded-xl border border-primary/20 space-y-1.5 text-sm">
+                        <div className="flex justify-between text-muted-foreground">
+                          <span>{totalDays} {totalDays === 1 ? "сутки" : "суток"} × {formatPrice(listing.pricePerDay)}</span>
+                          <span>{formatPrice(rent)}</span>
+                        </div>
+                        <div className="flex justify-between text-muted-foreground">
+                          <span>Комиссия сервиса (10%)</span>
+                          <span>{formatPrice(serviceFee)}</span>
+                        </div>
+                        <div className="flex justify-between text-muted-foreground">
+                          <span>Налог самозанятого (6%)</span>
+                          <span>{formatPrice(taxFee)}</span>
+                        </div>
+                        {fundContrib > 0 && (
+                          <div className="flex justify-between text-muted-foreground">
+                            <span>Гарантийный фонд (0,5%/день)</span>
+                            <span>{formatPrice(fundContrib)}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between items-center font-bold border-t border-primary/20 pt-1.5 mt-1">
+                          <span>Итого к оплате</span>
+                          <span className="text-lg text-primary">{formatPrice(total)}</span>
+                        </div>
+                        {deposit > 0 && (
+                          <div className="flex justify-between text-amber-700 text-xs pt-1">
+                            <span>+ залог (возвращается)</span>
+                            <span className="font-medium">{formatPrice(deposit)}</span>
+                          </div>
+                        )}
                       </div>
-                      {listing.deposit && listing.deposit > 0 && (
-                        <p className="text-xs text-muted-foreground mt-1">+ залог {formatPrice(listing.deposit)}</p>
-                      )}
-                    </div>
-                  )}
+                    );
+                  })()}
 
                   <div>
                     <label className="block text-sm font-bold mb-2 text-muted-foreground">Сообщение владельцу (необязательно)</label>

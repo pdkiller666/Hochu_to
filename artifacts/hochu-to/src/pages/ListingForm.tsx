@@ -38,6 +38,7 @@ export default function ListingForm() {
     regionId: "",
     city: "",
     deposit: "",
+    marketValue: "",
     isAvailable: true,
     lat: null as number | null,
     lng: null as number | null,
@@ -62,6 +63,7 @@ export default function ListingForm() {
         regionId: listingData.regionId.toString(),
         city: (listingData as any).city || "",
         deposit: listingData.deposit?.toString() || "",
+        marketValue: (listingData as any).marketValue?.toString() || "",
         lat: (listingData as any).lat ?? null,
         lng: (listingData as any).lng ?? null,
         meetingAddress: (listingData as any).meetingAddress || "",
@@ -132,6 +134,7 @@ export default function ListingForm() {
       lng: formData.lng ?? undefined,
       meetingAddress: formData.meetingAddress.trim() || undefined,
       deposit: formData.deposit ? Number(formData.deposit) : undefined,
+      marketValue: formData.marketValue ? Number(formData.marketValue) : undefined,
       isAvailable: formData.isAvailable,
       photos,
     };
@@ -259,10 +262,29 @@ export default function ListingForm() {
                 <input required type="number" min="1" className="input-field" placeholder="500" value={formData.pricePerDay} onChange={e => setFormData({ ...formData, pricePerDay: e.target.value })} />
               </div>
               <div>
-                <label className="block text-sm font-bold mb-2">Сумма залога (₽, необязательно)</label>
-                <input type="number" min="0" className="input-field" placeholder="5000" value={formData.deposit} onChange={e => setFormData({ ...formData, deposit: e.target.value })} />
+                <label className="block text-sm font-bold mb-2">Рыночная стоимость вещи (₽)</label>
+                <input type="number" min="0" className="input-field" placeholder="50000" value={formData.marketValue} onChange={e => setFormData({ ...formData, marketValue: e.target.value })} />
+                <p className="text-xs text-muted-foreground mt-1">Используется для расчёта залога (10%) и взноса в Гарантийный фонд (0,5%/день)</p>
               </div>
             </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-bold mb-2">Залог (₽, если нет рыночной стоимости)</label>
+                <input type="number" min="0" className="input-field" placeholder="5000" value={formData.deposit} onChange={e => setFormData({ ...formData, deposit: e.target.value })} />
+                <p className="text-xs text-muted-foreground mt-1">Если указана рыночная стоимость, залог рассчитывается автоматически</p>
+              </div>
+            </div>
+            {formData.marketValue && Number(formData.marketValue) > 0 && (
+              <div className="bg-primary/5 border border-primary/20 rounded-xl p-4 text-sm space-y-1">
+                <p className="font-bold text-primary mb-2">Расчёт для арендатора (пример за 1 день)</p>
+                <div className="flex justify-between text-muted-foreground"><span>Аренда × 1 день</span><span>{formData.pricePerDay ? Number(formData.pricePerDay).toLocaleString("ru") + " ₽" : "—"}</span></div>
+                <div className="flex justify-between text-muted-foreground"><span>Комиссия сервиса (10%)</span><span>{formData.pricePerDay ? (Number(formData.pricePerDay) * 0.1).toLocaleString("ru") + " ₽" : "—"}</span></div>
+                <div className="flex justify-between text-muted-foreground"><span>Налог самозанятого (6%)</span><span>{formData.pricePerDay ? (Number(formData.pricePerDay) * 0.06).toLocaleString("ru") + " ₽" : "—"}</span></div>
+                <div className="flex justify-between text-muted-foreground"><span>Гарантийный фонд (0,5%/день)</span><span>{(Number(formData.marketValue) * 0.005).toLocaleString("ru")} ₽</span></div>
+                <div className="flex justify-between font-bold border-t border-primary/20 pt-1 mt-1"><span>Итого с арендатора</span><span>{formData.pricePerDay ? (Number(formData.pricePerDay) * 1.16 + Number(formData.marketValue) * 0.005).toLocaleString("ru", { maximumFractionDigits: 0 }) + " ₽" : "—"}</span></div>
+                <div className="flex justify-between text-amber-700 font-medium mt-1"><span>Залог (10% от стоимости)</span><span>{(Number(formData.marketValue) * 0.1).toLocaleString("ru")} ₽</span></div>
+              </div>
+            )}
           </div>
 
           <div className="space-y-4 pt-6 border-t border-border">
