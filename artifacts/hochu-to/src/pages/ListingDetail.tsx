@@ -158,7 +158,7 @@ export default function ListingDetail() {
 
   const handleBooking = (e: React.FormEvent) => {
     e.preventDefault();
-    if (protectionEnabled && (!startDate || !endDate)) return;
+    if (!startDate || !endDate) return;
     createBooking.mutate({
       data: {
         listingId: id,
@@ -682,48 +682,66 @@ export default function ListingDetail() {
                       </div>
                     )}
 
-                    {/* Calendar section — shown only for Сценарий А */}
-                    {protectionEnabled && (
-                      <>
-                        {/* Calendar hint */}
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <CalendarDays className="w-3.5 h-3.5 shrink-0" />
-                          {!startDate
-                            ? "Нажмите на дату начала аренды"
-                            : !endDate
-                            ? "Теперь выберите дату окончания"
-                            : (
-                              <span className="flex items-center gap-2 flex-wrap">
-                                <span className="font-bold text-foreground">
-                                  {format(parseISO(startDate), "d MMM", { locale: ru })} — {format(parseISO(endDate), "d MMM yyyy", { locale: ru })}
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => { setStartDate(""); setEndDate(""); }}
-                                  className="text-muted-foreground hover:text-destructive transition-colors flex items-center gap-0.5"
-                                >
-                                  <X className="w-3 h-3" /> сбросить
-                                </button>
+                    {/* ─── Календарь — всегда виден ──────────────────────── */}
+                    <>
+                      {/* Calendar hint */}
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <CalendarDays className="w-3.5 h-3.5 shrink-0" />
+                        {!startDate
+                          ? (protectionEnabled
+                              ? "Выберите дату начала аренды"
+                              : "Укажите желаемый период — владелец увидит запрос")
+                          : !endDate
+                          ? "Теперь выберите дату окончания"
+                          : (
+                            <span className="flex items-center gap-2 flex-wrap">
+                              <span className="font-bold text-foreground">
+                                {format(parseISO(startDate), "d MMM", { locale: ru })} — {format(parseISO(endDate), "d MMM yyyy", { locale: ru })}
                               </span>
-                            )
-                          }
-                        </div>
+                              <span className="text-muted-foreground">·</span>
+                              <span>{totalDays} {totalDays === 1 ? "сутки" : totalDays < 5 ? "суток" : "суток"}</span>
+                              <button
+                                type="button"
+                                onClick={() => { setStartDate(""); setEndDate(""); }}
+                                className="text-muted-foreground hover:text-destructive transition-colors flex items-center gap-0.5"
+                              >
+                                <X className="w-3 h-3" /> сбросить
+                              </button>
+                            </span>
+                          )
+                        }
+                      </div>
 
-                        {/* Booking calendar */}
-                        <div className="bg-muted/30 rounded-2xl p-3 border border-border">
-                          <BookingCalendar
-                            bookedRanges={bookedRanges}
-                            startDate={startDate}
-                            endDate={endDate}
-                            onSelect={handleDateSelect}
-                          />
+                      {/* Booking calendar */}
+                      <div className="bg-muted/30 rounded-2xl p-3 border border-border">
+                        <BookingCalendar
+                          bookedRanges={bookedRanges}
+                          startDate={startDate}
+                          endDate={endDate}
+                          onSelect={handleDateSelect}
+                        />
+                      </div>
+
+                      {/* Пояснение для Прямого расчёта */}
+                      {!protectionEnabled && startDate && endDate && (
+                        <div className="flex items-start gap-2 bg-orange-50 border border-orange-200 rounded-xl p-3 text-xs text-orange-700">
+                          <CalendarDays className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                          <span>Выбранный период будет отображаться в календаре владельца — он сможет подготовиться и не примет пересекающиеся заявки.</span>
                         </div>
-                      </>
-                    )}
+                      )}
+                    </>
 
                     {/* Price summary */}
                     {!protectionEnabled ? (
                       <div className="bg-orange-50 border border-orange-200 p-4 rounded-xl space-y-1.5 text-sm">
+                        {startDate && endDate && (
+                          <div className="flex justify-between text-muted-foreground pb-1 border-b border-orange-200 mb-1">
+                            <span>Желаемый период</span>
+                            <span className="font-medium text-foreground">
+                              {format(parseISO(startDate), "d MMM", { locale: ru })} — {format(parseISO(endDate), "d MMM", { locale: ru })} ({totalDays} {totalDays === 1 ? "сутки" : "суток"})
+                            </span>
+                          </div>
+                        )}
                         <div className="flex justify-between text-muted-foreground">
                           <span>Открытие контактов</span>
                           <span>150 ₽</span>
@@ -790,13 +808,15 @@ export default function ListingDetail() {
                             ? "btn-primary"
                             : "bg-orange-500 hover:bg-orange-600 text-white"
                         }`}
-                        disabled={createBooking.isPending || (protectionEnabled && (!startDate || !endDate))}
+                        disabled={createBooking.isPending || !startDate || !endDate}
                       >
                         {createBooking.isPending
                           ? "Отправка..."
                           : protectionEnabled
                             ? "Отправить заявку"
-                            : <><Phone className="w-5 h-5" /> Получить контакты (150 ₽)</>
+                            : (!startDate || !endDate)
+                              ? "Выберите период аренды"
+                              : <><Phone className="w-5 h-5" /> Получить контакты (150 ₽)</>
                         }
                       </button>
                     ) : (
