@@ -26,6 +26,7 @@ import { formatPrice } from "@/lib/utils";
 import { format } from "date-fns";
 import { StarRating } from "@/components/ui/StarRating";
 import { SupportSection } from "@/components/ui/SupportSection";
+import { usePersistedState } from "@/lib/use-persisted-state";
 
 type BookingStatusFilter = "all" | "pending" | "confirmed" | "active" | "return_pending" | "completed" | "rejected" | "cancelled";
 type ListingVisFilter = "all" | "active" | "hidden";
@@ -160,17 +161,16 @@ export default function Dashboard() {
   const search = useSearch();
   const initialTab = new URLSearchParams(search).get("tab");
 
-  const [activeTab, setActiveTab] = useState<"incoming" | "outgoing" | "listings" | "profile" | "history" | "support">(
-    initialTab === "profile" ? "profile"
-    : initialTab === "outgoing" ? "outgoing"
-    : initialTab === "history" ? "history"
-    : initialTab === "listings" ? "listings"
-    : initialTab === "support" ? "support"
-    : "incoming"
-  );
-  const [incomingFilter, setIncomingFilter] = useState<BookingStatusFilter>("all");
-  const [outgoingFilter, setOutgoingFilter] = useState<BookingStatusFilter>("all");
-  const [listingFilter, setListingFilter] = useState<ListingVisFilter>("all");
+  type DashTab = "incoming" | "outgoing" | "listings" | "profile" | "history" | "support";
+  const validTabs: DashTab[] = ["incoming", "outgoing", "listings", "profile", "history", "support"];
+  const urlTab = initialTab && validTabs.includes(initialTab as DashTab) ? (initialTab as DashTab) : null;
+  const [activeTab, setActiveTab] = usePersistedState<DashTab>("dashboard_tab", urlTab ?? "incoming");
+  // URL-параметр tab всегда берёт приоритет над сохранённым значением
+  useEffect(() => { if (urlTab) setActiveTab(urlTab); }, []);
+
+  const [incomingFilter, setIncomingFilter] = usePersistedState<BookingStatusFilter>("dashboard_incoming_filter", "all");
+  const [outgoingFilter, setOutgoingFilter] = usePersistedState<BookingStatusFilter>("dashboard_outgoing_filter", "all");
+  const [listingFilter, setListingFilter] = usePersistedState<ListingVisFilter>("dashboard_listing_filter", "all");
 
   // Review state (history tab)
   const DASHBOARD_API = import.meta.env.VITE_API_URL ?? "";
@@ -213,8 +213,8 @@ export default function Dashboard() {
 
   type IncomingSort = "newest" | "start_asc" | "price_desc" | "pending_first";
   type OutgoingSort = "newest" | "start_asc" | "price_desc" | "active_first";
-  const [incomingSort, setIncomingSort] = useState<IncomingSort>("pending_first");
-  const [outgoingSort, setOutgoingSort] = useState<OutgoingSort>("newest");
+  const [incomingSort, setIncomingSort] = usePersistedState<IncomingSort>("dashboard_incoming_sort", "pending_first");
+  const [outgoingSort, setOutgoingSort] = usePersistedState<OutgoingSort>("dashboard_outgoing_sort", "newest");
 
   const [profileForm, setProfileForm] = useState({
     name: "", phone: "", role: "renter" as "renter" | "owner",

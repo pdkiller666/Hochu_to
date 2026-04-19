@@ -3,9 +3,31 @@ import { useGetListings, useGetCategories, useGetRegions, useGetCurrentUser } fr
 import { ListingCard } from "@/components/ui/ListingCard";
 import { useLocation } from "wouter";
 import { useState, useEffect, useRef } from "react";
-import { Search, X, SlidersHorizontal, MapPin, Loader2, ChevronDown } from "lucide-react";
+import { Search, X, SlidersHorizontal, MapPin, Loader2, ChevronDown, ArrowUpDown } from "lucide-react";
 import { getToken, getAuthHeaders } from "@/lib/auth";
 import { getCachedGeoRegion, setCachedGeoRegion, detectRegionByServerGeoIP } from "@/lib/region-context";
+import { readPersistedState, clearPersistedState } from "@/lib/use-persisted-state";
+
+const STORAGE_KEY = "catalog_filters";
+
+type SortOption = "new" | "popular" | "rating" | "price_asc" | "price_desc";
+
+const SORT_OPTIONS: { value: SortOption; label: string }[] = [
+  { value: "new", label: "Новые" },
+  { value: "popular", label: "Популярные" },
+  { value: "rating", label: "По рейтингу" },
+  { value: "price_asc", label: "Цена ↑" },
+  { value: "price_desc", label: "Цена ↓" },
+];
+
+interface SavedFilters {
+  category?: string;
+  search?: string;
+  minPrice?: string;
+  maxPrice?: string;
+  sort?: string;
+  showPriceFilter?: boolean;
+}
 
 function matchRegion(stateName: string, regions: { name: string; slug: string }[]): string | null {
   const norm = (s: string) => s.toLowerCase().replace(/[\u2014\u2013\-]/g, "-").replace(/\s+/g, " ").trim();
@@ -49,16 +71,24 @@ async function detectRegionByGeo(regions: { name: string; slug: string }[]): Pro
 
 export default function Catalog() {
   const [location] = useLocation();
+
+  // URL-параметры имеют приоритет над sessionStorage
   const searchParams = new URLSearchParams(window.location.search);
   const urlRegion = searchParams.get("region") || "";
   const urlCategory = searchParams.get("category") || "";
+  const urlSearch = searchParams.get("search") || "";
+  const urlSort = searchParams.get("sort") || "";
 
-  const [category, setCategory] = useState(urlCategory);
+  // Восстанавливаем сохранённые фильтры (если нет URL-параметров)
+  const saved = readPersistedState<SavedFilters>(STORAGE_KEY, {});
+
+  const [category, setCategory] = useState(urlCategory || saved.category || "");
   const [region, setRegion] = useState(urlRegion || getCachedGeoRegion() || "");
-  const [search, setSearch] = useState(searchParams.get("search") || "");
-  const [minPrice, setMinPrice] = useState("");
-  const [maxPrice, setMaxPrice] = useState("");
-  const [showPriceFilter, setShowPriceFilter] = useState(false);
+  const [search, setSearch] = useState(urlSearch || saved.search || "");
+  const [minPrice, setMinPrice] = useState(saved.minPrice || "");
+  const [maxPrice, setMaxPrice] = useState(saved.maxPrice || "");
+  const [sort, setSort] = useState<SortOption>((urlSort || saved.sort || "new") as SortOption);
+  const [showPriceFilter, setShowPriceFilter] = useState(saved.showPriceFilter ?? false);
   const [isScrolled, setIsScrolled] = useState(false);
   const regionInitialized = useRef(!!(urlRegion || getCachedGeoRegion()));
 
@@ -69,6 +99,14 @@ export default function Catalog() {
     { request: getAuthHeaders() },
     { query: { enabled: !!token } }
   );
+
+  // Сохраняем фильтры в sessionStorage при каждом изменении
+  useEffect(() => {
+    try {
+      const toSave: SavedFilters = { category, search, minPrice, maxPrice, sort, showPriceFilter };
+      sessionStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+    } catch {}
+  }, [category, search, minPrice, maxPrice, sort, showPriceFilter]);
 
   useEffect(() => {
     const onScroll = () => setIsScrolled(window.scrollY > 10);
@@ -104,20 +142,22 @@ export default function Catalog() {
     search: search || undefined,
     minPrice: minPrice ? Number(minPrice) : undefined,
     maxPrice: maxPrice ? Number(maxPrice) : undefined,
+    sort: sort || undefined,
     limit: 24,
-  });
+  } as Parameters<typeof useGetListings>[0]);
 
   const resetFilters = () => {
     setCategory("");
     setSearch("");
     setMinPrice("");
     setMaxPrice("");
+    setSort("new");
     setRegion("");
+    clearPersistedState(STORAGE_KEY);
   };
 
-  const hasActiveFilters = !!(category || search || minPrice || maxPrice);
+  const hasActiveFilters = !!(category || search || minPrice || maxPrice || (sort && sort !== "new"));
   const selectedRegionName = regions?.find(r => r.slug === region)?.name ?? "";
-  const activeFiltersCount = [category, minPrice || maxPrice].filter(Boolean).length;
 
   return (
     <Layout>
@@ -162,6 +202,20 @@ export default function Catalog() {
                   <option value="">Все регионы</option>
                   {regions?.map(r => (
                     <option key={r.id} value={r.slug}>{r.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Sort dropdown */}
+              <div className="hidden sm:flex items-center gap-1.5 bg-white border border-border rounded-xl px-3 py-2.5 min-w-[130px]">
+                <ArrowUpDown className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                <select
+                  value={sort}
+                  onChange={(e) => setSort(e.target.value as SortOption)}
+                  className="bg-transparent border-none outline-none text-sm font-medium cursor-pointer appearance-none w-full"
+                >
+                  {SORT_OPTIONS.map(o => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
                   ))}
                 </select>
               </div>
@@ -228,9 +282,9 @@ export default function Catalog() {
             )}
           </div>
 
-          {/* Region row — mobile only */}
-          <div className="sm:hidden pb-2">
-            <div className="flex items-center gap-1.5 bg-white border border-border rounded-xl px-3 py-2 w-full">
+          {/* Mobile: region + sort row */}
+          <div className="sm:hidden pb-2 flex gap-2">
+            <div className="flex items-center gap-1.5 bg-white border border-border rounded-xl px-3 py-2 flex-1">
               <MapPin className="w-4 h-4 text-primary flex-shrink-0" />
               <select
                 value={region}
@@ -243,6 +297,19 @@ export default function Catalog() {
                 ))}
               </select>
               <ChevronDown className="w-4 h-4 text-muted-foreground flex-shrink-0 pointer-events-none" />
+            </div>
+
+            <div className="flex items-center gap-1.5 bg-white border border-border rounded-xl px-3 py-2 flex-1">
+              <ArrowUpDown className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+              <select
+                value={sort}
+                onChange={(e) => setSort(e.target.value as SortOption)}
+                className="bg-transparent border-none outline-none text-sm font-medium cursor-pointer appearance-none w-full"
+              >
+                {SORT_OPTIONS.map(o => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
             </div>
           </div>
 
