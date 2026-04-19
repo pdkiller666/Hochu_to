@@ -7,57 +7,162 @@ import {
   categoriesTable,
   listingsTable,
 } from "@workspace/db";
-import { eq, count } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
+
+// ─── ВСЕ 85 СУБЪЕКТОВ РОССИЙСКОЙ ФЕДЕРАЦИИ ───────────────────────────────────
+const ALL_REGIONS = [
+  // Федеральные города
+  { name: "Москва",                                slug: "moscow"               },
+  { name: "Санкт-Петербург",                       slug: "spb"                  },
+  { name: "Севастополь",                           slug: "sevastopol"           },
+  // Республики
+  { name: "Республика Адыгея",                     slug: "adygea"               },
+  { name: "Республика Алтай",                      slug: "altai-rep"            },
+  { name: "Республика Башкортостан",               slug: "bashkortostan"        },
+  { name: "Республика Бурятия",                    slug: "buryatia"             },
+  { name: "Республика Дагестан",                   slug: "dagestan"             },
+  { name: "Республика Ингушетия",                  slug: "ingushetia"           },
+  { name: "Кабардино-Балкарская Республика",       slug: "kabardino-balkaria"   },
+  { name: "Республика Калмыкия",                   slug: "kalmykia"             },
+  { name: "Карачаево-Черкесская Республика",       slug: "karachay-cherkessia"  },
+  { name: "Республика Карелия",                    slug: "karelia"              },
+  { name: "Республика Коми",                       slug: "komi"                 },
+  { name: "Республика Крым",                       slug: "crimea"               },
+  { name: "Республика Марий Эл",                   slug: "mari-el"              },
+  { name: "Республика Мордовия",                   slug: "mordovia"             },
+  { name: "Республика Саха (Якутия)",              slug: "sakha"                },
+  { name: "Республика Северная Осетия — Алания",  slug: "north-ossetia"        },
+  { name: "Республика Татарстан",                  slug: "tatarstan"            },
+  { name: "Республика Тыва",                       slug: "tuva"                 },
+  { name: "Удмуртская Республика",                 slug: "udmurtia"             },
+  { name: "Республика Хакасия",                    slug: "khakassia"            },
+  { name: "Чеченская Республика",                  slug: "chechnya"             },
+  { name: "Чувашская Республика",                  slug: "chuvashia"            },
+  // Края
+  { name: "Алтайский край",                        slug: "altai-krai"           },
+  { name: "Забайкальский край",                    slug: "zabaykalsky"          },
+  { name: "Камчатский край",                       slug: "kamchatka"            },
+  { name: "Краснодарский край",                    slug: "krasnodar"            },
+  { name: "Красноярский край",                     slug: "krasnoyarsk"          },
+  { name: "Пермский край",                         slug: "perm"                 },
+  { name: "Приморский край",                       slug: "primorsky"            },
+  { name: "Ставропольский край",                   slug: "stavropol"            },
+  { name: "Хабаровский край",                      slug: "khabarovsk"           },
+  // Области
+  { name: "Амурская область",                      slug: "amur"                 },
+  { name: "Архангельская область",                 slug: "arkhangelsk"          },
+  { name: "Астраханская область",                  slug: "astrakhan"            },
+  { name: "Белгородская область",                  slug: "belgorod"             },
+  { name: "Брянская область",                      slug: "bryansk"              },
+  { name: "Владимирская область",                  slug: "vladimir"             },
+  { name: "Волгоградская область",                 slug: "volgograd"            },
+  { name: "Вологодская область",                   slug: "vologda"              },
+  { name: "Воронежская область",                   slug: "voronezh"             },
+  { name: "Ивановская область",                    slug: "ivanovo"              },
+  { name: "Иркутская область",                     slug: "irkutsk"              },
+  { name: "Калининградская область",               slug: "kaliningrad"          },
+  { name: "Калужская область",                     slug: "kaluga"               },
+  { name: "Кемеровская область",                   slug: "kemerovo"             },
+  { name: "Кировская область",                     slug: "kirov"                },
+  { name: "Костромская область",                   slug: "kostroma"             },
+  { name: "Курганская область",                    slug: "kurgan"               },
+  { name: "Курская область",                       slug: "kursk"                },
+  { name: "Ленинградская область",                 slug: "leningrad-obl"        },
+  { name: "Липецкая область",                      slug: "lipetsk"              },
+  { name: "Магаданская область",                   slug: "magadan"              },
+  { name: "Московская область",                    slug: "moscow-obl"           },
+  { name: "Мурманская область",                    slug: "murmansk"             },
+  { name: "Нижегородская область",                 slug: "nizhny-novgorod"      },
+  { name: "Новгородская область",                  slug: "novgorod-obl"         },
+  { name: "Новосибирская область",                 slug: "novosibirsk"          },
+  { name: "Омская область",                        slug: "omsk"                 },
+  { name: "Оренбургская область",                  slug: "orenburg"             },
+  { name: "Орловская область",                     slug: "oryol"                },
+  { name: "Пензенская область",                    slug: "penza"                },
+  { name: "Псковская область",                     slug: "pskov"                },
+  { name: "Ростовская область",                    slug: "rostov"               },
+  { name: "Рязанская область",                     slug: "ryazan"               },
+  { name: "Самарская область",                     slug: "samara"               },
+  { name: "Саратовская область",                   slug: "saratov"              },
+  { name: "Сахалинская область",                   slug: "sakhalin"             },
+  { name: "Свердловская область",                  slug: "sverdlovsk"           },
+  { name: "Смоленская область",                    slug: "smolensk"             },
+  { name: "Тамбовская область",                    slug: "tambov"               },
+  { name: "Тверская область",                      slug: "tver"                 },
+  { name: "Томская область",                       slug: "tomsk"                },
+  { name: "Тульская область",                      slug: "tula"                 },
+  { name: "Тюменская область",                     slug: "tyumen"               },
+  { name: "Ульяновская область",                   slug: "ulyanovsk"            },
+  { name: "Челябинская область",                   slug: "chelyabinsk"          },
+  { name: "Ярославская область",                   slug: "yaroslavl"            },
+  // Автономная область
+  { name: "Еврейская автономная область",          slug: "jewish-ao"            },
+  // Автономные округа
+  { name: "Ненецкий автономный округ",             slug: "nenets"               },
+  { name: "Ханты-Мансийский автономный округ",     slug: "khanty-mansiysk"      },
+  { name: "Чукотский автономный округ",            slug: "chukotka"             },
+  { name: "Ямало-Ненецкий автономный округ",       slug: "yamal"                },
+];
+
+// ─── КАТЕГОРИИ (совпадают со slug на главной странице) ────────────────────────
+const ALL_CATEGORIES = [
+  { name: "Стройка и ремонт", slug: "construction", icon: "🔨" },
+  { name: "Туризм и спорт",   slug: "tourism",      icon: "⛺" },
+  { name: "Сад и огород",     slug: "garden",       icon: "🌱" },
+  { name: "Праздники",        slug: "holidays",     icon: "🎉" },
+  { name: "Детские товары",   slug: "children",     icon: "👶" },
+  { name: "Электроника",      slug: "electronics",  icon: "💻" },
+  { name: "Авто и мото",      slug: "auto",         icon: "🚗" },
+  { name: "Одежда и обувь",   slug: "clothing",     icon: "👗" },
+  { name: "Фото и видео",     slug: "photo",        icon: "📷" },
+  { name: "Книги и учёба",    slug: "books",        icon: "📚" },
+];
 
 async function seed() {
   console.log("🌱 Seed: начало...");
 
-  // ─── РЕГИОНЫ ──────────────────────────────────────────────────────────────
-  const existingRegions = await db.select({ n: count() }).from(regionsTable);
-  if (Number(existingRegions[0].n) === 0) {
-    await db.insert(regionsTable).values([
-      { name: "Москва",          slug: "moscow"       },
-      { name: "Санкт-Петербург", slug: "spb"          },
-      { name: "Новосибирск",     slug: "novosibirsk"  },
-      { name: "Екатеринбург",    slug: "ekaterinburg" },
-      { name: "Казань",          slug: "kazan"        },
-      { name: "Нижний Новгород", slug: "nnov"         },
-      { name: "Краснодар",       slug: "krasnodar"    },
-    ]);
-    console.log("✅ Регионы добавлены");
-  } else {
-    console.log("⏭️  Регионы уже есть, пропускаем");
-  }
+  // ─── ШАГ 1: ЧИСТИМ ОБЪЯВЛЕНИЯ И КАТЕГОРИИ (каскадно) ─────────────────────
+  console.log("🗑️  Очищаем объявления...");
+  await db.delete(listingsTable);
 
-  // ─── КАТЕГОРИИ ────────────────────────────────────────────────────────────
-  const existingCats = await db.select({ n: count() }).from(categoriesTable);
-  if (Number(existingCats[0].n) === 0) {
-    await db.insert(categoriesTable).values([
-      { name: "Электроника",      slug: "electronics",  icon: "💻" },
-      { name: "Спорт и туризм",   slug: "sports",       icon: "⛷️"  },
-      { name: "Инструменты",      slug: "tools",        icon: "🔧" },
-      { name: "Одежда и обувь",   slug: "clothing",     icon: "👗" },
-      { name: "Детские товары",   slug: "kids",         icon: "🧸" },
-      { name: "Авто и мото",      slug: "auto",         icon: "🚗" },
-      { name: "Фото и видео",     slug: "photo",        icon: "📷" },
-      { name: "Отдых и природа",  slug: "outdoor",      icon: "🏕️"  },
-      { name: "Праздник и декор", slug: "decor",        icon: "🎉" },
-      { name: "Книги и учёба",    slug: "books",        icon: "📚" },
-    ]);
-    console.log("✅ Категории добавлены");
-  } else {
-    console.log("⏭️  Категории уже есть, пропускаем");
-  }
+  console.log("🗑️  Очищаем категории...");
+  await db.delete(categoriesTable);
 
-  // Подтягиваем ID регионов и категорий
+  console.log("🗑️  Очищаем регионы...");
+  await db.execute(sql`UPDATE users SET region_id = NULL WHERE region_id IS NOT NULL`);
+  await db.delete(regionsTable);
+
+  // ─── ШАГ 2: РЕГИОНЫ — все 85 субъектов РФ ────────────────────────────────
+  await db.insert(regionsTable).values(ALL_REGIONS);
+  console.log(`✅ Регионы добавлены (${ALL_REGIONS.length} шт.)`);
+
+  // ─── ШАГ 3: КАТЕГОРИИ ─────────────────────────────────────────────────────
+  await db.insert(categoriesTable).values(ALL_CATEGORIES);
+  console.log(`✅ Категории добавлены (${ALL_CATEGORIES.length} шт.)`);
+
+  // Получаем свежие ID
   const regions    = await db.select().from(regionsTable);
   const categories = await db.select().from(categoriesTable);
 
-  const r = (slug: string) => regions.find(x => x.slug === slug)!.id;
-  const c = (slug: string) => categories.find(x => x.slug === slug)!.id;
+  const r = (slug: string) => {
+    const found = regions.find(x => x.slug === slug);
+    if (!found) throw new Error(`Region not found: ${slug}`);
+    return found.id;
+  };
+  const c = (slug: string) => {
+    const found = categories.find(x => x.slug === slug);
+    if (!found) throw new Error(`Category not found: ${slug}`);
+    return found.id;
+  };
 
-  // ─── ПОЛЬЗОВАТЕЛИ ────────────────────────────────────────────────────────
-  const existingUsers = await db.select({ n: count() }).from(usersTable);
+  // ─── ШАГ 4: ОБНОВЛЯЕМ РЕГИОН СУЩЕСТВУЮЩИХ ПОЛЬЗОВАТЕЛЕЙ ─────────────────
+  await db.execute(sql`
+    UPDATE users SET region_id = ${r("moscow")} WHERE region_id IS NULL
+  `);
+  console.log("✅ Регион пользователей обновлён → Москва");
+
+  // ─── ШАГ 5: ТЕСТОВЫЕ ПОЛЬЗОВАТЕЛИ (только если нет) ─────────────────────
+  const existingUsers = await db.select({ n: sql<number>`count(*)::int` }).from(usersTable);
   let ownerId1: number, ownerId2: number, ownerId3: number;
 
   if (Number(existingUsers[0].n) <= 1) {
@@ -91,7 +196,7 @@ async function seed() {
       passwordHash: await hash("Test1234!"),
       role: "owner",
       phone: "+7 (343) 555-44-33",
-      regionId: r("ekaterinburg"),
+      regionId: r("sverdlovsk"),
       bio: "Сдаю спортивное снаряжение и товары для отдыха на природе.",
     }).returning();
 
@@ -125,7 +230,7 @@ async function seed() {
     ownerId1 = o1.id;
     ownerId2 = o2.id;
     ownerId3 = o3.id;
-    console.log("✅ Пользователи добавлены");
+    console.log("✅ Тестовые пользователи добавлены");
   } else {
     const owners = await db
       .select()
@@ -135,192 +240,124 @@ async function seed() {
     ownerId1 = owners[0]?.id ?? 1;
     ownerId2 = owners[1]?.id ?? 1;
     ownerId3 = owners[2]?.id ?? 1;
-    console.log("⏭️  Пользователи уже есть, пропускаем");
+    console.log("⏭️  Пользователи уже есть");
   }
 
-  // ─── ОБЪЯВЛЕНИЯ ──────────────────────────────────────────────────────────
-  const existingListings = await db.select({ n: count() }).from(listingsTable);
-  if (Number(existingListings[0].n) === 0) {
-    await db.insert(listingsTable).values([
-      // Электроника — Москва
-      {
-        title: "DJI Mini 3 Pro — дрон для аэросъёмки",
-        description: "Квадрокоптер DJI Mini 3 Pro с камерой 4K/60fps. В комплекте 3 аккумулятора, зарядная станция, кейс для переноски. Идеален для путешествий и съёмки мероприятий.",
-        pricePerDay: "2500",
-        deposit: "15000",
-        categoryId: c("electronics"),
-        regionId: r("moscow"),
-        city: "Москва",
-        ownerId: ownerId1,
-        isAvailable: true,
-      },
-      {
-        title: "MacBook Pro 16\" M3 — ноутбук для работы",
-        description: "Apple MacBook Pro 16 дюймов, чип M3 Pro, 36 ГБ RAM, 1 ТБ SSD. Подходит для разработки, видеомонтажа, дизайна.",
-        pricePerDay: "3000",
-        deposit: "120000",
-        categoryId: c("electronics"),
-        regionId: r("moscow"),
-        city: "Москва",
-        ownerId: ownerId1,
-        isAvailable: true,
-      },
-      {
-        title: "Проектор Epson EB-X51 + экран",
-        description: "Проектор 3600 люмен, разрешение XGA, поддержка HDMI и USB. Экран 120 дюймов в комплекте. Отлично подходит для конференций и домашнего кинотеатра.",
-        pricePerDay: "1500",
-        deposit: "10000",
-        categoryId: c("electronics"),
-        regionId: r("moscow"),
-        city: "Москва",
-        ownerId: ownerId1,
-        isAvailable: true,
-      },
-
-      // Фото/видео — Санкт-Петербург
-      {
-        title: "Sony A7 IV + объектив 24-70mm",
-        description: "Полнокадровая беззеркальная камера 33 МП. В комплекте объектив Sony 24-70mm f/2.8, 2 аккумулятора, зарядка, сумка.",
-        pricePerDay: "3500",
-        deposit: "80000",
-        categoryId: c("photo"),
-        regionId: r("spb"),
-        city: "Санкт-Петербург",
-        ownerId: ownerId2,
-        isAvailable: true,
-      },
-      {
-        title: "Осветительный комплект — 3 студийных моноблока",
-        description: "Студийный свет: 3 моноблока по 400 Вт, 3 стойки, 2 зонта, 1 октабокс 80х80, синхронизатор. Для предметной и портретной съёмки.",
-        pricePerDay: "2000",
-        deposit: "20000",
-        categoryId: c("photo"),
-        regionId: r("spb"),
-        city: "Санкт-Петербург",
-        ownerId: ownerId2,
-        isAvailable: true,
-      },
-      {
-        title: "Стабилизатор DJI RS 3 для камеры",
-        description: "3-осевой электронный стабилизатор для зеркальных и беззеркальных камер. Нагрузка до 3 кг. Bluetooth-управление.",
-        pricePerDay: "800",
-        deposit: "12000",
-        categoryId: c("photo"),
-        regionId: r("spb"),
-        city: "Санкт-Петербург",
-        ownerId: ownerId2,
-        isAvailable: true,
-      },
-
-      // Спорт и туризм — Екатеринбург
-      {
-        title: "Горные лыжи Rossignol + ботинки (р. 43-44)",
-        description: "Лыжи Rossignol React 6 170 см с креплениями Look SPX 12. Ботинки Rossignol Track 90 размер 43-44. Состояние хорошее.",
-        pricePerDay: "700",
-        deposit: "8000",
-        categoryId: c("sports"),
-        regionId: r("ekaterinburg"),
-        city: "Екатеринбург",
-        ownerId: ownerId3,
-        isAvailable: true,
-      },
-      {
-        title: "Туристическая палатка на 4 человека",
-        description: "Трёхсезонная палатка MSR Habitude 4. Вес 3,5 кг, водостойкость 3000 мм. Внутренняя палатка, тент, дуги в комплекте.",
-        pricePerDay: "600",
-        deposit: "5000",
-        categoryId: c("sports"),
-        regionId: r("ekaterinburg"),
-        city: "Екатеринбург",
-        ownerId: ownerId3,
-        isAvailable: true,
-      },
-      {
-        title: "Велосипед горный Trek Marlin 7 (рама L)",
-        description: "Горный байк 29 дюймов, рама L (рост 178-190 см), 21 скорость Shimano, гидравлические тормоза. Подходит для трейлов и городских поездок.",
-        pricePerDay: "900",
-        deposit: "25000",
-        categoryId: c("sports"),
-        regionId: r("ekaterinburg"),
-        city: "Екатеринбург",
-        ownerId: ownerId3,
-        isAvailable: true,
-      },
-
-      // Инструменты — Москва
-      {
-        title: "Перфоратор Bosch GBH 2-26 + набор свёрл",
-        description: "Профессиональный перфоратор Bosch 800 Вт, SDS-plus. Набор из 15 свёрл и бит в кейсе. Для бетона, кирпича, плитки.",
-        pricePerDay: "400",
-        deposit: "6000",
-        categoryId: c("tools"),
-        regionId: r("moscow"),
-        city: "Москва",
-        ownerId: ownerId1,
-        isAvailable: true,
-      },
-      {
-        title: "Лазерный уровень Bosch GLL 3-80",
-        description: "3-плоскостной лазерный нивелир, 360°, дальность 30 м. В комплекте кейс, держатель RM 1, аккумуляторы.",
-        pricePerDay: "500",
-        deposit: "7000",
-        categoryId: c("tools"),
-        regionId: r("moscow"),
-        city: "Москва",
-        ownerId: ownerId1,
-        isAvailable: true,
-      },
-
-      // Праздник и декор — Санкт-Петербург
-      {
-        title: "Шатёр 6×6 м для мероприятий",
-        description: "Разборной шатёр белого цвета 6×6 метров. Высота 3 м. Вмещает до 30 человек. Боковые стенки в комплекте. Самовывоз или доставка.",
-        pricePerDay: "2500",
-        deposit: "10000",
-        categoryId: c("decor"),
-        regionId: r("spb"),
-        city: "Санкт-Петербург",
-        ownerId: ownerId2,
-        isAvailable: true,
-      },
-      {
-        title: "Фотобудка для вечеринки",
-        description: "Готовая фотобудка: iPad, принтер, фон на выбор, реквизит. Печать фото за 10 секунд. Аренда на день включает монтаж и настройку.",
-        pricePerDay: "5000",
-        deposit: "15000",
-        categoryId: c("decor"),
-        regionId: r("spb"),
-        city: "Санкт-Петербург",
-        ownerId: ownerId2,
-        isAvailable: true,
-      },
-
-      // Детские товары — Казань
-      {
-        title: "Детская коляска Bugaboo Fox 3",
-        description: "Универсальная коляска 2в1: люлька + прогулочный блок. Подходит от рождения до 22 кг. Всесезонная, хорошее состояние.",
-        pricePerDay: "350",
-        deposit: "30000",
-        categoryId: c("kids"),
-        regionId: r("kazan"),
-        city: "Казань",
-        ownerId: ownerId3,
-        isAvailable: true,
-      },
-    ]);
-    console.log("✅ Объявления добавлены");
-  } else {
-    console.log("⏭️  Объявления уже есть, пропускаем");
-  }
+  // ─── ШАГ 6: ОБЪЯВЛЕНИЯ ───────────────────────────────────────────────────
+  await db.insert(listingsTable).values([
+    // Электроника — Москва
+    {
+      title: "DJI Mini 3 Pro — дрон для аэросъёмки",
+      description: "Квадрокоптер DJI Mini 3 Pro с камерой 4K/60fps. В комплекте 3 аккумулятора, зарядная станция, кейс. Идеален для путешествий и съёмки мероприятий.",
+      pricePerDay: "2500", deposit: "15000",
+      categoryId: c("electronics"), regionId: r("moscow"), city: "Москва",
+      ownerId: ownerId1, isAvailable: true,
+    },
+    {
+      title: "MacBook Pro 16\" M3 — ноутбук для работы",
+      description: "Apple MacBook Pro 16\", чип M3 Pro, 36 ГБ RAM, 1 ТБ SSD. Для разработки, видеомонтажа, дизайна.",
+      pricePerDay: "3000", deposit: "120000",
+      categoryId: c("electronics"), regionId: r("moscow"), city: "Москва",
+      ownerId: ownerId1, isAvailable: true,
+    },
+    {
+      title: "Проектор Epson + экран 120\"",
+      description: "Проектор 3600 люмен, HDMI + USB, экран 120\" в комплекте. Для конференций и домашнего кино.",
+      pricePerDay: "1500", deposit: "10000",
+      categoryId: c("electronics"), regionId: r("moscow"), city: "Москва",
+      ownerId: ownerId1, isAvailable: true,
+    },
+    // Фото и видео — Санкт-Петербург
+    {
+      title: "Sony A7 IV + объектив 24-70mm f/2.8",
+      description: "Полнокадровая беззеркалка 33 МП. Объектив Sony 24-70mm f/2.8, 2 акб, зарядка, сумка.",
+      pricePerDay: "3500", deposit: "80000",
+      categoryId: c("photo"), regionId: r("spb"), city: "Санкт-Петербург",
+      ownerId: ownerId2, isAvailable: true,
+    },
+    {
+      title: "Студийный свет — 3 моноблока 400 Вт",
+      description: "Студийный комплект: 3 моноблока, стойки, зонты, октабокс 80×80, синхронизатор.",
+      pricePerDay: "2000", deposit: "20000",
+      categoryId: c("photo"), regionId: r("spb"), city: "Санкт-Петербург",
+      ownerId: ownerId2, isAvailable: true,
+    },
+    {
+      title: "Стабилизатор DJI RS 3 для камеры",
+      description: "3-осевой гимбал, нагрузка до 3 кг, Bluetooth, для любых камер.",
+      pricePerDay: "800", deposit: "12000",
+      categoryId: c("photo"), regionId: r("spb"), city: "Санкт-Петербург",
+      ownerId: ownerId2, isAvailable: true,
+    },
+    // Туризм и спорт — Свердловская область
+    {
+      title: "Горные лыжи Rossignol + ботинки (р. 43-44)",
+      description: "Лыжи Rossignol 170 см с креплениями Look SPX 12. Ботинки р.43-44. Состояние хорошее.",
+      pricePerDay: "700", deposit: "8000",
+      categoryId: c("tourism"), regionId: r("sverdlovsk"), city: "Екатеринбург",
+      ownerId: ownerId3, isAvailable: true,
+    },
+    {
+      title: "Туристическая палатка на 4 человека",
+      description: "MSR Habitude 4, вес 3,5 кг, водостойкость 3000 мм. Трёхсезонная.",
+      pricePerDay: "600", deposit: "5000",
+      categoryId: c("tourism"), regionId: r("sverdlovsk"), city: "Екатеринбург",
+      ownerId: ownerId3, isAvailable: true,
+    },
+    {
+      title: "SUP-доска надувная 11 футов",
+      description: "Доска для сапсёрфинга с веслом, насосом и рюкзаком. Для рек, озёр, водохранилищ.",
+      pricePerDay: "900", deposit: "6000",
+      categoryId: c("tourism"), regionId: r("sverdlovsk"), city: "Екатеринбург",
+      ownerId: ownerId3, isAvailable: true,
+    },
+    // Стройка и ремонт — Москва
+    {
+      title: "Перфоратор Bosch GBH 2-28 F",
+      description: "Мощный перфоратор 880 Вт, удар 3,2 Дж, 3 режима, SDS-plus. Набор бит в комплекте.",
+      pricePerDay: "500", deposit: "3000",
+      categoryId: c("construction"), regionId: r("moscow"), city: "Москва",
+      ownerId: ownerId1, isAvailable: true,
+    },
+    {
+      title: "Лазерный уровень Bosch GLL 3-80",
+      description: "3-плоскостной самовыравнивающийся лазерный нивелир, дальность 80 м, штатив в комплекте.",
+      pricePerDay: "700", deposit: "5000",
+      categoryId: c("construction"), regionId: r("moscow"), city: "Москва",
+      ownerId: ownerId1, isAvailable: true,
+    },
+    // Праздники — Санкт-Петербург
+    {
+      title: "Фотобудка с принтером",
+      description: "Автоматическая фотобудка: камера, принтер, реквизит, фоны. Печать за 10 сек. Для свадеб и корпоративов.",
+      pricePerDay: "5000", deposit: "30000",
+      categoryId: c("holidays"), regionId: r("spb"), city: "Санкт-Петербург",
+      ownerId: ownerId2, isAvailable: true,
+    },
+    // Детские товары — Республика Татарстан
+    {
+      title: "Детский велосипед 16\" (рост 100-120 см)",
+      description: "Велосипед с боковыми колёсами, регулируемое сиденье и руль. Возраст 4-7 лет.",
+      pricePerDay: "200", deposit: "2000",
+      categoryId: c("children"), regionId: r("tatarstan"), city: "Казань",
+      ownerId: ownerId3, isAvailable: true,
+    },
+    {
+      title: "Детская коляска Bugaboo Fox 3",
+      description: "Универсальная 2в1: люлька + прогулочный блок. От рождения до 22 кг, всесезонная.",
+      pricePerDay: "350", deposit: "30000",
+      categoryId: c("children"), regionId: r("tatarstan"), city: "Казань",
+      ownerId: ownerId3, isAvailable: true,
+    },
+  ]);
+  console.log("✅ Объявления добавлены (14 шт.)");
 
   console.log("🎉 Seed завершён!");
 }
 
-// Экспорт для вызова из admin-роута (без закрытия пула)
 export default seed;
 
-// Прямой запуск через CLI (ts-node/tsx) — закрываем пул после завершения
-const isMain = process.argv[1]?.endsWith("seed.ts") || process.argv[1]?.endsWith("seed.js");
+const isMain = process.argv[1]?.endsWith("seed.ts") || process.argv[1]?.endsWith("seed.mjs") || process.argv[1]?.endsWith("seed.js");
 if (isMain) {
   seed()
     .then(() => pool.end())
