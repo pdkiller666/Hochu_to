@@ -3,7 +3,7 @@ import { useGetListings, useGetCategories, useGetRegions, useGetCurrentUser } fr
 import { ListingCard } from "@/components/ui/ListingCard";
 import { useLocation } from "wouter";
 import { useState, useEffect, useRef } from "react";
-import { Search, X, SlidersHorizontal, MapPin } from "lucide-react";
+import { Search, X, SlidersHorizontal, MapPin, Loader2 } from "lucide-react";
 import { getToken, getAuthHeaders } from "@/lib/auth";
 import { getCachedGeoRegion, setCachedGeoRegion, detectRegionByServerGeoIP } from "@/lib/region-context";
 
