@@ -85,7 +85,12 @@ function App() {
     setAuthTokenRefresher(() => refreshAccessToken());
     setUnauthorizedHandler(async () => {
       await logoutEverywhere();
-      if (!window.location.pathname.startsWith("/auth")) {
+      // Перенаправляем на страницу входа только с защищённых маршрутов.
+      // Каталог, карточки товаров и публичные страницы доступны без авторизации.
+      const PUBLIC_PATHS = ["/", "/catalog", "/listings", "/users", "/about", "/contacts", "/privacy", "/how-to-rent", "/how-to-list", "/guarantee-fund", "/joint-purchases"];
+      const path = window.location.pathname;
+      const isPublic = PUBLIC_PATHS.some(p => path === p || path.startsWith(p + "/"));
+      if (!isPublic && !path.startsWith("/auth")) {
         window.location.assign("/auth?tab=login");
       }
     });
