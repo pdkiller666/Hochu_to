@@ -19,24 +19,66 @@ interface ListingCarouselSectionProps {
   bgClassName?: string;
 }
 
+async function fetchListings(sort: string, limit: number, region?: string): Promise<Listing[]> {
+  const params = new URLSearchParams({ sort, limit: String(limit) });
+  if (region) params.set("region", region);
+  const res = await fetch(`${API_BASE}/api/listings?${params}`);
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.listings ?? [];
+}
+
+type GeoMode = "regional" | "mixed" | "fallback" | "all";
+
 function useListings(sort: string, limit: number, region: string) {
   const [listings, setListings] = useState<Listing[]>([]);
   const [loading, setLoading] = useState(true);
+  const [geoMode, setGeoMode] = useState<GeoMode>("all");
 
   useEffect(() => {
     setLoading(true);
-    const params = new URLSearchParams({ sort, limit: String(limit) });
-    if (region) params.set("region", region);
-    fetch(`${API_BASE}/api/listings?${params}`)
-      .then((r) => r.json())
-      .then((data) => {
-        setListings(data.listings ?? []);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
+
+    const run = async () => {
+      if (!region) {
+        const all = await fetchListings(sort, limit);
+        setListings(all);
+        setGeoMode("all");
+        return;
+      }
+
+      // 1. Пробуем региональные
+      const regional = await fetchListings(sort, limit, region);
+
+      if (regional.length === 0) {
+        // Нет ни одного — полный фолбэк на все регионы
+        const all = await fetchListings(sort, limit);
+        setListings(all);
+        setGeoMode("fallback");
+        return;
+      }
+
+      if (regional.length >= limit) {
+        // Полностью заполнен регион
+        setListings(regional);
+        setGeoMode("regional");
+        return;
+      }
+
+      // 2. Есть, но меньше limit — добираем из всех регионов
+      const all = await fetchListings(sort, limit);
+      const regionalIds = new Set(regional.map((l) => l.id));
+      const extra = all.filter((l) => !regionalIds.has(l.id));
+      const combined = [...regional, ...extra].slice(0, limit);
+      setListings(combined);
+      setGeoMode("mixed");
+    };
+
+    run()
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, [sort, limit, region]);
 
-  return { listings, loading };
+  return { listings, loading, geoMode };
 }
 
 function SkeletonCard() {
@@ -66,14 +108,14 @@ export function ListingCarouselSection({
   bgClassName = "bg-white",
 }: ListingCarouselSectionProps) {
   const { selectedRegion } = useRegion();
-  const { listings, loading } = useListings(sort, limit, selectedRegion);
+  const { listings, loading, geoMode } = useListings(sort, limit, selectedRegion);
 
-  // Build "see all" link with current region filter
   const seeAllLink = catalogLink
-    ? selectedRegion
+    ? selectedRegion && geoMode !== "fallback"
       ? `${catalogLink}${catalogLink.includes("?") ? "&" : "?"}region=${selectedRegion}`
       : catalogLink
     : undefined;
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(false);
@@ -106,6 +148,17 @@ export function ListingCarouselSection({
 
   const skeletonCount = limit > 6 ? 6 : limit;
 
+  const geoHint =
+    selectedRegion && !loading
+      ? geoMode === "regional"
+        ? { text: "Показываем по вашему региону", accent: false }
+        : geoMode === "mixed"
+        ? { text: "Сначала из вашего региона, остальное — по всей России", accent: false }
+        : geoMode === "fallback"
+        ? { text: "В вашем регионе пока нет предложений — показываем по всей России", accent: true }
+        : null
+      : null;
+
   return (
     <section className={cn("py-12", bgClassName)}>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -131,7 +184,6 @@ export function ListingCarouselSection({
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Arrow buttons */}
             <button
               onClick={() => scroll("left")}
               disabled={!canScrollLeft}
@@ -171,19 +223,14 @@ export function ListingCarouselSection({
           </div>
         </div>
 
-        {/* Geo filter hint */}
-        {selectedRegion && (
-          <div className="flex items-center gap-1.5 mb-4 text-xs text-muted-foreground">
-            <MapPin className="w-3.5 h-3.5 text-primary flex-shrink-0" />
-            <span>Показываем по вашему региону</span>
-            {!loading && listings.length === 0 && (
-              <span className="ml-1 text-muted-foreground/70">
-                — ничего не найдено.{" "}
-                <Link href={catalogLink ?? "/catalog"} className="text-primary hover:underline">
-                  Смотреть всё
-                </Link>
-              </span>
-            )}
+        {/* Geo hint */}
+        {geoHint && (
+          <div className={cn(
+            "flex items-center gap-1.5 mb-4 text-xs",
+            geoHint.accent ? "text-amber-600" : "text-muted-foreground"
+          )}>
+            <MapPin className={cn("w-3.5 h-3.5 flex-shrink-0", geoHint.accent ? "text-amber-500" : "text-primary")} />
+            <span>{geoHint.text}</span>
           </div>
         )}
 
