@@ -762,4 +762,18 @@ router.get("/audit-log", requireAuth, requireAdmin, async (req: AuthRequest, res
   });
 });
 
+// ─── SEED ──────────────────────────────────────────────────────────────────────
+// POST /api/admin/seed — заполняет БД тестовыми данными (только для admin-роли).
+// Идемпотентный: пропускает уже существующие записи.
+router.post("/seed", requireAuth, requireAdmin, async (_req, res) => {
+  try {
+    const { default: runSeed } = await import("../seed.js");
+    await runSeed();
+    res.json({ ok: true, message: "Seed выполнен успешно" });
+  } catch (err: any) {
+    console.error("Seed error:", err);
+    res.status(500).json({ ok: false, error: err?.message ?? String(err) });
+  }
+});
+
 export default router;
