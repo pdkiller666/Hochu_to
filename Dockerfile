@@ -53,4 +53,4 @@ ENV NODE_ENV=production
 ENV PORT=8080
 EXPOSE 8080
 
-CMD ["sh", "-c", "cd /app/lib/db && pnpm run push-force && cd /app && node artifacts/api-server/dist/index.mjs"]
+CMD ["sh", "-c", "node /app/lib/db/migrate-prod.mjs && node artifacts/api-server/dist/index.mjs"]
