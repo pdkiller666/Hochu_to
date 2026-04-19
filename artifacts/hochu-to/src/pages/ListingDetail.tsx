@@ -1,7 +1,7 @@
 import { Layout } from "@/components/layout/Layout";
 import { useRoute } from "wouter";
 import { useGetListingById, useGetListingUnavailableDates, useCreateBooking, useGetCurrentUser } from "@workspace/api-client-react";
-import { Loader2, MapPin, Star, Shield, Info, User, ChevronLeft, CheckCircle2, AlertTriangle, Settings, CalendarDays, X, Expand, Hash, MessageSquare } from "lucide-react";
+import { Loader2, MapPin, Star, Shield, ShieldOff, Info, User, ChevronLeft, CheckCircle2, AlertTriangle, Settings, CalendarDays, X, Expand, Hash, MessageSquare, Phone } from "lucide-react";
 import { formatPrice } from "@/lib/utils";
 import { useState, useEffect, useCallback } from "react";
 import { useAuthState } from "@/lib/auth";
@@ -39,6 +39,8 @@ export default function ListingDetail() {
   const [endDate, setEndDate] = useState<string>("");
   const [message, setMessage] = useState("");
   const [bookingSuccess, setBookingSuccess] = useState(false);
+  const [protectionEnabled, setProtectionEnabled] = useState(true);
+  const [showConsequenceModal, setShowConsequenceModal] = useState(false);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [mainImgError, setMainImgError] = useState(false);
@@ -155,9 +157,15 @@ export default function ListingDetail() {
 
   const handleBooking = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!startDate || !endDate) return;
+    if (protectionEnabled && (!startDate || !endDate)) return;
     createBooking.mutate({
-      data: { listingId: id, startDate, endDate, message }
+      data: {
+        listingId: id,
+        startDate: startDate || undefined,
+        endDate: endDate || undefined,
+        message,
+        protectionEnabled,
+      } as any
     }, {
       onSuccess: () => setBookingSuccess(true),
     });
@@ -497,119 +505,271 @@ export default function ListingDetail() {
                 </div>
               ) : bookingSuccess ? (
                 <div className="text-center py-6">
-                  <div className="w-16 h-16 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <CheckCircle2 className="w-8 h-8" />
+                  <div className={`w-16 h-16 ${protectionEnabled ? "bg-green-100 text-green-600" : "bg-blue-100 text-blue-600"} rounded-full flex items-center justify-center mx-auto mb-4`}>
+                    {protectionEnabled ? <CheckCircle2 className="w-8 h-8" /> : <Phone className="w-8 h-8" />}
                   </div>
-                  <h3 className="text-xl font-bold mb-2">Заявка отправлена!</h3>
-                  <p className="text-muted-foreground mb-6">Владелец свяжется с вами в ближайшее время. Отслеживайте статус в личном кабинете.</p>
+                  <h3 className="text-xl font-bold mb-2">
+                    {protectionEnabled ? "Заявка отправлена!" : "Контакты открыты!"}
+                  </h3>
+                  <p className="text-muted-foreground mb-6">
+                    {protectionEnabled
+                      ? "Владелец свяжется с вами в ближайшее время. Отслеживайте статус в личном кабинете."
+                      : "Вы оплатили открытие контактов владельца. Свяжитесь с ним напрямую для договорённости."}
+                  </p>
                   <Link href="/dashboard" className="btn-secondary w-full justify-center">В личный кабинет</Link>
                 </div>
               ) : (
-                <form onSubmit={handleBooking} className="space-y-4">
-                  {/* Calendar hint */}
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <CalendarDays className="w-3.5 h-3.5 shrink-0" />
-                    {!startDate
-                      ? "Нажмите на дату начала аренды"
-                      : !endDate
-                      ? "Теперь выберите дату окончания"
-                      : (
-                        <span className="flex items-center gap-2 flex-wrap">
-                          <span className="font-bold text-foreground">
-                            {format(parseISO(startDate), "d MMM", { locale: ru })} — {format(parseISO(endDate), "d MMM yyyy", { locale: ru })}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => { setStartDate(""); setEndDate(""); }}
-                            className="text-muted-foreground hover:text-destructive transition-colors flex items-center gap-0.5"
-                          >
-                            <X className="w-3 h-3" /> сбросить
-                          </button>
-                        </span>
-                      )
-                    }
-                  </div>
-
-                  {/* Booking calendar */}
-                  <div className="bg-muted/30 rounded-2xl p-3 border border-border">
-                    <BookingCalendar
-                      bookedRanges={bookedRanges}
-                      startDate={startDate}
-                      endDate={endDate}
-                      onSelect={handleDateSelect}
-                    />
-                  </div>
-
-                  {/* Price summary */}
-                  {startDate && endDate && (() => {
+                <>
+                  {/* ─── Consequence Modal ──────────────────────────────── */}
+                  {showConsequenceModal && (() => {
                     const mv = (listing as any).marketValue as number | undefined;
-                    const rent = listing.pricePerDay * totalDays;
-                    const serviceFee = parseFloat((rent * 0.10).toFixed(2));
-                    const taxFee = parseFloat((rent * 0.06).toFixed(2));
-                    const fundContrib = mv ? parseFloat((mv * 0.005 * totalDays).toFixed(2)) : 0;
-                    const total = rent + serviceFee + taxFee + fundContrib;
-                    const deposit = mv ? parseFloat((mv * 0.10).toFixed(2)) : (listing.deposit ?? 0);
+                    const deposit = mv ? Math.round(mv * 0.10) : (listing.deposit ?? 0);
+                    const savingsEstimate = totalDays > 0
+                      ? (() => {
+                          const rent = listing.pricePerDay * totalDays;
+                          const fundContrib = mv ? mv * 0.005 * totalDays : 0;
+                          return Math.round(rent * 0.16 + fundContrib);
+                        })()
+                      : 0;
                     return (
-                      <div className="bg-primary/5 p-4 rounded-xl border border-primary/20 space-y-1.5 text-sm">
-                        <div className="flex justify-between text-muted-foreground">
-                          <span>{totalDays} {totalDays === 1 ? "сутки" : "суток"} × {formatPrice(listing.pricePerDay)}</span>
-                          <span>{formatPrice(rent)}</span>
-                        </div>
-                        <div className="flex justify-between text-muted-foreground">
-                          <span>Комиссия сервиса (10%)</span>
-                          <span>{formatPrice(serviceFee)}</span>
-                        </div>
-                        <div className="flex justify-between text-muted-foreground">
-                          <span>Налог самозанятого (6%)</span>
-                          <span>{formatPrice(taxFee)}</span>
-                        </div>
-                        {fundContrib > 0 && (
-                          <div className="flex justify-between text-muted-foreground">
-                            <span>Гарантийный фонд (0,5%/день)</span>
-                            <span>{formatPrice(fundContrib)}</span>
+                      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                        <div className="bg-background rounded-3xl p-6 max-w-sm w-full shadow-2xl border border-border">
+                          <div className="flex flex-col items-center text-center mb-5">
+                            <div className="w-16 h-16 bg-destructive/10 rounded-full flex items-center justify-center mb-3">
+                              <ShieldOff className="w-8 h-8 text-destructive" />
+                            </div>
+                            <h3 className="text-xl font-black mb-1">Отключить защиту?</h3>
+                            <p className="text-sm text-muted-foreground">
+                              Вы переходите на режим <strong>Прямого расчёта</strong>
+                            </p>
                           </div>
-                        )}
-                        <div className="flex justify-between items-center font-bold border-t border-primary/20 pt-1.5 mt-1">
-                          <span>Итого к оплате</span>
-                          <span className="text-lg text-primary">{formatPrice(total)}</span>
-                        </div>
-                        {deposit > 0 && (
-                          <div className="flex justify-between text-amber-700 text-xs pt-1">
-                            <span>+ залог (возвращается)</span>
-                            <span className="font-medium">{formatPrice(deposit)}</span>
+
+                          {savingsEstimate > 0 && (
+                            <div className="flex gap-3 mb-4">
+                              <div className="flex-1 bg-green-50 border border-green-200 rounded-xl p-3 text-center">
+                                <div className="text-xs text-green-700 mb-1">Экономия</div>
+                                <div className="text-lg font-black text-green-700">~{formatPrice(savingsEstimate)}</div>
+                                <div className="text-xs text-green-600">комиссий и фонда</div>
+                              </div>
+                              {deposit > 0 && (
+                                <div className="flex-1 bg-red-50 border border-red-200 rounded-xl p-3 text-center">
+                                  <div className="text-xs text-red-700 mb-1">Ваш риск</div>
+                                  <div className="text-lg font-black text-red-700">{formatPrice(deposit)}</div>
+                                  <div className="text-xs text-red-600">без гарантии возврата</div>
+                                </div>
+                              )}
+                            </div>
+                          )}
+
+                          <div className="bg-muted/60 rounded-xl p-4 mb-5 space-y-2 text-sm">
+                            <p className="font-bold text-foreground text-xs uppercase tracking-wide mb-2">Что вы теряете:</p>
+                            {[
+                              "GPS-акт приёма/сдачи вещи",
+                              "Фото и видео фиксация состояния",
+                              "Гарантийный фонд (возмещение ущерба)",
+                              "Арбитраж при спорах",
+                            ].map(item => (
+                              <div key={item} className="flex items-center gap-2 text-muted-foreground">
+                                <X className="w-3.5 h-3.5 text-destructive shrink-0" />
+                                {item}
+                              </div>
+                            ))}
                           </div>
-                        )}
+
+                          <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-5 text-sm text-blue-800">
+                            <strong>Прямой расчёт:</strong> платите 150 ₽ и сразу получаете контакты владельца. Все договорённости — на ваше усмотрение.
+                          </div>
+
+                          <div className="flex gap-3">
+                            <button
+                              type="button"
+                              onClick={() => setShowConsequenceModal(false)}
+                              className="flex-1 py-3 rounded-xl border-2 border-primary text-primary font-bold text-sm hover:bg-primary/5 transition-colors"
+                            >
+                              Оставить защиту
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setProtectionEnabled(false);
+                                setShowConsequenceModal(false);
+                              }}
+                              className="flex-1 py-3 rounded-xl bg-destructive text-white font-bold text-sm hover:bg-destructive/90 transition-colors"
+                            >
+                              Отключить
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     );
                   })()}
 
-                  <div>
-                    <label className="block text-sm font-bold mb-2 text-muted-foreground">Сообщение владельцу (необязательно)</label>
-                    <textarea
-                      className="input-field min-h-[80px] resize-y"
-                      placeholder="Напишите, для чего вам вещь и когда удобнее забрать..."
-                      value={message}
-                      onChange={e => setMessage(e.target.value)}
-                    />
-                  </div>
+                  <form onSubmit={handleBooking} className="space-y-4">
 
-                  {isAuthenticated ? (
-                    <button 
-                      type="submit" 
-                      className="btn-primary w-full py-4 text-lg mt-4"
-                      disabled={createBooking.isPending || !startDate || !endDate}
-                    >
-                      {createBooking.isPending ? "Отправка..." : "Отправить заявку"}
-                    </button>
-                  ) : (
-                    <div className="text-center mt-4">
-                      <Link href="/auth" className="btn-primary w-full block py-4 text-lg mb-2">
-                        Войти для аренды
-                      </Link>
-                      <span className="text-xs text-muted-foreground">Регистрация займет 1 минуту</span>
+                    {/* ─── Protection toggle ────────────────────────────── */}
+                    <div className={`rounded-2xl border-2 p-4 transition-colors ${protectionEnabled ? "border-primary/30 bg-primary/5" : "border-orange-300 bg-orange-50"}`}>
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2.5">
+                          {protectionEnabled
+                            ? <Shield className="w-5 h-5 text-primary shrink-0" />
+                            : <ShieldOff className="w-5 h-5 text-orange-500 shrink-0" />
+                          }
+                          <div>
+                            <p className={`font-bold text-sm ${protectionEnabled ? "text-primary" : "text-orange-700"}`}>
+                              {protectionEnabled ? "Безопасная сделка" : "Прямой расчёт"}
+                            </p>
+                            <p className="text-xs text-muted-foreground leading-tight">
+                              {protectionEnabled
+                                ? "Защита, гарантийный фонд, арбитраж"
+                                : "Без защиты — 150 ₽ за контакты"}
+                            </p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={protectionEnabled}
+                          onClick={() => protectionEnabled ? setShowConsequenceModal(true) : setProtectionEnabled(true)}
+                          className={`relative w-12 h-6 rounded-full transition-colors shrink-0 ${protectionEnabled ? "bg-primary" : "bg-orange-400"}`}
+                        >
+                          <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-all ${protectionEnabled ? "left-7" : "left-1"}`} />
+                        </button>
+                      </div>
                     </div>
-                  )}
-                </form>
+
+                    {/* Calendar section — shown only for Сценарий А */}
+                    {protectionEnabled && (
+                      <>
+                        {/* Calendar hint */}
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <CalendarDays className="w-3.5 h-3.5 shrink-0" />
+                          {!startDate
+                            ? "Нажмите на дату начала аренды"
+                            : !endDate
+                            ? "Теперь выберите дату окончания"
+                            : (
+                              <span className="flex items-center gap-2 flex-wrap">
+                                <span className="font-bold text-foreground">
+                                  {format(parseISO(startDate), "d MMM", { locale: ru })} — {format(parseISO(endDate), "d MMM yyyy", { locale: ru })}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => { setStartDate(""); setEndDate(""); }}
+                                  className="text-muted-foreground hover:text-destructive transition-colors flex items-center gap-0.5"
+                                >
+                                  <X className="w-3 h-3" /> сбросить
+                                </button>
+                              </span>
+                            )
+                          }
+                        </div>
+
+                        {/* Booking calendar */}
+                        <div className="bg-muted/30 rounded-2xl p-3 border border-border">
+                          <BookingCalendar
+                            bookedRanges={bookedRanges}
+                            startDate={startDate}
+                            endDate={endDate}
+                            onSelect={handleDateSelect}
+                          />
+                        </div>
+                      </>
+                    )}
+
+                    {/* Price summary */}
+                    {!protectionEnabled ? (
+                      <div className="bg-orange-50 border border-orange-200 p-4 rounded-xl space-y-1.5 text-sm">
+                        <div className="flex justify-between text-muted-foreground">
+                          <span>Открытие контактов</span>
+                          <span>150 ₽</span>
+                        </div>
+                        <div className="flex justify-between items-center font-bold border-t border-orange-200 pt-1.5 mt-1">
+                          <span>Итого</span>
+                          <span className="text-lg text-orange-700">150 ₽</span>
+                        </div>
+                        <p className="text-xs text-orange-600 pt-1">Контакты владельца откроются сразу после оплаты</p>
+                      </div>
+                    ) : startDate && endDate && (() => {
+                      const mv = (listing as any).marketValue as number | undefined;
+                      const rent = listing.pricePerDay * totalDays;
+                      const serviceFee = parseFloat((rent * 0.10).toFixed(2));
+                      const taxFee = parseFloat((rent * 0.06).toFixed(2));
+                      const fundContrib = mv ? parseFloat((mv * 0.005 * totalDays).toFixed(2)) : 0;
+                      const total = rent + serviceFee + taxFee + fundContrib;
+                      const deposit = mv ? parseFloat((mv * 0.10).toFixed(2)) : (listing.deposit ?? 0);
+                      return (
+                        <div className="bg-primary/5 p-4 rounded-xl border border-primary/20 space-y-1.5 text-sm">
+                          <div className="flex justify-between text-muted-foreground">
+                            <span>{totalDays} {totalDays === 1 ? "сутки" : "суток"} × {formatPrice(listing.pricePerDay)}</span>
+                            <span>{formatPrice(rent)}</span>
+                          </div>
+                          <div className="flex justify-between text-muted-foreground">
+                            <span>Комиссия сервиса (10%)</span>
+                            <span>{formatPrice(serviceFee)}</span>
+                          </div>
+                          <div className="flex justify-between text-muted-foreground">
+                            <span>Налог самозанятого (6%)</span>
+                            <span>{formatPrice(taxFee)}</span>
+                          </div>
+                          {fundContrib > 0 && (
+                            <div className="flex justify-between text-muted-foreground">
+                              <span>Гарантийный фонд (0,5%/день)</span>
+                              <span>{formatPrice(fundContrib)}</span>
+                            </div>
+                          )}
+                          <div className="flex justify-between items-center font-bold border-t border-primary/20 pt-1.5 mt-1">
+                            <span>Итого к оплате</span>
+                            <span className="text-lg text-primary">{formatPrice(total)}</span>
+                          </div>
+                          {deposit > 0 && (
+                            <div className="flex justify-between text-amber-700 text-xs pt-1">
+                              <span>+ залог (возвращается)</span>
+                              <span className="font-medium">{formatPrice(deposit)}</span>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+
+                    <div>
+                      <label className="block text-sm font-bold mb-2 text-muted-foreground">Сообщение владельцу (необязательно)</label>
+                      <textarea
+                        className="input-field min-h-[80px] resize-y"
+                        placeholder={protectionEnabled
+                          ? "Напишите, для чего вам вещь и когда удобнее забрать..."
+                          : "Кратко о себе и когда удобно созвониться..."}
+                        value={message}
+                        onChange={e => setMessage(e.target.value)}
+                      />
+                    </div>
+
+                    {isAuthenticated ? (
+                      <button
+                        type="submit"
+                        className={`w-full py-4 text-lg mt-4 rounded-2xl font-bold transition-colors flex items-center justify-center gap-2 ${
+                          protectionEnabled
+                            ? "btn-primary"
+                            : "bg-orange-500 hover:bg-orange-600 text-white"
+                        }`}
+                        disabled={createBooking.isPending || (protectionEnabled && (!startDate || !endDate))}
+                      >
+                        {createBooking.isPending
+                          ? "Отправка..."
+                          : protectionEnabled
+                            ? "Отправить заявку"
+                            : <><Phone className="w-5 h-5" /> Получить контакты (150 ₽)</>
+                        }
+                      </button>
+                    ) : (
+                      <div className="text-center mt-4">
+                        <Link href="/auth" className="btn-primary w-full block py-4 text-lg mb-2">
+                          Войти для аренды
+                        </Link>
+                        <span className="text-xs text-muted-foreground">Регистрация займет 1 минуту</span>
+                      </div>
+                    )}
+                  </form>
+                </>
               )}
             </div>
           </div>

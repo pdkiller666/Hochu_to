@@ -311,9 +311,10 @@ export const GetMyBookingsResponse = zod.array(GetMyBookingsResponseItem);
  */
 export const CreateBookingBody = zod.object({
   listingId: zod.number(),
-  startDate: zod.string(),
-  endDate: zod.string(),
+  startDate: zod.string().optional(),
+  endDate: zod.string().optional(),
   message: zod.string().optional(),
+  protectionEnabled: zod.boolean().optional(),
 });
 
 /**

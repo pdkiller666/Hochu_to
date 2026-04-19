@@ -143,7 +143,9 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
     return;
   }
 
-  const { listingId, startDate, endDate, message } = parsed.data;
+  const { listingId, startDate: rawStart, endDate: rawEnd, message, protectionEnabled = true } = parsed.data;
+
+  const CONTACT_FEE = 150;
 
   const [listing] = await db.select().from(listingsTable).where(eq(listingsTable.id, listingId)).limit(1);
   if (!listing) {
@@ -154,6 +156,75 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
     res.status(400).json({ error: "bad_request", message: "Нельзя арендовать свою вещь" });
     return;
   }
+
+  // ─── Сценарий Б: Прямой расчёт ───────────────────────────────────────────
+  if (!protectionEnabled) {
+    const today = new Date().toISOString().split("T")[0];
+    const startDate = rawStart ?? today;
+    const endDate = rawEnd ?? today;
+
+    const [booking] = await db.insert(bookingsTable).values({
+      listingId,
+      renterId: req.userId!,
+      ownerId: listing.ownerId,
+      startDate,
+      endDate,
+      totalDays: 0,
+      totalPrice: CONTACT_FEE.toString(),
+      rentAmount: "0",
+      serviceFee: "0",
+      taxFee: "0",
+      fundContribution: "0",
+      depositAmount: "0",
+      protectionEnabled: false,
+      status: "confirmed",
+      message: message ?? null,
+    }).returning();
+
+    const bookingNumber = generateBookingNumber(booking.id);
+    await db.update(bookingsTable).set({ bookingNumber }).where(eq(bookingsTable.id, booking.id));
+    booking.bookingNumber = bookingNumber;
+
+    const [renterUser] = await db.select({ name: usersTable.name }).from(usersTable)
+      .where(eq(usersTable.id, req.userId!)).limit(1);
+
+    await recordEvent({
+      bookingId: booking.id,
+      bookingNumber,
+      actorId: req.userId!,
+      actorRole: "renter",
+      eventType: "direct_contact_opened",
+      toStatus: "confirmed",
+      comment: `Прямой расчёт: оплачено ${CONTACT_FEE} ₽ за открытие контактов`,
+    });
+
+    await createNotification({
+      userId: listing.ownerId,
+      type: "booking_created",
+      title: `📞 Прямой запрос контактов — «${listing.title}»`,
+      message: `${renterUser?.name ?? "Пользователь"} оплатил открытие ваших контактов (${CONTACT_FEE} ₽). Ожидайте сообщения.`,
+      bookingId: booking.id,
+      listingTitle: listing.title ?? undefined,
+    });
+    await createNotification({
+      userId: req.userId!,
+      type: "booking_submitted",
+      title: `📞 Контакты открыты — «${listing.title}»`,
+      message: `Вы оплатили открытие контактов владельца. Свяжитесь с ним напрямую.`,
+      bookingId: booking.id,
+      listingTitle: listing.title ?? undefined,
+    });
+
+    return res.status(201).json(formatBooking(booking, listing, renterUser));
+  }
+
+  // ─── Сценарий А: Безопасная сделка ───────────────────────────────────────
+  if (!rawStart || !rawEnd) {
+    res.status(400).json({ error: "validation_error", message: "Укажите даты аренды" });
+    return;
+  }
+  const startDate = rawStart;
+  const endDate = rawEnd;
 
   const conflicts = await db.select().from(bookingsTable).where(
     and(
