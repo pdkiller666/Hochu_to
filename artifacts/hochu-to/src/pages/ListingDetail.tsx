@@ -1,11 +1,12 @@
 import { Layout } from "@/components/layout/Layout";
 import { useRoute } from "wouter";
 import { useGetListingById, useGetListingUnavailableDates, useCreateBooking, useGetCurrentUser } from "@workspace/api-client-react";
-import { Loader2, MapPin, Star, Shield, ShieldOff, ShieldCheck, Info, User, ChevronLeft, CheckCircle2, AlertTriangle, Settings, CalendarDays, X, Expand, Hash, MessageSquare, Phone } from "lucide-react";
+import { Loader2, MapPin, Star, Shield, ShieldOff, ShieldCheck, Info, User, ChevronLeft, CheckCircle2, AlertTriangle, Settings, CalendarDays, X, Expand, Hash, MessageSquare, Phone, Heart } from "lucide-react";
 import { formatPrice, calculateTotalPrice, calcDeposit, calcMaxProtectionLimit, calcFundContribution, type ItemCategory } from "@/lib/utils";
 import { useState, useEffect, useCallback } from "react";
-import { useAuthState } from "@/lib/auth";
-import { Link } from "wouter";
+import { useAuthState, getToken } from "@/lib/auth";
+import { Link, useLocation } from "wouter";
+import { useFavorites } from "@/lib/favorites-context";
 import { format, parseISO, differenceInCalendarDays } from "date-fns";
 import { ru } from "date-fns/locale";
 import { BookingCalendar, BookedRange } from "@/components/BookingCalendar";
@@ -34,6 +35,14 @@ export default function ListingDetail() {
   });
 
   const isOwnerRole = isAuthenticated && currentUser?.role === "owner";
+
+  const { isFavorite, toggle: toggleFav } = useFavorites();
+  const [, navigate] = useLocation();
+  const fav = isFavorite(id);
+  const handleFavoriteClick = () => {
+    if (!getToken()) { navigate("/auth"); return; }
+    toggleFav(id);
+  };
 
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
@@ -215,7 +224,20 @@ export default function ListingDetail() {
                   </span>
                 )}
               </div>
-              <h1 className="text-3xl font-bold">{listing.title}</h1>
+              <div className="flex items-start justify-between gap-3">
+                <h1 className="text-3xl font-bold">{listing.title}</h1>
+                <button
+                  onClick={handleFavoriteClick}
+                  className={`shrink-0 mt-1 w-10 h-10 rounded-full flex items-center justify-center transition-all border ${
+                    fav
+                      ? "text-rose-500 border-rose-200 bg-rose-50 hover:bg-rose-100"
+                      : "text-muted-foreground border-border bg-muted/60 hover:text-rose-500 hover:border-rose-200 hover:bg-rose-50"
+                  }`}
+                  title={fav ? "Удалить из избранного" : "Добавить в избранное"}
+                >
+                  <Heart className={`w-5 h-5 ${fav ? "fill-current" : ""}`} />
+                </button>
+              </div>
             </div>
 
             {/* Photo Gallery */}
@@ -294,8 +316,21 @@ export default function ListingDetail() {
                   </span>
                 )}
               </div>
-              <h1 className="text-4xl font-bold mb-4">{listing.title}</h1>
-              
+              <div className="flex items-start justify-between gap-4 mb-4">
+                <h1 className="text-4xl font-bold">{listing.title}</h1>
+                <button
+                  onClick={handleFavoriteClick}
+                  className={`shrink-0 mt-1 w-11 h-11 rounded-full flex items-center justify-center transition-all border ${
+                    fav
+                      ? "text-rose-500 border-rose-200 bg-rose-50 hover:bg-rose-100"
+                      : "text-muted-foreground border-border bg-muted/60 hover:text-rose-500 hover:border-rose-200 hover:bg-rose-50"
+                  }`}
+                  title={fav ? "Удалить из избранного" : "Добавить в избранное"}
+                >
+                  <Heart className={`w-5 h-5 ${fav ? "fill-current" : ""}`} />
+                </button>
+              </div>
+
               <div className="flex items-center gap-6 text-sm text-muted-foreground pb-6 border-b border-border">
                 <div className="flex items-center gap-1.5 font-medium text-foreground bg-amber-50 text-amber-700 px-3 py-1 rounded-lg">
                   <Star className="w-4 h-4 fill-current" />
