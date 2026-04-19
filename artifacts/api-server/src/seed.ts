@@ -225,6 +225,14 @@ async function seed() {
         phone: "+7 (383) 777-88-99",
         regionId: r("novosibirsk"),
       },
+      {
+        name: "Администратор",
+        email: "admin@test.ru",
+        passwordHash: await hash("Admin1234!"),
+        role: "admin",
+        phone: "+7 (000) 000-00-00",
+        regionId: r("moscow"),
+      },
     ]);
 
     ownerId1 = o1.id;
