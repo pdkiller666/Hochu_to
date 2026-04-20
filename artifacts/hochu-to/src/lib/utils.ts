@@ -129,7 +129,10 @@ export function calculateTotalPrice(
   const taxFee = parseFloat((rent * 0.06).toFixed(2));
 
   const shieldFee = ownerProtectionEnabled ? calcShieldFee(rent) : 0;
-  const riskCoverage = ownerProtectionEnabled ? calcRiskCoverage(rent) : 0;
+  // riskCoverage не может превышать остаток после serviceFee+taxFee — выплата владельцу всегда >= 0
+  const rawRiskCoverage = ownerProtectionEnabled ? calcRiskCoverage(rent) : 0;
+  const maxRisk = Math.max(0, parseFloat((rent - serviceFee - taxFee).toFixed(2)));
+  const riskCoverage = Math.min(rawRiskCoverage, maxRisk);
 
   const maxProtectionLimit = calcMaxProtectionLimit(pricePerDay, cat, completedDealsCount);
 

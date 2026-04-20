@@ -70,6 +70,7 @@ function formatBooking(
     serviceFee: b.serviceFee ? parseFloat(b.serviceFee as unknown as string) : undefined,
     taxFee: b.taxFee ? parseFloat(b.taxFee as unknown as string) : undefined,
     fundContribution: b.fundContribution ? parseFloat(b.fundContribution as unknown as string) : undefined,
+    ownerPayout: b.ownerPayout !== null && b.ownerPayout !== undefined ? parseFloat(b.ownerPayout as unknown as string) : undefined,
     depositAmount: b.depositAmount ? parseFloat(b.depositAmount as unknown as string) : undefined,
     protectionEnabled: b.protectionEnabled ?? true,
     status: b.status,
@@ -265,9 +266,12 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
   // Shield Fee — платит арендатор сверху (5%, мин 100 ₽)
   const shieldFee    = ownerProtEnabled ? Math.max(parseFloat((rent * 0.05).toFixed(2)), 100) : 0;
   // Risk Coverage — удерживается из выплаты владельца (5%, мин 100 ₽)
-  const riskCoverage = ownerProtEnabled ? Math.max(parseFloat((rent * 0.05).toFixed(2)), 100) : 0;
+  // Но не больше чем (rent - serviceFee - taxFee) — выплата владельцу всегда >= 0
+  const rawRiskCoverage = ownerProtEnabled ? Math.max(parseFloat((rent * 0.05).toFixed(2)), 100) : 0;
+  const maxRisk = Math.max(0, parseFloat((rent - serviceFee - taxFee).toFixed(2)));
+  const riskCoverage = Math.min(rawRiskCoverage, maxRisk);
 
-  // Выплата владельцу = аренда − комиссия − налог − страховое покрытие
+  // Выплата владельцу = аренда − комиссия − налог − страховое покрытие (всегда >= 0)
   const ownerPayout = parseFloat((rent - serviceFee - taxFee - riskCoverage).toFixed(2));
 
   // Залог: Math.max(1500, pricePerDay * 2) — небольшой, не отпугивает арендаторов
