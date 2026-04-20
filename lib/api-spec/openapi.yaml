@@ -888,6 +888,19 @@ components:
           type: integer
         regionId:
           type: integer
+        city:
+          type: string
+        lat:
+          type: number
+        lng:
+          type: number
+        meetingAddress:
+          type: string
+        itemCategory:
+          type: string
+          enum: ["", electronics, tools, leisure]
+        ownerProtectionEnabled:
+          type: boolean
         photos:
           type: array
           items:

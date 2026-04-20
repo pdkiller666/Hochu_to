@@ -178,12 +178,28 @@ export interface ListingsResponse {
   otherRegionsListings?: Listing[];
 }
 
+export type CreateListingRequestItemCategory =
+  (typeof CreateListingRequestItemCategory)[keyof typeof CreateListingRequestItemCategory];
+
+export const CreateListingRequestItemCategory = {
+  "": "",
+  electronics: "electronics",
+  tools: "tools",
+  leisure: "leisure",
+} as const;
+
 export interface CreateListingRequest {
   title: string;
   description?: string;
   pricePerDay: number;
   categoryId: number;
   regionId: number;
+  city?: string;
+  lat?: number;
+  lng?: number;
+  meetingAddress?: string;
+  itemCategory?: CreateListingRequestItemCategory;
+  ownerProtectionEnabled?: boolean;
   photos?: string[];
   deposit?: number;
   isAvailable?: boolean;

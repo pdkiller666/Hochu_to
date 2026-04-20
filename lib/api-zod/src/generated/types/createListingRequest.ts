@@ -5,6 +5,7 @@
  * Хочу_То — Rental Marketplace API
  * OpenAPI spec version: 0.1.0
  */
+import type { CreateListingRequestItemCategory } from "./createListingRequestItemCategory";
 
 export interface CreateListingRequest {
   title: string;
@@ -12,6 +13,12 @@ export interface CreateListingRequest {
   pricePerDay: number;
   categoryId: number;
   regionId: number;
+  city?: string;
+  lat?: number;
+  lng?: number;
+  meetingAddress?: string;
+  itemCategory?: CreateListingRequestItemCategory;
+  ownerProtectionEnabled?: boolean;
   photos?: string[];
   deposit?: number;
   isAvailable?: boolean;

@@ -15,6 +15,7 @@ export * from "./contactFormRequest";
 export * from "./createBookingRequest";
 export * from "./createJointPurchaseRequest";
 export * from "./createListingRequest";
+export * from "./createListingRequestItemCategory";
 export * from "./createReviewRequest";
 export * from "./dateRange";
 export * from "./dateRangeStatus";

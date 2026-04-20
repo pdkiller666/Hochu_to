@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db, listingsTable, usersTable, categoriesTable, regionsTable, reviewsTable, bookingsTable } from "@workspace/db";
-import { eq, and, gte, lte, like, sql, or, desc } from "drizzle-orm";
+import { eq, and, gte, lte, ilike, sql, or, desc } from "drizzle-orm";
 import { requireAuth, AuthRequest } from "../middleware/auth.js";
 import { CreateListingBody } from "@workspace/api-zod";
 import fs from "fs";
@@ -93,8 +93,8 @@ router.get("/", async (req, res) => {
   if (maxPrice) baseConditions.push(lte(listingsTable.pricePerDay, maxPrice));
   if (search) baseConditions.push(
     or(
-      like(listingsTable.title, `%${search}%`),
-      like(listingsTable.description ?? sql`''`, `%${search}%`)
+      ilike(listingsTable.title, `%${search}%`),
+      ilike(sql`COALESCE(${listingsTable.description}, '')`, `%${search}%`)
     )!
   );
 
@@ -291,7 +291,15 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
     return;
   }
 
-  const { title, description, pricePerDay, categoryId, regionId, city, lat, lng, meetingAddress, photos, itemCategory, ownerProtectionEnabled, isAvailable } = parsed.data;
+  const {
+    title, description, pricePerDay, categoryId, regionId,
+    city, lat, lng, meetingAddress, photos,
+    itemCategory, ownerProtectionEnabled, isAvailable,
+  } = parsed.data as typeof parsed.data & {
+    city?: string; lat?: number; lng?: number; meetingAddress?: string;
+    itemCategory?: "" | "electronics" | "tools" | "leisure";
+    ownerProtectionEnabled?: boolean;
+  };
 
   // Загружаем кол-во завершённых сделок владельца для расчёта кепа фонда
   const [owner] = await db.select({ completedDealsCount: usersTable.completedDealsCount })
