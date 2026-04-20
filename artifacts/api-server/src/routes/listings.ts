@@ -159,7 +159,7 @@ router.get("/", async (req, res) => {
   }
 
   // Enrich with rating (and optionally booking count for popular sort)
-  const listingsWithRating = await Promise.all(rawListings.map(async (l) => {
+  const listingsWithRating = await Promise.all(rawListings.map(async (l: any) => {
     const [ratingResult] = await db
       .select({
         avg: sql<number>`COALESCE(AVG(${reviewsTable.rating}), 0)::float`,
@@ -269,7 +269,7 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
 });
 
 router.get("/:id", async (req, res) => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(req.params.id as string);
   if (isNaN(id)) {
     res.status(400).json({ error: "bad_request", message: "Неверный ID" });
     return;
@@ -322,7 +322,7 @@ router.get("/:id", async (req, res) => {
 });
 
 router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(req.params.id as string);
   const [existing] = await db.select().from(listingsTable).where(eq(listingsTable.id, id)).limit(1);
 
   if (!existing) {
@@ -386,7 +386,7 @@ router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
 });
 
 router.delete("/:id", requireAuth, async (req: AuthRequest, res) => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(req.params.id as string);
   const [existing] = await db.select().from(listingsTable).where(eq(listingsTable.id, id)).limit(1);
 
   if (!existing) {
@@ -405,7 +405,7 @@ router.delete("/:id", requireAuth, async (req: AuthRequest, res) => {
 });
 
 router.get("/:id/unavailable-dates", async (req, res) => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(req.params.id as string);
 
   const bookings = await db
     .select({
@@ -425,7 +425,7 @@ router.get("/:id/unavailable-dates", async (req, res) => {
 });
 
 router.get("/:id/reviews", async (req, res) => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(req.params.id as string);
   if (isNaN(id)) { res.status(400).json({ error: "bad_request" }); return; }
 
   const rows = await db

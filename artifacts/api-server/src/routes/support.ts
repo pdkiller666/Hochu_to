@@ -66,7 +66,7 @@ router.get("/tickets", requireAuth, async (req: AuthRequest, res) => {
 
 // ─── GET /api/support/tickets/:id — ticket detail + messages ──────────────────
 router.get("/tickets/:id", requireAuth, async (req: AuthRequest, res) => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(req.params.id as string);
   const [ticket] = await db
     .select()
     .from(supportTicketsTable)
@@ -98,7 +98,7 @@ router.get("/tickets/:id", requireAuth, async (req: AuthRequest, res) => {
 
 // ─── POST /api/support/tickets/:id/reply — reply to ticket ───────────────────
 router.post("/tickets/:id/reply", requireAuth, async (req: AuthRequest, res) => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(req.params.id as string);
   const { body } = req.body;
   if (!body?.trim()) {
     res.status(400).json({ error: "bad_request", message: "Сообщение не может быть пустым" });

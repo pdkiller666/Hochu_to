@@ -59,7 +59,7 @@ router.get("/ids", requireAuth, async (req: AuthRequest, res) => {
 
 // ─── POST /api/favorites/:listingId — add to favorites ───────────────────────
 router.post("/:listingId", requireAuth, async (req: AuthRequest, res) => {
-  const listingId = parseInt(req.params.listingId);
+  const listingId = parseInt(req.params.listingId as string);
   if (isNaN(listingId)) { res.status(400).json({ error: "invalid listing id" }); return; }
 
   try {
@@ -76,7 +76,7 @@ router.post("/:listingId", requireAuth, async (req: AuthRequest, res) => {
 
 // ─── DELETE /api/favorites/:listingId — remove from favorites ────────────────
 router.delete("/:listingId", requireAuth, async (req: AuthRequest, res) => {
-  const listingId = parseInt(req.params.listingId);
+  const listingId = parseInt(req.params.listingId as string);
   if (isNaN(listingId)) { res.status(400).json({ error: "invalid listing id" }); return; }
 
   await db

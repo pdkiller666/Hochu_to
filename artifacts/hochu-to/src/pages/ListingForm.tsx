@@ -32,22 +32,37 @@ export default function ListingForm() {
   const createMutation = useCreateListing({ request: { headers: { Authorization: `Bearer ${token}` } } });
   const updateMutation = useUpdateListing({ request: { headers: { Authorization: `Bearer ${token}` } } });
 
-  const defaultFormData = {
+  type FormDataShape = {
+    title: string;
+    description: string;
+    pricePerDay: string;
+    categoryId: string;
+    regionId: string;
+    city: string;
+    itemCategory: "" | "electronics" | "tools" | "leisure";
+    ownerProtectionEnabled: boolean;
+    isAvailable: boolean;
+    lat: number | null;
+    lng: number | null;
+    meetingAddress: string;
+  };
+
+  const defaultFormData: FormDataShape = {
     title: "",
     description: "",
     pricePerDay: "",
     categoryId: "",
     regionId: "",
     city: "",
-    itemCategory: "" as "" | "electronics" | "tools" | "leisure",
+    itemCategory: "",
     ownerProtectionEnabled: true,
     isAvailable: true,
-    lat: null as number | null,
-    lng: null as number | null,
+    lat: null,
+    lng: null,
     meetingAddress: "",
   };
 
-  const [formData, setFormData] = useState(() => {
+  const [formData, setFormData] = useState<FormDataShape>(() => {
     if (!isEditing) {
       try {
         const saved = localStorage.getItem(DRAFT_KEY);

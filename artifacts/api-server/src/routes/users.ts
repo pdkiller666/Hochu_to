@@ -31,7 +31,7 @@ const uploadAvatar = multer({
 });
 
 router.get("/:id", async (req, res) => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(req.params.id as string);
   const [user] = await db.select().from(usersTable).where(eq(usersTable.id, id)).limit(1);
 
   if (!user) {
@@ -91,7 +91,7 @@ router.get("/:id", async (req, res) => {
 });
 
 router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(req.params.id as string);
 
   if (id !== req.userId) {
     res.status(403).json({ error: "forbidden", message: "Нет доступа" });
@@ -135,7 +135,7 @@ router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
 });
 
 router.post("/:id/avatar", requireAuth, uploadAvatar.single("avatar"), async (req: AuthRequest, res) => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(req.params.id as string);
 
   if (id !== req.userId) {
     res.status(403).json({ error: "forbidden", message: "Нет доступа" });
@@ -182,7 +182,7 @@ router.post("/:id/avatar", requireAuth, uploadAvatar.single("avatar"), async (re
 });
 
 router.put("/:id/credentials", requireAuth, async (req: AuthRequest, res) => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(req.params.id as string);
 
   if (id !== req.userId) {
     res.status(403).json({ error: "forbidden", message: "Нет доступа" });
@@ -247,7 +247,7 @@ router.put("/:id/credentials", requireAuth, async (req: AuthRequest, res) => {
 });
 
 router.get("/:id/listings", async (req, res) => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(req.params.id as string);
 
   const listings = await db
     .select({

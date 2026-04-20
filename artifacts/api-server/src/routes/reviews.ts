@@ -29,7 +29,7 @@ function formatReview(r: any, author: any, reviewee?: any) {
 
 // GET /api/reviews/can-review/:bookingId — check what types of reviews can be left
 router.get("/can-review/:bookingId", requireAuth, async (req: AuthRequest, res) => {
-  const bookingId = parseInt(req.params.bookingId);
+  const bookingId = parseInt(req.params.bookingId as string);
   if (isNaN(bookingId)) {
     res.status(400).json({ error: "bad_request" }); return;
   }
@@ -135,7 +135,7 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
 
 // POST /api/reviews/:id/response — respond to a review (the reviewee replies)
 router.post("/:id/response", requireAuth, async (req: AuthRequest, res) => {
-  const reviewId = parseInt(req.params.id);
+  const reviewId = parseInt(req.params.id as string);
   const { text } = req.body;
 
   if (!text || text.trim().length < 2) {
@@ -168,7 +168,7 @@ router.post("/:id/response", requireAuth, async (req: AuthRequest, res) => {
 
 // GET /api/reviews/listing/:listingId — all listing reviews
 router.get("/listing/:listingId", async (req, res) => {
-  const listingId = parseInt(req.params.listingId);
+  const listingId = parseInt(req.params.listingId as string);
   if (isNaN(listingId)) { res.status(400).json({ error: "bad_request" }); return; }
 
   const rows = await db
@@ -188,7 +188,7 @@ router.get("/listing/:listingId", async (req, res) => {
 // GET /api/reviews/user/:userId — reviews ABOUT a user
 // type=owner → listing reviews on their items | type=renter → renter reviews | type=all (default)
 router.get("/user/:userId", async (req, res) => {
-  const userId = parseInt(req.params.userId);
+  const userId = parseInt(req.params.userId as string);
   const type = (req.query.type as string) || "all";
   if (isNaN(userId)) { res.status(400).json({ error: "bad_request" }); return; }
 

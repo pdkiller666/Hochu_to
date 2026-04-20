@@ -33,7 +33,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(
   pinoHttp({
     logger,
-    customLogLevel: (res, err) => (err || res.statusCode >= 500 ? "error" : "info"),
+    customLogLevel: (_req, res, err) => (err || (res.statusCode ?? 0) >= 500 ? "error" : "info"),
   })
 );
 
@@ -59,9 +59,10 @@ if (process.env.NODE_ENV === "production") {
   app.get("/{*wildcard}", (req, res) => {
     // Если это запрос к API, который не отработал выше — отдаем 404
     if (req.path.startsWith("/api")) {
-      return res.status(404).json({ error: "not_found", message: "API endpoint not found" });
+      res.status(404).json({ error: "not_found", message: "API endpoint not found" });
+      return;
     }
-    
+
     // Все остальное (включая /auth, /profile и т.д.) отправляем на фронтенд
     res.sendFile(path.join(staticDir, "index.html"), (err) => {
       if (err) {

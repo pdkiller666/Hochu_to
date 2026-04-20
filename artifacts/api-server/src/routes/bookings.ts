@@ -343,7 +343,7 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
 // ─── GET /api/bookings/:id ────────────────────────────────────────────────────
 
 router.get("/:id", requireAuth, async (req: AuthRequest, res) => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(req.params.id as string);
   const [booking] = await db.select().from(bookingsTable).where(eq(bookingsTable.id, id)).limit(1);
 
   if (!booking) {
@@ -365,7 +365,7 @@ router.get("/:id", requireAuth, async (req: AuthRequest, res) => {
 // ─── PUT /api/bookings/:id — update status ────────────────────────────────────
 
 router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(req.params.id as string);
   const { status, ownerComment } = req.body;
 
   const [booking] = await db.select().from(bookingsTable).where(eq(bookingsTable.id, id)).limit(1);
@@ -522,7 +522,7 @@ router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
 // ─── PATCH /api/bookings/:id/reschedule — change dates ───────────────────────
 
 router.patch("/:id/reschedule", requireAuth, async (req: AuthRequest, res) => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(req.params.id as string);
   const { startDate, endDate } = req.body as { startDate?: string; endDate?: string };
 
   if (!startDate || !endDate) {
@@ -605,7 +605,7 @@ router.patch("/:id/reschedule", requireAuth, async (req: AuthRequest, res) => {
 
 // ─── GET /api/bookings/:id/messages ──────────────────────────────────────────
 router.get("/:id/messages", requireAuth, async (req: AuthRequest, res) => {
-  const bookingId = parseInt(req.params.id);
+  const bookingId = parseInt(req.params.id as string);
   if (isNaN(bookingId)) {
     res.status(400).json({ error: "bad_request", message: "Неверный ID" });
     return;
@@ -640,7 +640,7 @@ router.get("/:id/messages", requireAuth, async (req: AuthRequest, res) => {
 
 // ─── POST /api/bookings/:id/messages ─────────────────────────────────────────
 router.post("/:id/messages", requireAuth, async (req: AuthRequest, res) => {
-  const bookingId = parseInt(req.params.id);
+  const bookingId = parseInt(req.params.id as string);
   if (isNaN(bookingId)) {
     res.status(400).json({ error: "bad_request", message: "Неверный ID" });
     return;

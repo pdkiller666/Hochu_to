@@ -185,7 +185,7 @@ router.get("/users", requireAuth, requireAdmin, async (req: AuthRequest, res) =>
 
 // GET single user with full details
 router.get("/users/:id", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(req.params.id as string);
   const [user] = await db.select().from(usersTable).where(eq(usersTable.id, id)).limit(1);
   if (!user) { res.status(404).json({ error: "not_found" }); return; }
 
@@ -231,7 +231,7 @@ router.get("/users/:id", requireAuth, requireAdmin, async (req: AuthRequest, res
 
 // Update user (role, name, email, phone, bio, ban status, etc.)
 router.patch("/users/:id", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(req.params.id as string);
   const { role, isBanned, banReason, name, email, phone, bio, telegram } = req.body;
 
   if (id === req.userId) {
@@ -266,7 +266,7 @@ router.patch("/users/:id", requireAuth, requireAdmin, async (req: AuthRequest, r
 
 // Send notification to a user
 router.post("/users/:id/notify", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(req.params.id as string);
   const { title, body, link } = req.body;
   if (!title?.trim() || !body?.trim()) {
     res.status(400).json({ error: "bad_request", message: "Тема и текст обязательны" });
@@ -355,7 +355,7 @@ router.get("/listings", requireAuth, requireAdmin, async (req: AuthRequest, res)
 
 // GET full listing detail
 router.get("/listings/:id", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(req.params.id as string);
 
   const listing = await db.execute(sql`
     SELECT l.*, u.name AS owner_name, u.email AS owner_email, u.phone AS owner_phone,
@@ -387,7 +387,7 @@ router.get("/listings/:id", requireAuth, requireAdmin, async (req: AuthRequest, 
 
 // Update listing (title, description, price, deposit, isAvailable, ownerId, etc.)
 router.patch("/listings/:id", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(req.params.id as string);
   const { title, description, pricePerDay, deposit, isActive, categoryId, regionId, city, meetingAddress } = req.body;
 
   const updates: Record<string, any> = {};
@@ -416,7 +416,7 @@ router.patch("/listings/:id", requireAuth, requireAdmin, async (req: AuthRequest
 
 // Delete listing (admin only)
 router.delete("/listings/:id", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(req.params.id as string);
 
   const [listing] = await db.select({ title: listingsTable.title }).from(listingsTable)
     .where(eq(listingsTable.id, id)).limit(1);
@@ -520,7 +520,7 @@ router.get("/bookings/:number", requireAuth, requireAdmin, async (req: AuthReque
 
 // Admin: force-override booking status
 router.post("/bookings/:id/override", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(req.params.id as string);
   const { newStatus, comment } = req.body;
 
   const VALID_STATUSES = ["pending", "confirmed", "active", "return_pending", "completed", "cancelled", "rejected"];
@@ -614,7 +614,7 @@ router.get("/tickets", requireAuth, requireAdmin, async (req: AuthRequest, res) 
 });
 
 router.get("/tickets/:id", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(req.params.id as string);
   const [ticket] = await db.select({
     ticket: supportTicketsTable, userName: sql<string>`u.name`,
     userEmail: sql<string>`u.email`, userAvatar: sql<string>`u.avatar`,
@@ -646,7 +646,7 @@ router.get("/tickets/:id", requireAuth, requireAdmin, async (req: AuthRequest, r
 });
 
 router.patch("/tickets/:id", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(req.params.id as string);
   const { status, priority, assignedToId } = req.body;
   const updates: Record<string, any> = { updatedAt: new Date() };
   if (status) updates.status = status;
@@ -659,7 +659,7 @@ router.patch("/tickets/:id", requireAuth, requireAdmin, async (req: AuthRequest,
 });
 
 router.post("/tickets/:id/reply", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(req.params.id as string);
   const { body, status } = req.body;
   if (!body?.trim()) { res.status(400).json({ error: "bad_request" }); return; }
 
@@ -722,7 +722,7 @@ router.get("/reports", requireAuth, requireAdmin, async (req: AuthRequest, res) 
 });
 
 router.patch("/reports/:id", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
-  const id = parseInt(req.params.id);
+  const id = parseInt(req.params.id as string);
   const { status, resolvedNote } = req.body;
   if (!["resolved", "dismissed"].includes(status)) {
     res.status(400).json({ error: "bad_request" }); return;
