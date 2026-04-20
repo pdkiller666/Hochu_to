@@ -3,7 +3,7 @@ import { useGetListings, useGetCategories, useGetRegions, useGetCurrentUser } fr
 import { ListingCard } from "@/components/ui/ListingCard";
 import { useLocation, useSearch } from "wouter";
 import { useState, useEffect, useRef } from "react";
-import { Search, X, SlidersHorizontal, MapPin, Loader2, ChevronDown, ArrowUpDown } from "lucide-react";
+import { Search, X, SlidersHorizontal, MapPin, Loader2, ChevronDown, ChevronUp, ArrowUpDown } from "lucide-react";
 import { getToken, getAuthHeaders } from "@/lib/auth";
 import { getCachedGeoRegion, setCachedGeoRegion, detectRegionByServerGeoIP } from "@/lib/region-context";
 import { readPersistedState, clearPersistedState } from "@/lib/use-persisted-state";
@@ -90,6 +90,7 @@ export default function Catalog() {
   const [maxPrice, setMaxPrice] = useState(saved.maxPrice || "");
   const [sort, setSort] = useState<SortOption>((urlSort || saved.sort || "new") as SortOption);
   const [showPriceFilter, setShowPriceFilter] = useState(saved.showPriceFilter ?? false);
+  const [showFilters, setShowFilters] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
   const regionInitialized = useRef(!!(urlRegion || getCachedGeoRegion()));
 
@@ -171,6 +172,14 @@ export default function Catalog() {
 
   const hasActiveFilters = !!(category || search || minPrice || maxPrice || (sort && sort !== "new"));
   const selectedRegionName = regions?.find(r => r.slug === region)?.name ?? "";
+  const selectedCategoryName = categories?.find(c => c.slug === category)?.name ?? "";
+  const selectedSortLabel = SORT_OPTIONS.find(o => o.value === sort)?.label ?? "";
+  const activeFiltersCount = [
+    region,
+    category,
+    minPrice || maxPrice ? "price" : "",
+    sort && sort !== "new" ? sort : "",
+  ].filter(Boolean).length;
 
   return (
     <Layout>
@@ -182,8 +191,84 @@ export default function Catalog() {
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
 
-          {/* Filter row */}
-          <div className="pt-3 pb-2">
+          {/* Toggle bar — всегда видим, открывает/скрывает панель */}
+          <div className="pt-3 pb-2 flex items-center gap-2 flex-wrap">
+            <button
+              onClick={() => setShowFilters(v => !v)}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold border transition-all ${
+                showFilters || hasActiveFilters
+                  ? "bg-primary/10 border-primary text-primary"
+                  : "bg-white border-border text-foreground hover:border-primary hover:text-primary"
+              }`}
+            >
+              <SlidersHorizontal className="w-4 h-4" />
+              <span>Фильтры</span>
+              {activeFiltersCount > 0 && (
+                <span className="ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-white text-[10px] font-bold">
+                  {activeFiltersCount}
+                </span>
+              )}
+              {showFilters ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            </button>
+
+            {/* Активные чипсы — видны даже когда панель свёрнута */}
+            {!showFilters && (
+              <>
+                {selectedRegionName && (
+                  <button
+                    onClick={() => { setRegion(""); regionInitialized.current = true; }}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 bg-primary/10 text-primary rounded-full text-xs font-semibold hover:bg-primary/20"
+                    title="Убрать фильтр"
+                  >
+                    <MapPin className="w-3 h-3" /> {selectedRegionName} <X className="w-3 h-3" />
+                  </button>
+                )}
+                {selectedCategoryName && (
+                  <button
+                    onClick={() => setCategory("")}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 bg-primary/10 text-primary rounded-full text-xs font-semibold hover:bg-primary/20"
+                    title="Убрать фильтр"
+                  >
+                    {selectedCategoryName} <X className="w-3 h-3" />
+                  </button>
+                )}
+                {(minPrice || maxPrice) && (
+                  <button
+                    onClick={() => { setMinPrice(""); setMaxPrice(""); }}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 bg-primary/10 text-primary rounded-full text-xs font-semibold hover:bg-primary/20"
+                    title="Убрать фильтр"
+                  >
+                    {minPrice || "0"}–{maxPrice || "∞"} ₽ <X className="w-3 h-3" />
+                  </button>
+                )}
+                {sort && sort !== "new" && (
+                  <button
+                    onClick={() => setSort("new")}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 bg-primary/10 text-primary rounded-full text-xs font-semibold hover:bg-primary/20"
+                    title="Убрать фильтр"
+                  >
+                    <ArrowUpDown className="w-3 h-3" /> {selectedSortLabel} <X className="w-3 h-3" />
+                  </button>
+                )}
+              </>
+            )}
+
+            {hasActiveFilters && (
+              <button
+                onClick={resetFilters}
+                className="ml-auto flex items-center gap-1 px-3 py-2 rounded-xl text-sm text-muted-foreground hover:text-destructive hover:bg-destructive/10 border border-transparent transition-all"
+                title="Сбросить все фильтры"
+              >
+                <X className="w-4 h-4" />
+                <span className="hidden sm:inline">Сбросить</span>
+              </button>
+            )}
+          </div>
+
+          {/* ── Сворачиваемая панель фильтров ── */}
+          {showFilters && (
+          <>
+          <div className="pb-2">
             <div className="flex gap-2 items-center">
 
               {/* Region — hidden on xs, shown sm+ */}
@@ -232,18 +317,6 @@ export default function Catalog() {
                   <span className="sm:hidden w-2 h-2 rounded-full bg-primary" />
                 )}
               </button>
-
-              {/* Reset — only when active filters */}
-              {hasActiveFilters && (
-                <button
-                  onClick={resetFilters}
-                  className="flex items-center gap-1 px-3 py-2.5 rounded-xl text-sm text-muted-foreground hover:text-destructive hover:bg-destructive/10 border border-transparent transition-all flex-shrink-0"
-                  title="Сбросить фильтры"
-                >
-                  <X className="w-4 h-4" />
-                  <span className="hidden sm:inline">Сбросить</span>
-                </button>
-              )}
             </div>
 
             {/* Price range — expandable */}
@@ -338,6 +411,8 @@ export default function Catalog() {
               </button>
             ))}
           </div>
+          </>
+          )}
         </div>
       </div>
 
