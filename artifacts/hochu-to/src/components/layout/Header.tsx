@@ -128,7 +128,7 @@ function HeaderSearchBar({ className, inputClassName }: SearchBarProps) {
       >
         <X className="w-3.5 h-3.5" />
       </button>
-      <button type="submit" className="btn-primary py-1.5 px-4 text-xs rounded-lg flex-shrink-0">
+      <button type="submit" className="hidden md:block btn-primary py-1.5 px-4 text-xs rounded-lg flex-shrink-0">
         Найти
       </button>
     </form>
