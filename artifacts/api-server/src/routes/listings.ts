@@ -92,15 +92,21 @@ router.get("/", async (req, res) => {
   if (minPrice) baseConditions.push(gte(listingsTable.pricePerDay, minPrice));
   if (maxPrice) baseConditions.push(lte(listingsTable.pricePerDay, maxPrice));
   if (search) {
-    // Используем LOWER() явно — ILIKE в PostgreSQL может не корректно работать
-    // с кириллицей при locale=C. LOWER() работает с UTF-8 в любом случае.
-    const pattern = `%${search.toLowerCase()}%`;
-    baseConditions.push(
-      or(
-        sql`LOWER(${listingsTable.title}) LIKE ${pattern}`,
-        sql`LOWER(COALESCE(${listingsTable.description}, '')) LIKE ${pattern}`
-      )!
-    );
+    // ВАЖНО: на некоторых хостингах (включая Amvera) PostgreSQL запущен с locale=C,
+    // где ILIKE и LOWER()/UPPER() корректно обрабатывают только ASCII, а кириллицу
+    // оставляют без изменений. Поэтому case-folding делаем в Node.js (где Unicode
+    // работает корректно) и проверяем все распространённые варианты регистра через OR.
+    const lower = search.toLowerCase();
+    const upper = search.toUpperCase();
+    const capitalized = lower.charAt(0).toUpperCase() + lower.slice(1);
+    const variants = Array.from(new Set([search, lower, upper, capitalized]));
+    const conds: any[] = [];
+    for (const v of variants) {
+      const pat = `%${v}%`;
+      conds.push(sql`${listingsTable.title} LIKE ${pat}`);
+      conds.push(sql`COALESCE(${listingsTable.description}, '') LIKE ${pat}`);
+    }
+    baseConditions.push(or(...conds)!);
   }
 
   // Региональное условие добавляем поверх базовых
