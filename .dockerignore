@@ -15,4 +15,6 @@ screenshots
 .env
 amvera.yml
 replit.md
+PROJECT_BIBLE.md
+docs/
 docker-compose.yml
