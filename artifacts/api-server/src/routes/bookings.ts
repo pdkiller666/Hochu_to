@@ -389,6 +389,7 @@ router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
   const renterAllowed: Record<string, string[]> = {
     pending: ["cancelled"],
     confirmed: ["cancelled"],
+    active: ["return_pending"],
   };
 
   const allowedForActor = isOwner

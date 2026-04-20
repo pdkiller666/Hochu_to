@@ -520,6 +520,13 @@ export default function ListingDetail() {
                           )}
                         </div>
                       </div>
+                      {/* Fund warning for renter when owner disabled protection */}
+                      {!ownerProt && !isOwnerRole && isAuthenticated && (
+                        <div className="flex items-start gap-2 text-sm bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-xl">
+                          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-600" />
+                          <p>Владелец не подключил гарантийный фонд. В случае спора урегулирование — на ваше усмотрение.</p>
+                        </div>
+                      )}
                     </div>
                   );
                 })()}
@@ -529,7 +536,61 @@ export default function ListingDetail() {
                 <div className="bg-destructive/10 text-destructive text-center p-4 rounded-xl font-bold">
                   Временно недоступно для аренды
                 </div>
+              ) : isOwnerRole && currentUser?.id === (listing as any).ownerId ? (
+                /* Owner viewing their OWN listing */
+                <div className="space-y-3">
+                  {(() => {
+                    const ownerProt = (listing as any).ownerProtectionEnabled !== false;
+                    const maxProt = (listing as any).maxProtectionLimit as number | undefined;
+                    return ownerProt ? (
+                      <div className="rounded-2xl border-2 border-green-300 bg-green-50 p-4 space-y-3">
+                        <div className="flex items-center gap-2.5">
+                          <Shield className="w-5 h-5 text-green-600 shrink-0" />
+                          <div>
+                            <p className="font-bold text-green-800 text-sm">Гарантийный фонд подключён</p>
+                            {maxProt && maxProt > 0 && (
+                              <p className="text-xs text-green-700 mt-0.5">Лимит компенсации: <strong>{maxProt.toLocaleString("ru")} ₽</strong></p>
+                            )}
+                          </div>
+                        </div>
+                        <p className="text-xs text-green-700 leading-relaxed">
+                          Объявление отмечено значком защиты — арендаторы видят, что сделка безопасна. Это повышает конверсию.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-4 space-y-3">
+                        <div className="flex items-center gap-2.5">
+                          <ShieldOff className="w-5 h-5 text-amber-600 shrink-0" />
+                          <div>
+                            <p className="font-bold text-amber-900 text-sm">Гарантийный фонд отключён</p>
+                            <p className="text-xs text-amber-700 mt-0.5">Ваше объявление получает меньше доверия</p>
+                          </div>
+                        </div>
+                        <div className="space-y-1.5 text-xs text-amber-800">
+                          <p className="flex items-start gap-1.5"><span className="text-amber-500 font-bold mt-0.5">•</span> Объявления с фондом просматривают на <strong>2× чаще</strong></p>
+                          <p className="flex items-start gap-1.5"><span className="text-amber-500 font-bold mt-0.5">•</span> При повреждении фонд покрывает ущерб — вы не теряете деньги</p>
+                          <p className="flex items-start gap-1.5"><span className="text-amber-500 font-bold mt-0.5">•</span> Арбитраж решает споры нейтрально — без стресса</p>
+                        </div>
+                        <Link
+                          href={`/listings/${listing.id}/edit`}
+                          className="flex items-center justify-center gap-2 w-full py-2.5 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-sm transition-colors"
+                        >
+                          <Shield className="w-4 h-4" />
+                          Подключить защиту
+                        </Link>
+                      </div>
+                    );
+                  })()}
+                  <Link
+                    href={`/listings/${listing.id}/edit`}
+                    className="flex items-center justify-center gap-2 w-full py-2.5 px-4 rounded-xl border border-border hover:bg-muted text-sm font-semibold transition-colors"
+                  >
+                    <Settings className="w-4 h-4" />
+                    Редактировать объявление
+                  </Link>
+                </div>
               ) : isOwnerRole ? (
+                /* Owner viewing someone ELSE's listing */
                 <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-5 space-y-4">
                   <div className="flex items-start gap-3">
                     <div className="w-10 h-10 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
@@ -769,20 +830,28 @@ export default function ListingDetail() {
                     {/* Price summary */}
                     {!protectionEnabled ? (
                       <div className="bg-orange-50 border border-orange-200 p-4 rounded-xl space-y-1.5 text-sm">
-                        {startDate && endDate && (
-                          <div className="flex justify-between text-muted-foreground pb-1 border-b border-orange-200 mb-1">
-                            <span>Желаемый период</span>
-                            <span className="font-medium text-foreground">
-                              {format(parseISO(startDate), "d MMM", { locale: ru })} — {format(parseISO(endDate), "d MMM", { locale: ru })} ({totalDays} {totalDays === 1 ? "сутки" : "суток"})
-                            </span>
-                          </div>
+                        {startDate && endDate && totalDays > 0 && (
+                          <>
+                            <div className="flex justify-between text-muted-foreground pb-1 border-b border-orange-200 mb-1">
+                              <span>Желаемый период</span>
+                              <span className="font-medium text-foreground">
+                                {format(parseISO(startDate), "d MMM", { locale: ru })} — {format(parseISO(endDate), "d MMM", { locale: ru })} ({totalDays} {totalDays === 1 ? "сутки" : "суток"})
+                              </span>
+                            </div>
+                            <div className="flex justify-between text-muted-foreground">
+                              <span>{totalDays} {totalDays === 1 ? "сутки" : "суток"} × {formatPrice(listing.pricePerDay)}</span>
+                              <span className="text-foreground font-medium">{formatPrice(Number(listing.pricePerDay) * totalDays)}</span>
+                            </div>
+                            <p className="text-xs text-orange-600 italic">↑ Это ориентировочная сумма — вы платите напрямую владельцу</p>
+                            <div className="border-t border-orange-200 my-1" />
+                          </>
                         )}
                         <div className="flex justify-between text-muted-foreground">
-                          <span>Открытие контактов</span>
+                          <span>Открытие контактов (на платформе)</span>
                           <span>150 ₽</span>
                         </div>
                         <div className="flex justify-between items-center font-bold border-t border-orange-200 pt-1.5 mt-1">
-                          <span>Итого</span>
+                          <span>Платёж сейчас</span>
                           <span className="text-lg text-orange-700">150 ₽</span>
                         </div>
                         <p className="text-xs text-orange-600 pt-1">Контакты владельца откроются сразу после оплаты</p>
