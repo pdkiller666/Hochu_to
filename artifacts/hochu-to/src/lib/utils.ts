@@ -33,6 +33,28 @@ export const CATEGORY_AVG_PRICE: Record<ItemCategory, number> = {
 };
 
 /**
+ * Маппинг slug основной категории каталога → внутренняя категория защитного фонда.
+ * Используется автоматически — пользователь видит только основную категорию.
+ */
+const CATEGORY_SLUG_TO_ITEM: Record<string, ItemCategory> = {
+  construction: "tools",
+  tourism: "leisure",
+  garden: "tools",
+  holidays: "leisure",
+  children: "leisure",
+  electronics: "electronics",
+  auto: "special_machinery",
+  clothing: "leisure",
+  photo: "electronics",
+  books: "leisure",
+};
+
+export function mapCategorySlugToItemCategory(slug?: string | null): ItemCategory {
+  if (!slug) return "tools";
+  return CATEGORY_SLUG_TO_ITEM[slug] ?? "tools";
+}
+
+/**
  * Множители для расчёта лимита выплаты из фонда.
  * Уменьшены относительно старых значений — балансируют риски платформы.
  */

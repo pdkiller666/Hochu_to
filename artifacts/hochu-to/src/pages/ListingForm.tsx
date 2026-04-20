@@ -4,10 +4,11 @@ import { useLocation, useRoute } from "wouter";
 import { useCreateListing, useUpdateListing, useGetListingById, useGetCategories, useGetRegions } from "@workspace/api-client-react";
 import { useAuthState } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
-import { ChevronLeft, Loader2, ImagePlus, X, ShieldCheck, ShieldOff, AlertTriangle, Info } from "lucide-react";
+import { ChevronLeft, Loader2, ImagePlus, X, ShieldCheck, ShieldOff, AlertTriangle, Info, HandCoins } from "lucide-react";
 import { Link } from "wouter";
 import { LocationPicker } from "@/components/ui/LocationPicker";
-import { calculateTotalPrice, calcMaxProtectionLimit, calcDeposit, ITEM_CATEGORY_LABELS, CATEGORY_AVG_PRICE, type ItemCategory } from "@/lib/utils";
+import { CollapsibleMap } from "@/components/ui/CollapsibleMap";
+import { calculateTotalPrice, calcMaxProtectionLimit, calcDeposit, ITEM_CATEGORY_LABELS, CATEGORY_AVG_PRICE, mapCategorySlugToItemCategory, type ItemCategory } from "@/lib/utils";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "";
 const DRAFT_KEY = "hochu_to_listing_draft";
@@ -39,8 +40,9 @@ export default function ListingForm() {
     categoryId: string;
     regionId: string;
     city: string;
-    itemCategory: "" | "electronics" | "tools" | "leisure";
     ownerProtectionEnabled: boolean;
+    /** Ручной залог (₽). Используется только если ownerProtectionEnabled=false. */
+    manualDeposit: string;
     isAvailable: boolean;
     lat: number | null;
     lng: number | null;
@@ -54,8 +56,8 @@ export default function ListingForm() {
     categoryId: "",
     regionId: "",
     city: "",
-    itemCategory: "",
     ownerProtectionEnabled: true,
+    manualDeposit: "",
     isAvailable: true,
     lat: null,
     lng: null,
@@ -108,6 +110,7 @@ export default function ListingForm() {
 
   useEffect(() => {
     if (isEditing && listingData) {
+      const dep = (listingData as any).deposit;
       setFormData({
         title: listingData.title,
         description: listingData.description || "",
@@ -115,8 +118,8 @@ export default function ListingForm() {
         categoryId: listingData.categoryId.toString(),
         regionId: listingData.regionId.toString(),
         city: (listingData as any).city || "",
-        itemCategory: (listingData as any).itemCategory || "",
         ownerProtectionEnabled: (listingData as any).ownerProtectionEnabled !== false,
+        manualDeposit: dep ? String(dep) : "",
         lat: (listingData as any).lat ?? null,
         lng: (listingData as any).lng ?? null,
         meetingAddress: (listingData as any).meetingAddress || "",
@@ -181,6 +184,26 @@ export default function ListingForm() {
       return;
     }
 
+    // Авто-маппинг основной категории в категорию защитного фонда
+    const selectedCategory = categories?.find(c => c.id === Number(formData.categoryId));
+    const itemCategory = mapCategorySlugToItemCategory(selectedCategory?.slug);
+
+    // Залог: при включённой Безопасной сделке — undefined (рассчитается автоматически).
+    // При прямой аренде — обязательное поле, минимум 500 ₽.
+    let depositValue: number | undefined;
+    if (!formData.ownerProtectionEnabled) {
+      const dep = Number(formData.manualDeposit);
+      if (!formData.manualDeposit || isNaN(dep) || dep < 500) {
+        toast({
+          title: "Укажите залог",
+          description: "При прямой аренде укажите залог не меньше 500 ₽ — это ваша единственная страховка.",
+          variant: "destructive",
+        });
+        return;
+      }
+      depositValue = dep;
+    }
+
     const payload = {
       title: formData.title,
       description: formData.description,
@@ -191,8 +214,9 @@ export default function ListingForm() {
       lat: formData.lat ?? undefined,
       lng: formData.lng ?? undefined,
       meetingAddress: formData.meetingAddress.trim() || undefined,
-      itemCategory: (formData.itemCategory || undefined) as "electronics" | "tools" | "leisure" | undefined,
+      itemCategory: itemCategory as "electronics" | "tools" | "leisure",
       ownerProtectionEnabled: formData.ownerProtectionEnabled,
+      deposit: depositValue,
       isAvailable: formData.isAvailable,
       photos,
     };
@@ -281,15 +305,21 @@ export default function ListingForm() {
               <label className="block text-sm font-bold mb-2">
                 Точка на карте <span className="text-muted-foreground font-normal">(необязательно)</span>
               </label>
-              <LocationPicker
-                lat={formData.lat}
-                lng={formData.lng}
-                onChange={coords => setFormData(prev => ({
-                  ...prev,
-                  lat: coords?.lat ?? null,
-                  lng: coords?.lng ?? null,
-                }))}
-              />
+              <CollapsibleMap
+                label={formData.lat && formData.lng ? "Карта — метка установлена" : "Поставить метку на карте"}
+                hint="Точная метка повышает доверие арендаторов и количество откликов"
+                defaultOpen={!!(formData.lat && formData.lng)}
+              >
+                <LocationPicker
+                  lat={formData.lat}
+                  lng={formData.lng}
+                  onChange={coords => setFormData(prev => ({
+                    ...prev,
+                    lat: coords?.lat ?? null,
+                    lng: coords?.lng ?? null,
+                  }))}
+                />
+              </CollapsibleMap>
             </div>
 
             <div>
