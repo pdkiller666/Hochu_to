@@ -344,50 +344,106 @@ export default function ListingForm() {
           </div>
 
           <div className="space-y-4 pt-6 border-t border-border">
-            <h3 className="text-xl font-bold">Цены и условия</h3>
+            <h3 className="text-xl font-bold">Цена и условия</h3>
 
-            {/* ─── Цена и категория защиты ──────────────────────────────────── */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-bold mb-2">Цена за сутки (₽) <span className="text-red-500">*</span></label>
-                <input
-                  required
-                  type="number"
-                  min="100"
-                  step="1"
-                  className="input-field"
-                  placeholder="Минимум 100 ₽"
-                  value={formData.pricePerDay}
-                  onChange={e => setFormData({ ...formData, pricePerDay: e.target.value })}
-                />
-                <p className="text-xs text-muted-foreground mt-1">Минимальная цена: 100 ₽/сутки</p>
-              </div>
-              <div>
-                <label className="block text-sm font-bold mb-2">Категория для защиты фонда</label>
-                <select
-                  className="input-field appearance-none"
-                  value={formData.itemCategory}
-                  onChange={e => setFormData({ ...formData, itemCategory: e.target.value as any })}
+            {/* ─── Цена за сутки ─────────────────────────────────────────── */}
+            <div>
+              <label className="block text-sm font-bold mb-2">Цена за сутки (₽) <span className="text-red-500">*</span></label>
+              <input
+                required
+                type="number"
+                min="100"
+                step="1"
+                className="input-field max-w-xs"
+                placeholder="Минимум 100 ₽"
+                value={formData.pricePerDay}
+                onChange={e => setFormData({ ...formData, pricePerDay: e.target.value })}
+              />
+              <p className="text-xs text-muted-foreground mt-1">Минимальная цена: 100 ₽/сутки</p>
+            </div>
+
+            {/* ─── Выбор формата сделки ─────────────────────────────────── */}
+            <div className="space-y-3">
+              <label className="block text-sm font-bold">Формат сделки</label>
+              <p className="text-xs text-muted-foreground -mt-2">
+                Выберите честно: работать через нашу защиту или напрямую с арендатором — решать вам.
+              </p>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {/* Безопасная сделка */}
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, ownerProtectionEnabled: true })}
+                  aria-pressed={formData.ownerProtectionEnabled}
+                  className={`text-left p-4 rounded-2xl border-2 transition-all ${
+                    formData.ownerProtectionEnabled
+                      ? "border-primary bg-primary/5 shadow-sm"
+                      : "border-border bg-white hover:border-primary/30"
+                  }`}
                 >
-                  <option value="">Не указана (инструменты по умолчанию)</option>
-                  <option value="electronics">Электроника — фонд до 50 стоимостей/сутки</option>
-                  <option value="tools">Инструменты — фонд до 20 стоимостей/сутки</option>
-                  <option value="leisure">Отдых и спорт — фонд до 15 стоимостей/сутки</option>
-                  <option value="special_machinery">Спецтехника — фонд до 10 стоимостей/сутки</option>
-                </select>
-                <p className="text-xs text-muted-foreground mt-1">Определяет лимит компенсации из фонда</p>
+                  <div className="flex items-start gap-2.5 mb-2">
+                    <ShieldCheck className={`w-5 h-5 shrink-0 mt-0.5 ${formData.ownerProtectionEnabled ? "text-primary" : "text-muted-foreground"}`} />
+                    <div className="flex-1">
+                      <p className={`font-bold text-sm ${formData.ownerProtectionEnabled ? "text-primary" : "text-foreground"}`}>
+                        Безопасная сделка
+                      </p>
+                      <p className="text-[11px] text-muted-foreground">рекомендуем</p>
+                    </div>
+                  </div>
+                  <ul className="text-xs text-muted-foreground space-y-1 leading-relaxed">
+                    <li>✓ Гарантированная выплата на карту</li>
+                    <li>✓ Возмещение ущерба из фонда</li>
+                    <li>✓ Решение споров платформой</li>
+                    <li>✓ Бронируют в 2 раза чаще</li>
+                  </ul>
+                </button>
+
+                {/* Прямая аренда */}
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, ownerProtectionEnabled: false })}
+                  aria-pressed={!formData.ownerProtectionEnabled}
+                  className={`text-left p-4 rounded-2xl border-2 transition-all ${
+                    !formData.ownerProtectionEnabled
+                      ? "border-amber-400 bg-amber-50 shadow-sm"
+                      : "border-border bg-white hover:border-amber-300"
+                  }`}
+                >
+                  <div className="flex items-start gap-2.5 mb-2">
+                    <ShieldOff className={`w-5 h-5 shrink-0 mt-0.5 ${!formData.ownerProtectionEnabled ? "text-amber-600" : "text-muted-foreground"}`} />
+                    <div className="flex-1">
+                      <p className={`font-bold text-sm ${!formData.ownerProtectionEnabled ? "text-amber-800" : "text-foreground"}`}>
+                        Прямая аренда
+                      </p>
+                      <p className="text-[11px] text-muted-foreground">ваш риск</p>
+                    </div>
+                  </div>
+                  <ul className="text-xs text-muted-foreground space-y-1 leading-relaxed">
+                    <li>• Деньги и залог — наличными от арендатора</li>
+                    <li>• Расписку оформляете сами</li>
+                    <li>• Платформа не возмещает ущерб</li>
+                    <li>• Споры решаете лично</li>
+                  </ul>
+                </button>
               </div>
             </div>
 
-            {/* ─── Live Preview: защита + залог ────────────────────────────── */}
+            {/* ─── Live Preview ─────────────────────────────────────────── */}
             {formData.pricePerDay && Number(formData.pricePerDay) >= 100 && (() => {
               const ppd = Number(formData.pricePerDay);
-              const cat = (formData.itemCategory || "tools") as ItemCategory;
+              const selectedCategory = categories?.find(c => c.id === Number(formData.categoryId));
+              const cat = mapCategorySlugToItemCategory(selectedCategory?.slug);
               const avgPrice = CATEGORY_AVG_PRICE[cat];
               const isAnomaly = ppd > avgPrice * 3;
-              const maxProt = calcMaxProtectionLimit(ppd, cat, 0); // 0 сделок — самый консервативный кап
-              const deposit = calcDeposit(ppd);
+              const maxProt = calcMaxProtectionLimit(ppd, cat, 0);
+              const autoDeposit = calcDeposit(ppd);
+              const manualDep = Number(formData.manualDeposit);
+              const depositToShow = formData.ownerProtectionEnabled
+                ? autoDeposit
+                : (manualDep > 0 ? manualDep : autoDeposit);
               const { rent, combinedServiceFee, total, ownerPayout } = calculateTotalPrice(ppd, cat, 1, formData.ownerProtectionEnabled);
+              const ownerCut = rent - ownerPayout;
+              const ownerCutPct = rent > 0 ? Math.round((ownerCut / rent) * 100) : 0;
 
               return (
                 <div className="space-y-3">
@@ -396,27 +452,58 @@ export default function ListingForm() {
                     <div className="flex items-start gap-2 bg-amber-50 border border-amber-300 rounded-xl p-3 text-sm">
                       <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
                       <p className="text-amber-800">
-                        <strong>Высокая цена аренды.</strong> Для категории «{ITEM_CATEGORY_LABELS[cat]}» средняя цена — {avgPrice.toLocaleString("ru")} ₽/сутки.
-                        Объявление попадёт на ручную проверку модератором перед публикацией.
+                        <strong>Высокая цена аренды.</strong> Для категории «{ITEM_CATEGORY_LABELS[cat]}» средняя — {avgPrice.toLocaleString("ru")} ₽/сутки.
+                        Объявление пройдёт ручную проверку модератором перед публикацией.
                       </p>
                     </div>
                   )}
 
-                  {/* Preview-карточка — "Invisible Complexity" */}
+                  {/* Preview-карточка */}
                   <div className="bg-primary/5 border border-primary/20 rounded-2xl p-4 space-y-3">
-                    <p className="text-sm font-bold text-foreground">Ваши условия и расчёт</p>
+                    <p className="text-sm font-bold text-foreground">Ваши условия за 1 сутки</p>
                     <div className="grid grid-cols-2 gap-3">
                       <div className="bg-white rounded-xl p-3 text-center border border-green-200">
                         <p className="text-xs text-muted-foreground mb-1">Вы получите на руки</p>
                         <p className="text-lg font-black text-green-700">{ownerPayout.toLocaleString("ru", { maximumFractionDigits: 0 })} ₽</p>
-                        <p className="text-[10px] text-muted-foreground mt-0.5">за 1 сутки аренды</p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">
+                          {formData.ownerProtectionEnabled ? "выплата на карту через 24 ч" : "наличными при возврате"}
+                        </p>
                       </div>
-                      <div className="bg-white rounded-xl p-3 text-center border border-primary/20">
+                      <div className={`bg-white rounded-xl p-3 text-center border ${formData.ownerProtectionEnabled ? "border-primary/20" : "border-amber-300"}`}>
                         <p className="text-xs text-muted-foreground mb-1">Ваша вещь защищена на</p>
-                        <p className="text-lg font-black text-primary">{maxProt.toLocaleString("ru")} ₽</p>
-                        {maxProt <= 25_000 && <p className="text-[10px] text-amber-600 mt-0.5">лимит для новых аккаунтов</p>}
+                        <p className={`text-lg font-black ${formData.ownerProtectionEnabled ? "text-primary" : "text-amber-700"}`}>
+                          {formData.ownerProtectionEnabled ? `${maxProt.toLocaleString("ru")} ₽` : "0 ₽"}
+                        </p>
+                        {formData.ownerProtectionEnabled && maxProt <= 25_000 && (
+                          <p className="text-[10px] text-amber-600 mt-0.5">лимит для новых аккаунтов</p>
+                        )}
+                        {!formData.ownerProtectionEnabled && (
+                          <p className="text-[10px] text-amber-600 mt-0.5">только сам залог</p>
+                        )}
                       </div>
                     </div>
+
+                    {/* Объяснение «почему сумма меньше» — только при безопасной сделке */}
+                    {formData.ownerProtectionEnabled && ownerCut > 0 && (
+                      <div className="bg-white rounded-xl p-3 border border-border">
+                        <p className="text-xs font-bold text-foreground mb-2 flex items-center gap-1.5">
+                          <Info className="w-3.5 h-3.5 text-primary" />
+                          Почему вы получаете {ownerPayout.toLocaleString("ru", { maximumFractionDigits: 0 })} ₽, а не {rent.toLocaleString("ru")} ₽
+                        </p>
+                        <p className="text-[11px] text-muted-foreground leading-relaxed mb-2">
+                          {ownerCut.toLocaleString("ru", { maximumFractionDigits: 0 })} ₽ ({ownerCutPct}% от аренды) — это плата за ваше спокойствие. В неё входит:
+                        </p>
+                        <ul className="text-[11px] text-muted-foreground space-y-1 leading-relaxed pl-1">
+                          <li>🛡 <strong className="text-foreground">Гарантия выплаты</strong> — даже если арендатор пропадёт, деньги вы получите</li>
+                          <li>💰 <strong className="text-foreground">Возмещение ущерба</strong> до {maxProt.toLocaleString("ru")} ₽ из фонда платформы</li>
+                          <li>⚖️ <strong className="text-foreground">Решение споров</strong> — наши юристы на вашей стороне</li>
+                          <li>📈 <strong className="text-foreground">Больше клиентов</strong> — арендаторы доверяют объявлениям с защитой</li>
+                          <li>🧾 <strong className="text-foreground">Налоги и эквайринг</strong> — мы берём это на себя</li>
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* Что видит арендатор */}
                     <div className="bg-white rounded-xl p-3 text-sm space-y-1.5 border border-border">
                       <p className="font-semibold text-foreground text-xs mb-1.5 uppercase tracking-wide text-muted-foreground">Что видит арендатор за 1 сутки</p>
                       <div className="flex justify-between text-muted-foreground text-xs"><span>Аренда</span><span>{rent.toLocaleString("ru")} ₽</span></div>
@@ -430,47 +517,62 @@ export default function ListingForm() {
                         <span>Итого к оплате</span>
                         <span>{total.toLocaleString("ru", { maximumFractionDigits: 0 })} ₽</span>
                       </div>
-                      <p className="text-[10px] text-muted-foreground">+ залог {deposit.toLocaleString("ru")} ₽ (возвратный)</p>
+                      <p className="text-[10px] text-muted-foreground">
+                        + залог {depositToShow.toLocaleString("ru")} ₽ (возвратный
+                        {formData.ownerProtectionEnabled ? ", удерживается платформой" : ", наличными от арендатора"})
+                      </p>
                     </div>
                   </div>
                 </div>
               );
             })()}
 
-            {/* ─── Тоггл Гарантийного фонда для владельца ─────────────────── */}
-            <div className={`rounded-2xl border-2 p-4 transition-colors ${formData.ownerProtectionEnabled ? "border-primary/30 bg-primary/5" : "border-amber-300 bg-amber-50"}`}>
-              <div className="flex items-start justify-between gap-3">
+            {/* ─── Поле ручного залога — только для прямой аренды ─────── */}
+            {!formData.ownerProtectionEnabled && (
+              <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-4 space-y-3">
                 <div className="flex items-start gap-2.5">
-                  {formData.ownerProtectionEnabled
-                    ? <ShieldCheck className="w-5 h-5 text-primary shrink-0 mt-0.5" />
-                    : <ShieldOff className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
-                  }
-                  <div>
-                    <p className={`font-bold text-sm ${formData.ownerProtectionEnabled ? "text-primary" : "text-amber-800"}`}>
-                      {formData.ownerProtectionEnabled ? "Гарантийный фонд подключён" : "Гарантийный фонд отключён"}
+                  <HandCoins className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <p className="font-bold text-sm text-amber-900">Залог наличными — ваша единственная страховка</p>
+                    <p className="text-xs text-amber-800 mt-0.5 leading-relaxed">
+                      Установите сумму, которую арендатор оставит вам при получении вещи. Возвращайте при возврате в исправном виде.
+                      Чем дороже вещь — тем больший залог имеет смысл просить.
                     </p>
-                    {formData.ownerProtectionEnabled ? (
-                      <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
-                        Фонд — это ваша страховая сеть. Если арендатор повредит вещь или потеряет её, платформа рассмотрит заявку и возместит ущерб до лимита. Вы сдаёте с уверенностью.
-                      </p>
-                    ) : (
-                      <p className="text-xs text-amber-700 mt-0.5 leading-relaxed">
-                        Без фонда весь риск — на вас. Объявления с фондом просматривают вдвое чаще и чаще бронируют. Рекомендуем включить.
-                      </p>
-                    )}
                   </div>
                 </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={formData.ownerProtectionEnabled}
-                  onClick={() => setFormData({ ...formData, ownerProtectionEnabled: !formData.ownerProtectionEnabled })}
-                  className={`relative w-12 h-6 rounded-full transition-colors shrink-0 ${formData.ownerProtectionEnabled ? "bg-primary" : "bg-amber-400"}`}
-                >
-                  <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-all ${formData.ownerProtectionEnabled ? "left-7" : "left-1"}`} />
-                </button>
+
+                <div>
+                  <label className="block text-xs font-bold text-amber-900 mb-1.5">Размер залога (₽) <span className="text-red-500">*</span></label>
+                  <input
+                    type="number"
+                    min="500"
+                    step="100"
+                    className="input-field max-w-xs"
+                    placeholder={formData.pricePerDay ? `Например, ${calcDeposit(Number(formData.pricePerDay)).toLocaleString("ru")}` : "Например, 3000"}
+                    value={formData.manualDeposit}
+                    onChange={e => setFormData({ ...formData, manualDeposit: e.target.value })}
+                  />
+                  <p className="text-[11px] text-amber-700 mt-1">Минимум 500 ₽. Рекомендуем не меньше двух стоимостей суток аренды.</p>
+                </div>
+
+                <div className="bg-white/60 rounded-xl p-3 border border-amber-200">
+                  <p className="text-xs font-bold text-amber-900 mb-1.5 flex items-center gap-1.5">
+                    <AlertTriangle className="w-3.5 h-3.5" />
+                    На что вы соглашаетесь, выбирая прямую аренду:
+                  </p>
+                  <ul className="text-[11px] text-amber-800 space-y-1 leading-relaxed pl-1">
+                    <li>• Платформа <strong>не удерживает деньги</strong> и не выплачивает их вам</li>
+                    <li>• При повреждении или потере вещи <strong>фонд не покроет</strong> ущерб</li>
+                    <li>• Если арендатор пропадёт — мы передадим контакты, но <strong>не компенсируем</strong></li>
+                    <li>• Расписку, договор и передачу залога оформляете <strong>лично</strong></li>
+                    <li>• Объявления без защиты получают <strong>≈ в 2 раза меньше</strong> бронирований</li>
+                  </ul>
+                  <p className="text-[11px] text-amber-900 font-semibold mt-2">
+                    Согласны? Отлично — вы делаете осознанный выбор. Если передумаете — просто переключите формат сделки выше.
+                  </p>
+                </div>
               </div>
-            </div>
+            )}
           </div>
 
           <div className="space-y-4 pt-6 border-t border-border">

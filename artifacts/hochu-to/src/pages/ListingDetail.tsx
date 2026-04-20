@@ -15,6 +15,7 @@ import { ListingPlaceholder } from "@/components/ui/ListingPlaceholder";
 import { ReviewCard, ReviewData } from "@/components/ui/ReviewCard";
 import { StarRating, RatingDisplay } from "@/components/ui/StarRating";
 import { ListingMap } from "@/components/ui/ListingMap";
+import { CollapsibleMap } from "@/components/ui/CollapsibleMap";
 
 export default function ListingDetail() {
   const [, params] = useRoute("/listings/:id");
@@ -367,12 +368,18 @@ export default function ListingDetail() {
                       : listing.regionName}
                   </span>
                 </div>
-                <ListingMap
-                  city={(listing as any).city}
-                  regionName={listing.regionName}
-                  lat={(listing as any).lat}
-                  lng={(listing as any).lng}
-                />
+                <CollapsibleMap
+                  label={(listing as any).lat && (listing as any).lng ? "Точка на карте" : "Карта местонахождения"}
+                  hint="Нажмите, чтобы посмотреть, где находится вещь"
+                  defaultOpen={false}
+                >
+                  <ListingMap
+                    city={(listing as any).city}
+                    regionName={listing.regionName}
+                    lat={(listing as any).lat}
+                    lng={(listing as any).lng}
+                  />
+                </CollapsibleMap>
                 {(listing as any).meetingAddress && (
                   <div className="mt-3 flex items-start gap-2.5 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
                     <MapPin className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />

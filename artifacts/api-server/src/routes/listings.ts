@@ -305,12 +305,20 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
   const {
     title, description, pricePerDay, categoryId, regionId,
     city, lat, lng, meetingAddress, photos,
-    itemCategory, ownerProtectionEnabled, isAvailable,
+    itemCategory, ownerProtectionEnabled, deposit, isAvailable,
   } = parsed.data as typeof parsed.data & {
     city?: string; lat?: number; lng?: number; meetingAddress?: string;
     itemCategory?: "" | "electronics" | "tools" | "leisure";
     ownerProtectionEnabled?: boolean;
+    deposit?: number;
   };
+
+  // Залог: сохраняем только при прямой аренде (ownerProtectionEnabled === false).
+  // При безопасной сделке депозит рассчитывается автоматически в bookings из настроек платформы.
+  const depositToSave =
+    ownerProtectionEnabled === false && typeof deposit === "number" && deposit > 0
+      ? deposit.toFixed(2)
+      : null;
 
   // Загружаем кол-во завершённых сделок владельца для расчёта кепа фонда
   const [owner] = await db.select({ completedDealsCount: usersTable.completedDealsCount })
@@ -340,6 +348,7 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
     ownerId: req.userId!,
     photos: photos ?? [],
     ownerProtectionEnabled: ownerProtectionEnabled !== false,
+    deposit: depositToSave,
     isAvailable: isAvailable ?? true,
   }).returning();
 
@@ -423,7 +432,32 @@ router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
     return;
   }
 
-  const { title, description, pricePerDay, categoryId, regionId, city, lat, lng, meetingAddress, photos, itemCategory, ownerProtectionEnabled: ownerProt, isAvailable } = req.body;
+  const { title, description, pricePerDay, categoryId, regionId, city, lat, lng, meetingAddress, photos, itemCategory, ownerProtectionEnabled: ownerProt, deposit, isAvailable } = req.body;
+
+  // Логика залога: при безопасной сделке — null (рассчитается из настроек),
+  // при прямой аренде — обязательное положительное число.
+  const effectiveProtection = ownerProt !== undefined ? ownerProt : existing.ownerProtectionEnabled;
+  const existingDeposit = existing.deposit ? parseFloat(existing.deposit as unknown as string) : 0;
+
+  let depositUpdate: string | null | undefined;
+  if (effectiveProtection === false) {
+    // Прямая аренда — требуем валидный залог: либо в этом запросе, либо уже сохранённый.
+    if (typeof deposit === "number" && deposit > 0) {
+      depositUpdate = deposit.toFixed(2);
+    } else if (deposit === undefined && existingDeposit > 0) {
+      // Залог уже был — оставляем как есть.
+      depositUpdate = undefined;
+    } else {
+      res.status(400).json({
+        error: "deposit_required",
+        message: "При прямой аренде укажите положительный залог (минимум 500 ₽).",
+      });
+      return;
+    }
+  } else if (ownerProt === true) {
+    // Включение безопасной сделки — обнуляем ручной залог.
+    depositUpdate = null;
+  }
 
   if (photos !== undefined && Array.isArray(existing.photos)) {
     const removed = (existing.photos as string[]).filter(p => !photos.includes(p));
@@ -461,6 +495,7 @@ router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
     ...(meetingAddress !== undefined && { meetingAddress: meetingAddress || null }),
     ...(photos !== undefined && { photos }),
     ...(ownerProt !== undefined && { ownerProtectionEnabled: ownerProt }),
+    ...(depositUpdate !== undefined && { deposit: depositUpdate }),
     ...(isAvailable !== undefined && { isAvailable }),
   }).where(eq(listingsTable.id, id));
 
