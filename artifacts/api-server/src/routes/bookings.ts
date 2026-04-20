@@ -125,6 +125,8 @@ router.get("/", requireAuth, async (req: AuthRequest, res) => {
       (new Date(row.booking.endDate).getTime() - new Date(row.booking.startDate).getTime()) / 86_400_000
     )),
     totalPrice: parseFloat(row.booking.totalPrice as unknown as string),
+    rentAmount: row.booking.rentAmount ? parseFloat(row.booking.rentAmount as unknown as string) : undefined,
+    protectionEnabled: row.booking.protectionEnabled ?? true,
     listingDeposit: row.listingDeposit ? parseFloat(row.listingDeposit as unknown as string) : undefined,
     listingMeetingAddress: showContacts(row.booking.status) ? (row.listingMeetingAddress ?? undefined) : undefined,
     status: row.booking.status,
@@ -163,15 +165,22 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
     const startDate = rawStart ?? today;
     const endDate = rawEnd ?? today;
 
+    // Считаем фактическую стоимость аренды (арендатор платит напрямую владельцу)
+    const daysB = startDate && endDate
+      ? Math.max(1, Math.ceil((new Date(endDate).getTime() - new Date(startDate).getTime()) / 86_400_000))
+      : 1;
+    const pricePerDayB = parseFloat(listing.pricePerDay as unknown as string);
+    const rentAmountB = parseFloat((daysB * pricePerDayB).toFixed(2));
+
     const [booking] = await db.insert(bookingsTable).values({
       listingId,
       renterId: req.userId!,
       ownerId: listing.ownerId,
       startDate,
       endDate,
-      totalDays: 0,
+      totalDays: daysB,
       totalPrice: CONTACT_FEE.toString(),
-      rentAmount: "0",
+      rentAmount: rentAmountB.toString(),
       serviceFee: "0",
       taxFee: "0",
       fundContribution: "0",
@@ -381,10 +390,10 @@ router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
 
   // State transition matrix
   const ownerAllowed: Record<string, string[]> = {
-    pending: ["confirmed", "rejected"],
-    confirmed: ["active", "rejected"],
-    active: ["return_pending"],
-    return_pending: ["completed"],
+    pending: ["confirmed", "rejected", "cancelled"],
+    confirmed: ["active", "rejected", "cancelled"],
+    active: ["return_pending", "cancelled"],
+    return_pending: ["completed", "cancelled"],
   };
   const renterAllowed: Record<string, string[]> = {
     pending: ["cancelled"],

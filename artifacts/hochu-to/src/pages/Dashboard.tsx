@@ -17,7 +17,7 @@ import { Link, useLocation, useSearch } from "wouter";
 import { useEffect, useState, useCallback, Fragment, type ReactNode } from "react";
 import {
   Loader2, Plus, Package, Clock, CheckCircle2, XCircle,
-  Settings, Camera, ArrowDownCircle, ArrowUpCircle, PhoneCall,
+  Settings, Camera, ArrowDownCircle, ArrowUpCircle, PhoneCall, Phone,
   Trash2, Eye, EyeOff, ListFilter, LayoutGrid, ArrowUpDown,
   Globe, Send, User, CalendarDays, Star, ShoppingBag, BadgeCheck,
   TrendingUp, TrendingDown, MessageSquare, Leaf, PiggyBank, Wind, MapPin, LifeBuoy,
@@ -466,7 +466,11 @@ export default function Dashboard() {
     ...outgoingBookings.filter(b => b.status === "completed").map(b => ({ booking: b, dealRole: "renter" as const })),
   ].sort((a, b) => new Date(b.booking.createdAt).getTime() - new Date(a.booking.createdAt).getTime());
 
-  const totalEarned = completedDeals.filter(d => d.dealRole === "owner").reduce((s, d) => s + d.booking.totalPrice, 0);
+  // Заработок владельца = фактическая стоимость аренды (rentAmount), только безопасные сделки
+  // Прямой расчёт (150₽) — это доход платформы, не владельца
+  const totalEarned = completedDeals
+    .filter(d => d.dealRole === "owner" && (d.booking as any).protectionEnabled !== false)
+    .reduce((s, d) => s + ((d.booking as any).rentAmount ?? d.booking.totalPrice), 0);
   const totalSpent  = completedDeals.filter(d => d.dealRole === "renter").reduce((s, d) => s + d.booking.totalPrice, 0);
   const totalRentalDays = completedDeals.filter(d => d.dealRole === "renter").reduce((s, d) => s + (d.booking.totalDays || 0), 0);
   const rentalCount = completedDeals.filter(d => d.dealRole === "renter").length;
@@ -1835,9 +1839,20 @@ export default function Dashboard() {
                                     </div>
                                   </div>
                                   <div className="text-right shrink-0">
-                                    <div className={`text-xl font-bold font-display ${isOwnerDeal ? "text-emerald-700" : "text-teal-700"}`}>
-                                      {isOwnerDeal ? "+" : ""}{formatPrice(b.totalPrice)}
-                                    </div>
+                                    {isOwnerDeal && (b as any).protectionEnabled === false ? (
+                                      <div>
+                                        <div className="text-sm font-bold text-orange-600 flex items-center justify-end gap-1">
+                                          <Phone className="w-3.5 h-3.5" />Прямой расчёт
+                                        </div>
+                                        {(b as any).rentAmount > 0 && (
+                                          <div className="text-xs text-muted-foreground">~{formatPrice((b as any).rentAmount)}</div>
+                                        )}
+                                      </div>
+                                    ) : (
+                                      <div className={`text-xl font-bold font-display ${isOwnerDeal ? "text-emerald-700" : "text-teal-700"}`}>
+                                        {isOwnerDeal ? "+" : ""}{formatPrice(isOwnerDeal ? ((b as any).rentAmount ?? b.totalPrice) : b.totalPrice)}
+                                      </div>
+                                    )}
                                     <div className="text-xs text-muted-foreground">{b.totalDays} {b.totalDays === 1 ? "сутки" : "суток"}</div>
                                     {!isOwnerDeal && <div className="text-[10px] text-teal-600 flex items-center justify-end gap-0.5 mt-0.5"><Leaf className="w-2.5 h-2.5" />вместо покупки</div>}
                                   </div>
