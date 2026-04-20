@@ -51,11 +51,20 @@ export function calcMaxProtectionLimit(
   pricePerDay: number,
   itemCategory: ItemCategory,
   completedDealsCount = 0,
+  rates?: FeeRates,
 ): number {
-  const multiplier = CATEGORY_MULTIPLIERS[itemCategory] ?? 20;
+  const mults: Record<ItemCategory, number> = {
+    electronics: rateNum(rates, "protMultElectronics"),
+    tools: rateNum(rates, "protMultTools"),
+    leisure: rateNum(rates, "protMultLeisure"),
+    special_machinery: rateNum(rates, "protMultSpecialMachinery"),
+  };
+  const multiplier = mults[itemCategory] ?? mults.tools;
   const raw = pricePerDay * multiplier;
-  if (completedDealsCount < 3) {
-    return Math.min(raw, 25_000);
+  const cap = rateNum(rates, "newUserProtectionCap");
+  const threshold = rateNum(rates, "newUserDealsThreshold");
+  if (completedDealsCount < threshold) {
+    return Math.min(raw, cap);
   }
   return raw;
 }
@@ -65,8 +74,49 @@ export function calcMaxProtectionLimit(
  * Формула: max(rent × 5%, 100 ₽).
  * Идёт в пул Гарантийного фонда платформы.
  */
-export function calcShieldFee(rent: number): number {
-  return Math.max(parseFloat((rent * 0.05).toFixed(2)), 100);
+export interface FeeRates {
+  serviceFeePercent?: number;
+  taxFeePercent?: number;
+  shieldFeePercent?: number;
+  shieldFeeMin?: number;
+  riskCoveragePercent?: number;
+  riskCoverageMin?: number;
+  depositMultiplier?: number;
+  depositMin?: number;
+  protMultElectronics?: number;
+  protMultTools?: number;
+  protMultLeisure?: number;
+  protMultSpecialMachinery?: number;
+  newUserProtectionCap?: number;
+  newUserDealsThreshold?: number;
+}
+
+export const DEFAULT_RATES: Required<FeeRates> = {
+  serviceFeePercent: 10,
+  taxFeePercent: 6,
+  shieldFeePercent: 5,
+  shieldFeeMin: 100,
+  riskCoveragePercent: 5,
+  riskCoverageMin: 100,
+  depositMultiplier: 2,
+  depositMin: 1500,
+  protMultElectronics: 50,
+  protMultTools: 20,
+  protMultLeisure: 15,
+  protMultSpecialMachinery: 10,
+  newUserProtectionCap: 25000,
+  newUserDealsThreshold: 3,
+};
+
+function rateNum(rates: FeeRates | undefined, key: keyof FeeRates): number {
+  const v = rates?.[key];
+  return typeof v === "number" && !isNaN(v) ? v : DEFAULT_RATES[key];
+}
+
+export function calcShieldFee(rent: number, rates?: FeeRates): number {
+  const pct = rateNum(rates, "shieldFeePercent");
+  const min = rateNum(rates, "shieldFeeMin");
+  return Math.max(parseFloat((rent * pct / 100).toFixed(2)), min);
 }
 
 /**
@@ -74,16 +124,20 @@ export function calcShieldFee(rent: number): number {
  * Формула: max(rent × 5%, 100 ₽).
  * Зеркальный сбор — платформа берёт с обеих сторон.
  */
-export function calcRiskCoverage(rent: number): number {
-  return Math.max(parseFloat((rent * 0.05).toFixed(2)), 100);
+export function calcRiskCoverage(rent: number, rates?: FeeRates): number {
+  const pct = rateNum(rates, "riskCoveragePercent");
+  const min = rateNum(rates, "riskCoverageMin");
+  return Math.max(parseFloat((rent * pct / 100).toFixed(2)), min);
 }
 
 /**
  * Залог арендатора (возвратный).
  * Math.max(1 500, pricePerDay × 2) — небольшой, чтобы не отпугивать.
  */
-export function calcDeposit(pricePerDay: number): number {
-  return Math.max(1500, pricePerDay * 2);
+export function calcDeposit(pricePerDay: number, rates?: FeeRates): number {
+  const mult = rateNum(rates, "depositMultiplier");
+  const min = rateNum(rates, "depositMin");
+  return Math.max(min, pricePerDay * mult);
 }
 
 // ─── Итоговый расчёт стоимости бронирования ─────────────────────────────────
@@ -121,24 +175,26 @@ export function calculateTotalPrice(
   ownerProtectionEnabled = true,
   _renterProtectionEnabled = false,
   completedDealsCount = 0,
+  rates?: FeeRates,
 ): PriceBreakdown {
   const rent = pricePerDay * days;
   const cat = (itemCategory ?? "tools") as ItemCategory;
 
-  const serviceFee = parseFloat((rent * 0.10).toFixed(2));
-  const taxFee = parseFloat((rent * 0.06).toFixed(2));
+  const servicePct = rateNum(rates, "serviceFeePercent");
+  const taxPct = rateNum(rates, "taxFeePercent");
+  const serviceFee = parseFloat((rent * servicePct / 100).toFixed(2));
+  const taxFee = parseFloat((rent * taxPct / 100).toFixed(2));
 
-  const shieldFee = ownerProtectionEnabled ? calcShieldFee(rent) : 0;
-  // riskCoverage не может превышать остаток после serviceFee+taxFee — выплата владельцу всегда >= 0
-  const rawRiskCoverage = ownerProtectionEnabled ? calcRiskCoverage(rent) : 0;
+  const shieldFee = ownerProtectionEnabled ? calcShieldFee(rent, rates) : 0;
+  const rawRiskCoverage = ownerProtectionEnabled ? calcRiskCoverage(rent, rates) : 0;
   const maxRisk = Math.max(0, parseFloat((rent - serviceFee - taxFee).toFixed(2)));
   const riskCoverage = Math.min(rawRiskCoverage, maxRisk);
 
-  const maxProtectionLimit = calcMaxProtectionLimit(pricePerDay, cat, completedDealsCount);
+  const maxProtectionLimit = calcMaxProtectionLimit(pricePerDay, cat, completedDealsCount, rates);
 
   const total = parseFloat((rent + shieldFee).toFixed(2));
   const ownerPayout = parseFloat((rent - serviceFee - taxFee - riskCoverage).toFixed(2));
-  const deposit = calcDeposit(pricePerDay);
+  const deposit = calcDeposit(pricePerDay, rates);
 
   return {
     rent,

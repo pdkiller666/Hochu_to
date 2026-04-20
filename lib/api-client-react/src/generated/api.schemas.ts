@@ -9,6 +9,70 @@ export interface HealthStatus {
   status: string;
 }
 
+export interface PublicPlatformSettings {
+  serviceFeePercent?: number;
+  taxFeePercent?: number;
+  shieldFeePercent?: number;
+  shieldFeeMin?: number;
+  riskCoveragePercent?: number;
+  riskCoverageMin?: number;
+  depositMultiplier?: number;
+  depositMin?: number;
+  protMultElectronics?: number;
+  protMultTools?: number;
+  protMultLeisure?: number;
+  protMultSpecialMachinery?: number;
+  newUserProtectionCap?: number;
+  newUserDealsThreshold?: number;
+  jointPurchaseFeePercent?: number;
+  paymentMode?: string;
+  yookassaEnabled?: boolean;
+  sbpEnabled?: boolean;
+  cloudpaymentsEnabled?: boolean;
+}
+
+export interface PlatformSettings {
+  id?: number;
+  serviceFeePercent?: string;
+  taxFeePercent?: string;
+  shieldFeePercent?: string;
+  shieldFeeMin?: number;
+  riskCoveragePercent?: string;
+  riskCoverageMin?: number;
+  depositMultiplier?: string;
+  depositMin?: number;
+  protMultElectronics?: number;
+  protMultTools?: number;
+  protMultLeisure?: number;
+  protMultSpecialMachinery?: number;
+  newUserProtectionCap?: number;
+  newUserDealsThreshold?: number;
+  vipPrice7d?: number;
+  vipPrice14d?: number;
+  vipPrice30d?: number;
+  urgentPrice3d?: number;
+  urgentPrice7d?: number;
+  boostPrice24h?: number;
+  subscriptionProMonthly?: number;
+  subscriptionBusinessMonthly?: number;
+  subscriptionBusinessCommissionPercent?: string;
+  jointPurchaseFeePercent?: string;
+  paymentMode?: string;
+  yookassaEnabled?: boolean;
+  yookassaShopId?: string | null;
+  yookassaTestMode?: boolean;
+  sbpEnabled?: boolean;
+  sbpMerchantId?: string | null;
+  cloudpaymentsEnabled?: boolean;
+  cloudpaymentsPublicId?: string | null;
+  updatedAt?: string;
+  updatedBy?: number | null;
+}
+
+export interface PlatformSettingsPatch {
+  [key: string]: unknown;
+}
+
 export interface ErrorResponse {
   error: string;
   message?: string;

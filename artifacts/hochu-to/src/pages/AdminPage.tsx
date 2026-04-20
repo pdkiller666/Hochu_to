@@ -11,6 +11,7 @@ import {
   MessageSquare, AlertTriangle, ScrollText, Bell, Send,
   X, Pencil, ExternalLink, Trash2, RefreshCw, UserCheck,
   BarChart2, ArrowUpDown, Flag, Shield, Megaphone,
+  Coins, CreditCard, Save, RotateCcw,
 } from "lucide-react";
 import { formatPrice } from "@/lib/utils";
 import { format } from "date-fns";
@@ -1562,14 +1563,337 @@ function ClaimsTab() {
   );
 }
 
+// ─── EconomyTab ────────────────────────────────────────────────────────────────
+function SettingsField({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <label className="block">
+      <div className="text-sm font-medium text-stone-700 mb-1">{label}</div>
+      {children}
+      {hint && <div className="text-xs text-stone-500 mt-1">{hint}</div>}
+    </label>
+  );
+}
+
+function NumInput({ value, onChange, step = "1", suffix }: { value: any; onChange: (v: string) => void; step?: string; suffix?: string }) {
+  return (
+    <div className="relative">
+      <input
+        type="number"
+        step={step}
+        value={value ?? ""}
+        onChange={e => onChange(e.target.value)}
+        className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C65D3B] text-stone-800"
+      />
+      {suffix && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-stone-500 pointer-events-none">{suffix}</span>}
+    </div>
+  );
+}
+
+function useSettingsForm() {
+  const { toast } = useToast();
+  const [data, setData] = useState<any>(null);
+  const [orig, setOrig] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/admin/settings", { headers: getAuthHeaders() });
+      if (!res.ok) throw new Error("Не удалось загрузить настройки");
+      const j = await res.json();
+      setData(j); setOrig(j);
+    } catch (e: any) {
+      toast({ title: "Ошибка", description: e.message, variant: "destructive" });
+    } finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const set = (k: string, v: any) => setData((d: any) => ({ ...d, [k]: v }));
+
+  const dirty = data && orig && JSON.stringify(data) !== JSON.stringify(orig);
+
+  const save = async () => {
+    if (!data) return;
+    // Нормализация: целочисленные поля → number, проценты/decimals → string-число, пустые строки → null
+    const INT_FIELDS = new Set([
+      "shieldFeeMin","riskCoverageMin","depositMin",
+      "protMultElectronics","protMultTools","protMultLeisure","protMultSpecialMachinery",
+      "newUserProtectionCap","newUserDealsThreshold",
+      "vipPrice7d","vipPrice14d","vipPrice30d",
+      "urgentPrice3d","urgentPrice7d","boostPrice24h",
+      "subscriptionProMonthly","subscriptionBusinessMonthly",
+    ]);
+    const DEC_FIELDS = new Set([
+      "serviceFeePercent","taxFeePercent","shieldFeePercent","riskCoveragePercent",
+      "subscriptionBusinessCommissionPercent","jointPurchaseFeePercent","depositMultiplier",
+    ]);
+    const NULLABLE_STR = new Set(["yookassaShopId","sbpMerchantId","cloudpaymentsPublicId"]);
+    const payload: Record<string, any> = {};
+    for (const [k, v] of Object.entries(data)) {
+      if (k === "id" || k === "updatedAt" || k === "updatedBy") continue;
+      if (INT_FIELDS.has(k)) {
+        if (v === "" || v === null || v === undefined) {
+          toast({ title: "Ошибка", description: `Поле "${k}" не должно быть пустым`, variant: "destructive" });
+          return;
+        }
+        const n = Number(v);
+        if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) {
+          toast({ title: "Ошибка", description: `Поле "${k}": нужно целое неотрицательное число`, variant: "destructive" });
+          return;
+        }
+        payload[k] = n;
+      } else if (DEC_FIELDS.has(k)) {
+        const n = parseFloat(String(v));
+        if (!Number.isFinite(n) || n < 0) {
+          toast({ title: "Ошибка", description: `Поле "${k}": нужно неотрицательное число`, variant: "destructive" });
+          return;
+        }
+        payload[k] = String(n);
+      } else if (NULLABLE_STR.has(k)) {
+        payload[k] = (v === "" || v === undefined) ? null : v;
+      } else {
+        payload[k] = v;
+      }
+    }
+    setSaving(true);
+    try {
+      const res = await fetch("/api/admin/settings", {
+        method: "PUT",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.message || j.error || "Ошибка сохранения");
+      }
+      const j = await res.json();
+      setData(j); setOrig(j);
+      toast({ title: "Сохранено", description: "Настройки применятся в течение минуты" });
+    } catch (e: any) {
+      toast({ title: "Ошибка", description: e.message, variant: "destructive" });
+    } finally { setSaving(false); }
+  };
+
+  const reset = () => setData(orig);
+
+  return { data, set, dirty, save, reset, loading, saving };
+}
+
+function SettingsActionBar({ dirty, saving, onSave, onReset }: { dirty: boolean; saving: boolean; onSave: () => void; onReset: () => void }) {
+  if (!dirty) return null;
+  return (
+    <div className="sticky bottom-4 z-10 bg-white border border-amber-300 rounded-xl shadow-lg p-3 flex items-center justify-between mt-6">
+      <div className="text-sm text-stone-700">Есть несохранённые изменения</div>
+      <div className="flex gap-2">
+        <button onClick={onReset} className="flex items-center gap-2 px-4 py-2 bg-stone-100 hover:bg-stone-200 rounded-lg text-sm font-medium text-stone-700">
+          <RotateCcw className="w-4 h-4" /> Отменить
+        </button>
+        <button onClick={onSave} disabled={saving} className="flex items-center gap-2 px-4 py-2 bg-[#C65D3B] hover:bg-[#b04f30] disabled:opacity-60 rounded-lg text-sm font-medium text-white">
+          <Save className="w-4 h-4" /> {saving ? "Сохранение…" : "Сохранить"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function EconomyTab() {
+  const { data, set, dirty, save, reset, loading, saving } = useSettingsForm();
+  if (loading) return <div className="text-stone-500">Загрузка…</div>;
+  if (!data) return null;
+  return (
+    <div className="space-y-6">
+      <div className="bg-white rounded-xl border border-stone-200 p-6">
+        <h2 className="text-lg font-semibold text-stone-800 mb-1">Комиссии и налоги</h2>
+        <p className="text-sm text-stone-500 mb-4">Скрытая комиссия и налог удерживаются с владельца из суммы аренды</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <SettingsField label="Сервисный сбор" hint="С владельца, % от аренды">
+            <NumInput step="0.1" suffix="%" value={data.serviceFeePercent} onChange={v => set("serviceFeePercent", v)} />
+          </SettingsField>
+          <SettingsField label="Налоговая удержка" hint="Самозанятость 6% / ИП 4% / ООО — настраивается">
+            <NumInput step="0.1" suffix="%" value={data.taxFeePercent} onChange={v => set("taxFeePercent", v)} />
+          </SettingsField>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl border border-stone-200 p-6">
+        <h2 className="text-lg font-semibold text-stone-800 mb-1">Безопасная сделка (Shield)</h2>
+        <p className="text-sm text-stone-500 mb-4">Shield Fee платит арендатор сверху; Risk Coverage удерживается с владельца</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <SettingsField label="Shield Fee, %" hint="Сверху к оплате арендатора">
+            <NumInput step="0.1" suffix="%" value={data.shieldFeePercent} onChange={v => set("shieldFeePercent", v)} />
+          </SettingsField>
+          <SettingsField label="Shield Fee, минимум ₽">
+            <NumInput suffix="₽" value={data.shieldFeeMin} onChange={v => set("shieldFeeMin", v)} />
+          </SettingsField>
+          <SettingsField label="Risk Coverage, %" hint="С выплаты владельца">
+            <NumInput step="0.1" suffix="%" value={data.riskCoveragePercent} onChange={v => set("riskCoveragePercent", v)} />
+          </SettingsField>
+          <SettingsField label="Risk Coverage, минимум ₽">
+            <NumInput suffix="₽" value={data.riskCoverageMin} onChange={v => set("riskCoverageMin", v)} />
+          </SettingsField>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl border border-stone-200 p-6">
+        <h2 className="text-lg font-semibold text-stone-800 mb-1">Залог по умолчанию</h2>
+        <p className="text-sm text-stone-500 mb-4">Когда владелец не задал свой залог: max(минимум, цена/день × множитель)</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <SettingsField label="Множитель (дней цены)">
+            <NumInput step="0.1" value={data.depositMultiplier} onChange={v => set("depositMultiplier", v)} />
+          </SettingsField>
+          <SettingsField label="Минимум залога">
+            <NumInput suffix="₽" value={data.depositMin} onChange={v => set("depositMin", v)} />
+          </SettingsField>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl border border-stone-200 p-6">
+        <h2 className="text-lg font-semibold text-stone-800 mb-1">Лимиты страхового покрытия</h2>
+        <p className="text-sm text-stone-500 mb-4">Множитель цены/день для расчёта max выплаты по категории</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <SettingsField label="Электроника"><NumInput suffix="× цены" value={data.protMultElectronics} onChange={v => set("protMultElectronics", v)} /></SettingsField>
+          <SettingsField label="Инструменты"><NumInput suffix="× цены" value={data.protMultTools} onChange={v => set("protMultTools", v)} /></SettingsField>
+          <SettingsField label="Отдых"><NumInput suffix="× цены" value={data.protMultLeisure} onChange={v => set("protMultLeisure", v)} /></SettingsField>
+          <SettingsField label="Спецтехника"><NumInput suffix="× цены" value={data.protMultSpecialMachinery} onChange={v => set("protMultSpecialMachinery", v)} /></SettingsField>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl border border-stone-200 p-6">
+        <h2 className="text-lg font-semibold text-stone-800 mb-1">Новые пользователи</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <SettingsField label="Лимит покрытия для новичков">
+            <NumInput suffix="₽" value={data.newUserProtectionCap} onChange={v => set("newUserProtectionCap", v)} />
+          </SettingsField>
+          <SettingsField label="Снять лимит после N сделок">
+            <NumInput value={data.newUserDealsThreshold} onChange={v => set("newUserDealsThreshold", v)} />
+          </SettingsField>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl border border-stone-200 p-6">
+        <h2 className="text-lg font-semibold text-stone-800 mb-1">Платное продвижение</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <SettingsField label="VIP, 7 дней"><NumInput suffix="₽" value={data.vipPrice7d} onChange={v => set("vipPrice7d", v)} /></SettingsField>
+          <SettingsField label="VIP, 14 дней"><NumInput suffix="₽" value={data.vipPrice14d} onChange={v => set("vipPrice14d", v)} /></SettingsField>
+          <SettingsField label="VIP, 30 дней"><NumInput suffix="₽" value={data.vipPrice30d} onChange={v => set("vipPrice30d", v)} /></SettingsField>
+          <SettingsField label="Срочно, 3 дня"><NumInput suffix="₽" value={data.urgentPrice3d} onChange={v => set("urgentPrice3d", v)} /></SettingsField>
+          <SettingsField label="Срочно, 7 дней"><NumInput suffix="₽" value={data.urgentPrice7d} onChange={v => set("urgentPrice7d", v)} /></SettingsField>
+          <SettingsField label="Boost, 24 часа"><NumInput suffix="₽" value={data.boostPrice24h} onChange={v => set("boostPrice24h", v)} /></SettingsField>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl border border-stone-200 p-6">
+        <h2 className="text-lg font-semibold text-stone-800 mb-1">Подписки и совместные покупки</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <SettingsField label="PRO подписка / месяц"><NumInput suffix="₽" value={data.subscriptionProMonthly} onChange={v => set("subscriptionProMonthly", v)} /></SettingsField>
+          <SettingsField label="Business подписка / месяц"><NumInput suffix="₽" value={data.subscriptionBusinessMonthly} onChange={v => set("subscriptionBusinessMonthly", v)} /></SettingsField>
+          <SettingsField label="Business: пониженная комиссия"><NumInput step="0.1" suffix="%" value={data.subscriptionBusinessCommissionPercent} onChange={v => set("subscriptionBusinessCommissionPercent", v)} /></SettingsField>
+          <SettingsField label="Сбор за совместные покупки"><NumInput step="0.1" suffix="%" value={data.jointPurchaseFeePercent} onChange={v => set("jointPurchaseFeePercent", v)} /></SettingsField>
+        </div>
+      </div>
+
+      <SettingsActionBar dirty={!!dirty} saving={saving} onSave={save} onReset={reset} />
+    </div>
+  );
+}
+
+// ─── PaymentsTab ───────────────────────────────────────────────────────────────
+function PaymentsTab() {
+  const { data, set, dirty, save, reset, loading, saving } = useSettingsForm();
+  if (loading) return <div className="text-stone-500">Загрузка…</div>;
+  if (!data) return null;
+  const Toggle = ({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label: string }) => (
+    <label className="flex items-center gap-3 cursor-pointer">
+      <span className={`w-10 h-6 rounded-full relative transition ${checked ? "bg-[#C65D3B]" : "bg-stone-300"}`}>
+        <span className={`absolute top-0.5 ${checked ? "right-0.5" : "left-0.5"} w-5 h-5 bg-white rounded-full transition`} />
+      </span>
+      <input type="checkbox" className="sr-only" checked={checked} onChange={e => onChange(e.target.checked)} />
+      <span className="text-sm font-medium text-stone-700">{label}</span>
+    </label>
+  );
+  return (
+    <div className="space-y-6">
+      <div className="bg-white rounded-xl border border-stone-200 p-6">
+        <h2 className="text-lg font-semibold text-stone-800 mb-1">Налоговая модель</h2>
+        <p className="text-sm text-stone-500 mb-4">Определяет ставку налога и формат чеков</p>
+        <select
+          value={data.paymentMode}
+          onChange={e => set("paymentMode", e.target.value)}
+          className="w-full sm:w-64 px-3 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C65D3B] text-stone-800"
+        >
+          <option value="self_employed">Самозанятость (НПД 6%)</option>
+          <option value="ip">ИП на УСН</option>
+          <option value="ooo">ООО (агентская схема)</option>
+        </select>
+      </div>
+
+      <div className="bg-white rounded-xl border border-stone-200 p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-lg font-semibold text-stone-800">ЮKassa</h2>
+            <p className="text-sm text-stone-500">Карты, СБП, ЮMoney. Секреты — в переменных окружения сервера</p>
+          </div>
+          <Toggle checked={!!data.yookassaEnabled} onChange={v => set("yookassaEnabled", v)} label={data.yookassaEnabled ? "Вкл" : "Выкл"} />
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <SettingsField label="Shop ID" hint="Публичный идентификатор магазина">
+            <input type="text" value={data.yookassaShopId ?? ""} onChange={e => set("yookassaShopId", e.target.value || null)}
+              className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C65D3B] text-stone-800" />
+          </SettingsField>
+          <div className="flex items-end">
+            <Toggle checked={!!data.yookassaTestMode} onChange={v => set("yookassaTestMode", v)} label="Тестовый режим" />
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl border border-stone-200 p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-lg font-semibold text-stone-800">СБП напрямую</h2>
+            <p className="text-sm text-stone-500">Прямой эквайринг через банк-партнёр</p>
+          </div>
+          <Toggle checked={!!data.sbpEnabled} onChange={v => set("sbpEnabled", v)} label={data.sbpEnabled ? "Вкл" : "Выкл"} />
+        </div>
+        <SettingsField label="Merchant ID">
+          <input type="text" value={data.sbpMerchantId ?? ""} onChange={e => set("sbpMerchantId", e.target.value || null)}
+            className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C65D3B] text-stone-800" />
+        </SettingsField>
+      </div>
+
+      <div className="bg-white rounded-xl border border-stone-200 p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-lg font-semibold text-stone-800">CloudPayments</h2>
+            <p className="text-sm text-stone-500">Резервный шлюз с холдированием для безопасных сделок</p>
+          </div>
+          <Toggle checked={!!data.cloudpaymentsEnabled} onChange={v => set("cloudpaymentsEnabled", v)} label={data.cloudpaymentsEnabled ? "Вкл" : "Выкл"} />
+        </div>
+        <SettingsField label="Public ID">
+          <input type="text" value={data.cloudpaymentsPublicId ?? ""} onChange={e => set("cloudpaymentsPublicId", e.target.value || null)}
+            className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C65D3B] text-stone-800" />
+        </SettingsField>
+      </div>
+
+      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-900">
+        Секретные ключи (api_key, signing_secret) хранятся в переменных окружения сервера и не редактируются из админки.
+      </div>
+
+      <SettingsActionBar dirty={!!dirty} saving={saving} onSave={save} onReset={reset} />
+    </div>
+  );
+}
+
 // ─── Main AdminPage ────────────────────────────────────────────────────────────
-type Tab = "overview" | "users" | "listings" | "bookings" | "support" | "reports" | "claims" | "audit";
+type Tab = "overview" | "users" | "listings" | "bookings" | "support" | "reports" | "claims" | "audit" | "economy" | "payments";
 
 const TABS: { id: Tab; label: string; icon: any }[] = [
   { id: "overview", label: "Обзор", icon: LayoutDashboard },
   { id: "users", label: "Пользователи", icon: Users },
   { id: "listings", label: "Объявления", icon: Package },
   { id: "bookings", label: "Бронирования", icon: CalendarDays },
+  { id: "economy", label: "Экономика", icon: Coins },
+  { id: "payments", label: "Платежи", icon: CreditCard },
   { id: "support", label: "Поддержка", icon: LifeBuoy },
   { id: "reports", label: "Жалобы", icon: Flag },
   { id: "claims", label: "Заявки фонда", icon: Shield },
@@ -1632,6 +1956,8 @@ export default function AdminPage() {
         {tab === "reports" && <ReportsTab />}
         {tab === "claims" && <ClaimsTab />}
         {tab === "audit" && <AuditLogTab />}
+        {tab === "economy" && <EconomyTab />}
+        {tab === "payments" && <PaymentsTab />}
       </div>
 
       <BroadcastModal open={broadcastOpen} onClose={() => setBroadcastOpen(false)} />

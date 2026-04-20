@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db, newsletterTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
+import { getPlatformSettings, publicSettings } from "../lib/platform-settings.js";
 
 const router = Router();
 
@@ -30,6 +31,11 @@ router.post("/contact", async (req, res) => {
 
   // In production, this would send an email
   res.json({ success: true, message: "Ваше сообщение отправлено. Мы свяжемся с вами в ближайшее время." });
+});
+
+router.get("/settings", async (_req, res) => {
+  const s = await getPlatformSettings();
+  res.json(publicSettings(s));
 });
 
 export default router;

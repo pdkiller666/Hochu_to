@@ -1,6 +1,7 @@
 import app from "./app";
 import { logger } from "./lib/logger";
 import { startScheduler } from "./lib/scheduler";
+import { ensurePlatformSettings } from "./lib/platform-settings";
 import { db, usersTable } from "@workspace/db";
 import { sql, eq } from "drizzle-orm";
 import bcrypt from "bcryptjs";
@@ -47,5 +48,11 @@ app.listen(port, async (err) => {
 
   logger.info({ port }, "Server listening");
   await seedDefaultAdmin();
+  try {
+    const settings = await ensurePlatformSettings();
+    logger.info({ settingsId: settings.id, paymentMode: settings.paymentMode }, "Platform settings ready");
+  } catch (e) {
+    logger.error({ err: e }, "Failed to initialize platform settings");
+  }
   startScheduler();
 });

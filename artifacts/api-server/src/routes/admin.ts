@@ -11,6 +11,7 @@ import {
 import { eq, desc, ilike, or, sql, and, lt, gte } from "drizzle-orm";
 import { requireAuth, AuthRequest } from "../middleware/auth.js";
 import bcrypt from "bcryptjs";
+import { getPlatformSettings, updatePlatformSettings } from "../lib/platform-settings.js";
 
 const router = Router();
 
@@ -890,6 +891,124 @@ router.post("/seed", requireAuth, requireAdmin, async (_req, res) => {
     console.error("Seed error:", err);
     res.status(500).json({ ok: false, error: err?.message ?? String(err) });
   }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PLATFORM SETTINGS — управление экономикой и монетизацией
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.get("/settings", requireAuth, requireAdmin, async (_req, res) => {
+  const s = await getPlatformSettings();
+  res.json(s);
+});
+
+router.put("/settings", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+  const allowed = [
+    "serviceFeePercent", "taxFeePercent", "shieldFeePercent", "shieldFeeMin",
+    "riskCoveragePercent", "riskCoverageMin", "depositMultiplier", "depositMin",
+    "protMultElectronics", "protMultTools", "protMultLeisure", "protMultSpecialMachinery",
+    "newUserProtectionCap", "newUserDealsThreshold",
+    "vipPrice7d", "vipPrice14d", "vipPrice30d",
+    "urgentPrice3d", "urgentPrice7d", "boostPrice24h",
+    "subscriptionProMonthly", "subscriptionBusinessMonthly", "subscriptionBusinessCommissionPercent",
+    "jointPurchaseFeePercent",
+    "paymentMode",
+    "yookassaEnabled", "yookassaShopId", "yookassaTestMode",
+    "sbpEnabled", "sbpMerchantId",
+    "cloudpaymentsEnabled", "cloudpaymentsPublicId",
+  ] as const;
+  const body = req.body ?? {};
+  const patch: Record<string, any> = {};
+  for (const k of allowed) {
+    if (k in body) patch[k] = body[k];
+  }
+  // ─── Валидация ────────────────────────────────────────────────────────────
+  const PERCENT_FIELDS = [
+    "serviceFeePercent", "taxFeePercent", "shieldFeePercent", "riskCoveragePercent",
+    "subscriptionBusinessCommissionPercent", "jointPurchaseFeePercent",
+  ] as const;
+  const DECIMAL_FIELDS = ["depositMultiplier"] as const;
+  const NON_NEG_INT_FIELDS = [
+    "shieldFeeMin", "riskCoverageMin", "depositMin",
+    "protMultElectronics", "protMultTools", "protMultLeisure", "protMultSpecialMachinery",
+    "newUserProtectionCap", "newUserDealsThreshold",
+    "vipPrice7d", "vipPrice14d", "vipPrice30d",
+    "urgentPrice3d", "urgentPrice7d", "boostPrice24h",
+    "subscriptionProMonthly", "subscriptionBusinessMonthly",
+  ] as const;
+  const BOOL_FIELDS = [
+    "yookassaEnabled", "yookassaTestMode", "sbpEnabled", "cloudpaymentsEnabled",
+  ] as const;
+  const NULLABLE_STR_FIELDS = [
+    "yookassaShopId", "sbpMerchantId", "cloudpaymentsPublicId",
+  ] as const;
+
+  for (const k of PERCENT_FIELDS) {
+    if (k in patch) {
+      const v = parseFloat(String(patch[k]));
+      if (!isFinite(v) || v < 0 || v > 100) {
+        return res.status(400).json({ error: "invalid_value", field: k, message: "Должно быть число от 0 до 100" });
+      }
+      patch[k] = String(v);
+    }
+  }
+  for (const k of DECIMAL_FIELDS) {
+    if (k in patch) {
+      const v = parseFloat(String(patch[k]));
+      if (!isFinite(v) || v < 0) {
+        return res.status(400).json({ error: "invalid_value", field: k, message: "Должно быть неотрицательное число" });
+      }
+      patch[k] = String(v);
+    }
+  }
+  for (const k of NON_NEG_INT_FIELDS) {
+    if (k in patch) {
+      const raw = patch[k];
+      if (raw === "" || raw === null || raw === undefined) {
+        return res.status(400).json({ error: "invalid_value", field: k, message: "Поле обязательно" });
+      }
+      const v = Number(raw);
+      if (!Number.isFinite(v) || !Number.isInteger(v) || v < 0) {
+        return res.status(400).json({ error: "invalid_value", field: k, message: "Должно быть целое неотрицательное число" });
+      }
+      patch[k] = v;
+    }
+  }
+  for (const k of BOOL_FIELDS) {
+    if (k in patch) {
+      if (typeof patch[k] !== "boolean") {
+        return res.status(400).json({ error: "invalid_value", field: k, message: "Должно быть true/false" });
+      }
+    }
+  }
+  for (const k of NULLABLE_STR_FIELDS) {
+    if (k in patch) {
+      const v = patch[k];
+      if (v === "" || v === undefined) patch[k] = null;
+      else if (v !== null && typeof v !== "string") {
+        return res.status(400).json({ error: "invalid_value", field: k });
+      } else if (typeof v === "string" && v.length > 255) {
+        return res.status(400).json({ error: "invalid_value", field: k, message: "Слишком длинное значение" });
+      }
+    }
+  }
+  if ("paymentMode" in patch && !["self_employed", "ip", "ooo"].includes(patch.paymentMode)) {
+    return res.status(400).json({ error: "invalid_value", field: "paymentMode" });
+  }
+
+  // Семантическая проверка: shieldFeeMin/riskCoverageMin не могут быть слишком большими
+  if (typeof patch.shieldFeeMin === "number" && patch.shieldFeeMin > 1_000_000) {
+    return res.status(400).json({ error: "invalid_value", field: "shieldFeeMin", message: "Слишком большое значение" });
+  }
+  if (typeof patch.riskCoverageMin === "number" && patch.riskCoverageMin > 1_000_000) {
+    return res.status(400).json({ error: "invalid_value", field: "riskCoverageMin", message: "Слишком большое значение" });
+  }
+
+  const updated = await updatePlatformSettings(patch, req.userId);
+  if (req.userId) {
+    await audit(req.userId, "platform_settings", updated.id, "update", JSON.stringify(Object.keys(patch)));
+  }
+  res.json(updated);
 });
 
 export default router;

@@ -602,3 +602,112 @@ export const SubmitContactFormResponse = zod.object({
   success: zod.boolean(),
   message: zod.string().optional(),
 });
+
+/**
+ * @summary Get public platform economy settings
+ */
+export const GetPublicSettingsResponse = zod.object({
+  serviceFeePercent: zod.number().optional(),
+  taxFeePercent: zod.number().optional(),
+  shieldFeePercent: zod.number().optional(),
+  shieldFeeMin: zod.number().optional(),
+  riskCoveragePercent: zod.number().optional(),
+  riskCoverageMin: zod.number().optional(),
+  depositMultiplier: zod.number().optional(),
+  depositMin: zod.number().optional(),
+  protMultElectronics: zod.number().optional(),
+  protMultTools: zod.number().optional(),
+  protMultLeisure: zod.number().optional(),
+  protMultSpecialMachinery: zod.number().optional(),
+  newUserProtectionCap: zod.number().optional(),
+  newUserDealsThreshold: zod.number().optional(),
+  jointPurchaseFeePercent: zod.number().optional(),
+  paymentMode: zod.string().optional(),
+  yookassaEnabled: zod.boolean().optional(),
+  sbpEnabled: zod.boolean().optional(),
+  cloudpaymentsEnabled: zod.boolean().optional(),
+});
+
+/**
+ * @summary Get full platform settings
+ */
+export const GetAdminSettingsResponse = zod.object({
+  id: zod.number().optional(),
+  serviceFeePercent: zod.string().optional(),
+  taxFeePercent: zod.string().optional(),
+  shieldFeePercent: zod.string().optional(),
+  shieldFeeMin: zod.number().optional(),
+  riskCoveragePercent: zod.string().optional(),
+  riskCoverageMin: zod.number().optional(),
+  depositMultiplier: zod.string().optional(),
+  depositMin: zod.number().optional(),
+  protMultElectronics: zod.number().optional(),
+  protMultTools: zod.number().optional(),
+  protMultLeisure: zod.number().optional(),
+  protMultSpecialMachinery: zod.number().optional(),
+  newUserProtectionCap: zod.number().optional(),
+  newUserDealsThreshold: zod.number().optional(),
+  vipPrice7d: zod.number().optional(),
+  vipPrice14d: zod.number().optional(),
+  vipPrice30d: zod.number().optional(),
+  urgentPrice3d: zod.number().optional(),
+  urgentPrice7d: zod.number().optional(),
+  boostPrice24h: zod.number().optional(),
+  subscriptionProMonthly: zod.number().optional(),
+  subscriptionBusinessMonthly: zod.number().optional(),
+  subscriptionBusinessCommissionPercent: zod.string().optional(),
+  jointPurchaseFeePercent: zod.string().optional(),
+  paymentMode: zod.string().optional(),
+  yookassaEnabled: zod.boolean().optional(),
+  yookassaShopId: zod.string().nullish(),
+  yookassaTestMode: zod.boolean().optional(),
+  sbpEnabled: zod.boolean().optional(),
+  sbpMerchantId: zod.string().nullish(),
+  cloudpaymentsEnabled: zod.boolean().optional(),
+  cloudpaymentsPublicId: zod.string().nullish(),
+  updatedAt: zod.string().optional(),
+  updatedBy: zod.number().nullish(),
+});
+
+/**
+ * @summary Update platform settings
+ */
+export const UpdateAdminSettingsBody = zod.record(zod.string(), zod.unknown());
+
+export const UpdateAdminSettingsResponse = zod.object({
+  id: zod.number().optional(),
+  serviceFeePercent: zod.string().optional(),
+  taxFeePercent: zod.string().optional(),
+  shieldFeePercent: zod.string().optional(),
+  shieldFeeMin: zod.number().optional(),
+  riskCoveragePercent: zod.string().optional(),
+  riskCoverageMin: zod.number().optional(),
+  depositMultiplier: zod.string().optional(),
+  depositMin: zod.number().optional(),
+  protMultElectronics: zod.number().optional(),
+  protMultTools: zod.number().optional(),
+  protMultLeisure: zod.number().optional(),
+  protMultSpecialMachinery: zod.number().optional(),
+  newUserProtectionCap: zod.number().optional(),
+  newUserDealsThreshold: zod.number().optional(),
+  vipPrice7d: zod.number().optional(),
+  vipPrice14d: zod.number().optional(),
+  vipPrice30d: zod.number().optional(),
+  urgentPrice3d: zod.number().optional(),
+  urgentPrice7d: zod.number().optional(),
+  boostPrice24h: zod.number().optional(),
+  subscriptionProMonthly: zod.number().optional(),
+  subscriptionBusinessMonthly: zod.number().optional(),
+  subscriptionBusinessCommissionPercent: zod.string().optional(),
+  jointPurchaseFeePercent: zod.string().optional(),
+  paymentMode: zod.string().optional(),
+  yookassaEnabled: zod.boolean().optional(),
+  yookassaShopId: zod.string().nullish(),
+  yookassaTestMode: zod.boolean().optional(),
+  sbpEnabled: zod.boolean().optional(),
+  sbpMerchantId: zod.string().nullish(),
+  cloudpaymentsEnabled: zod.boolean().optional(),
+  cloudpaymentsPublicId: zod.string().nullish(),
+  updatedAt: zod.string().optional(),
+  updatedBy: zod.number().nullish(),
+});

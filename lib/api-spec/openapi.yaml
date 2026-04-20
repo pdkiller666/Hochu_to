@@ -563,6 +563,49 @@ paths:
               schema:
                 $ref: "#/components/schemas/SuccessResponse"
 
+  /settings:
+    get:
+      operationId: getPublicSettings
+      tags: [health]
+      summary: Get public platform economy settings
+      responses:
+        "200":
+          description: Public settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublicPlatformSettings"
+
+  /admin/settings:
+    get:
+      operationId: getAdminSettings
+      tags: [admin]
+      summary: Get full platform settings
+      responses:
+        "200":
+          description: Settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformSettings"
+    put:
+      operationId: updateAdminSettings
+      tags: [admin]
+      summary: Update platform settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlatformSettingsPatch"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PlatformSettings"
+
 components:
   schemas:
     HealthStatus:
@@ -572,6 +615,72 @@ components:
           type: string
       required:
         - status
+
+    PublicPlatformSettings:
+      type: object
+      properties:
+        serviceFeePercent: { type: number }
+        taxFeePercent: { type: number }
+        shieldFeePercent: { type: number }
+        shieldFeeMin: { type: integer }
+        riskCoveragePercent: { type: number }
+        riskCoverageMin: { type: integer }
+        depositMultiplier: { type: number }
+        depositMin: { type: integer }
+        protMultElectronics: { type: integer }
+        protMultTools: { type: integer }
+        protMultLeisure: { type: integer }
+        protMultSpecialMachinery: { type: integer }
+        newUserProtectionCap: { type: integer }
+        newUserDealsThreshold: { type: integer }
+        jointPurchaseFeePercent: { type: number }
+        paymentMode: { type: string }
+        yookassaEnabled: { type: boolean }
+        sbpEnabled: { type: boolean }
+        cloudpaymentsEnabled: { type: boolean }
+
+    PlatformSettings:
+      type: object
+      properties:
+        id: { type: integer }
+        serviceFeePercent: { type: string }
+        taxFeePercent: { type: string }
+        shieldFeePercent: { type: string }
+        shieldFeeMin: { type: integer }
+        riskCoveragePercent: { type: string }
+        riskCoverageMin: { type: integer }
+        depositMultiplier: { type: string }
+        depositMin: { type: integer }
+        protMultElectronics: { type: integer }
+        protMultTools: { type: integer }
+        protMultLeisure: { type: integer }
+        protMultSpecialMachinery: { type: integer }
+        newUserProtectionCap: { type: integer }
+        newUserDealsThreshold: { type: integer }
+        vipPrice7d: { type: integer }
+        vipPrice14d: { type: integer }
+        vipPrice30d: { type: integer }
+        urgentPrice3d: { type: integer }
+        urgentPrice7d: { type: integer }
+        boostPrice24h: { type: integer }
+        subscriptionProMonthly: { type: integer }
+        subscriptionBusinessMonthly: { type: integer }
+        subscriptionBusinessCommissionPercent: { type: string }
+        jointPurchaseFeePercent: { type: string }
+        paymentMode: { type: string }
+        yookassaEnabled: { type: boolean }
+        yookassaShopId: { type: string, nullable: true }
+        yookassaTestMode: { type: boolean }
+        sbpEnabled: { type: boolean }
+        sbpMerchantId: { type: string, nullable: true }
+        cloudpaymentsEnabled: { type: boolean }
+        cloudpaymentsPublicId: { type: string, nullable: true }
+        updatedAt: { type: string }
+        updatedBy: { type: integer, nullable: true }
+
+    PlatformSettingsPatch:
+      type: object
+      additionalProperties: true
 
     ErrorResponse:
       type: object

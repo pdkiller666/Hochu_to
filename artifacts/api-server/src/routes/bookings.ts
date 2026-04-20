@@ -4,6 +4,7 @@ import { eq, or, and, sql, ne, asc } from "drizzle-orm";
 import { requireAuth, AuthRequest } from "../middleware/auth.js";
 import { CreateBookingBody } from "@workspace/api-zod";
 import { createNotification } from "../lib/notifications.js";
+import { getPlatformSettings, num } from "../lib/platform-settings.js";
 
 const router = Router();
 
@@ -256,27 +257,26 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
   const pricePerDay = parseFloat(listing.pricePerDay as unknown as string);
   const rent = parseFloat((days * pricePerDay).toFixed(2));
 
-  // ─── Новая двойная Shield-модель монетизации ──────────────────────────────
-  // Платформа берёт с обеих сторон — "невидимая сложность" для пользователей.
+  // ─── Двойная Shield-модель — параметры из platform_settings ───────────────
+  const settings = await getPlatformSettings();
   const ownerProtEnabled = listing.ownerProtectionEnabled !== false;
 
-  const serviceFee   = parseFloat((rent * 0.10).toFixed(2));   // скрытая комиссия с владельца
-  const taxFee       = parseFloat((rent * 0.06).toFixed(2));   // скрытый налог с владельца
+  const serviceFee = parseFloat((rent * num(settings.serviceFeePercent) / 100).toFixed(2));
+  const taxFee     = parseFloat((rent * num(settings.taxFeePercent) / 100).toFixed(2));
 
-  // Shield Fee — платит арендатор сверху (5%, мин 100 ₽)
-  const shieldFee    = ownerProtEnabled ? Math.max(parseFloat((rent * 0.05).toFixed(2)), 100) : 0;
-  // Risk Coverage — удерживается из выплаты владельца (5%, мин 100 ₽)
-  // Но не больше чем (rent - serviceFee - taxFee) — выплата владельцу всегда >= 0
-  const rawRiskCoverage = ownerProtEnabled ? Math.max(parseFloat((rent * 0.05).toFixed(2)), 100) : 0;
+  const shieldFee = ownerProtEnabled
+    ? Math.max(parseFloat((rent * num(settings.shieldFeePercent) / 100).toFixed(2)), settings.shieldFeeMin)
+    : 0;
+  const rawRiskCoverage = ownerProtEnabled
+    ? Math.max(parseFloat((rent * num(settings.riskCoveragePercent) / 100).toFixed(2)), settings.riskCoverageMin)
+    : 0;
   const maxRisk = Math.max(0, parseFloat((rent - serviceFee - taxFee).toFixed(2)));
   const riskCoverage = Math.min(rawRiskCoverage, maxRisk);
 
-  // Выплата владельцу = аренда − комиссия − налог − страховое покрытие (всегда >= 0)
   const ownerPayout = parseFloat((rent - serviceFee - taxFee - riskCoverage).toFixed(2));
 
-  // Залог: Math.max(1500, pricePerDay * 2) — небольшой, не отпугивает арендаторов
   const listingDeposit = listing.deposit ? parseFloat(listing.deposit as unknown as string) : null;
-  const depositAmount = listingDeposit ?? Math.max(1500, pricePerDay * 2);
+  const depositAmount = listingDeposit ?? Math.max(settings.depositMin, pricePerDay * num(settings.depositMultiplier));
 
   // Итого для арендатора = аренда + Shield Fee (депозит — отдельно, возвратный)
   const totalPrice = parseFloat((rent + shieldFee).toFixed(2));
