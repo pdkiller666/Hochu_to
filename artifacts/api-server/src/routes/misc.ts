@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 const router = Router();
 
 router.post("/newsletter/subscribe", async (req, res) => {
-  const { email } = req.body;
+  const { email } = req.body ?? {};
 
   if (!email) {
     res.status(400).json({ error: "validation_error", message: "Email обязателен" });
@@ -21,7 +21,7 @@ router.post("/newsletter/subscribe", async (req, res) => {
 });
 
 router.post("/contact", async (req, res) => {
-  const { name, email, message, subject } = req.body;
+  const { name, email, message, subject } = req.body ?? {};
 
   if (!name || !email || !message) {
     res.status(400).json({ error: "validation_error", message: "Заполните обязательные поля" });
