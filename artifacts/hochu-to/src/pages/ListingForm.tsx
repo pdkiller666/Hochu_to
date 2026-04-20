@@ -26,7 +26,7 @@ export default function ListingForm() {
   const { data: regions } = useGetRegions();
 
   const { data: listingData, isLoading: isLoadingListing } = useGetListingById(id, {
-    query: { enabled: isEditing }
+    query: { enabled: isEditing } as any,
   });
 
   const createMutation = useCreateListing({ request: { headers: { Authorization: `Bearer ${token}` } } });
