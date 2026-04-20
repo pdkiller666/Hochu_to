@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { MapPin, Star, Heart, Info } from "lucide-react";
+import { MapPin, Star, Heart, Info, ShieldCheck } from "lucide-react";
 import { Listing } from "@workspace/api-client-react";
 import { formatPrice, calculateTotalPrice, calcDeposit, type ItemCategory } from "@/lib/utils";
 import { useState } from "react";
@@ -125,7 +125,16 @@ export function ListingCard({ listing }: ListingCardProps) {
                       {formatPrice(total)}
                       <Info className="w-3 h-3 text-primary/50 shrink-0 mb-0.5" />
                     </div>
-                    <div className="text-[10px] sm:text-xs text-muted-foreground">за сутки, всё включено</div>
+                    <div className="flex items-center gap-1 text-[10px] sm:text-xs">
+                      {ownerProt ? (
+                        <span className="inline-flex items-center gap-1 text-green-700 font-semibold">
+                          <ShieldCheck className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                          Безопасная сделка
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">за сутки</span>
+                      )}
+                    </div>
 
                     {showTooltip && (
                       <div className="absolute bottom-full left-0 mb-2 z-30 bg-popover border border-border rounded-xl shadow-xl p-3 w-60 text-xs space-y-1 pointer-events-none">
