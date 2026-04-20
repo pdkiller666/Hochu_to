@@ -1,8 +1,7 @@
 import { Layout } from "@/components/layout/Layout";
-import { Link, useLocation } from "wouter";
-import { Search, Hammer, Tent, Trees, PartyPopper, Baby, Laptop, Heart } from "lucide-react";
+import { Link } from "wouter";
+import { Hammer, Tent, Trees, PartyPopper, Baby, Laptop, Heart } from "lucide-react";
 import { motion } from "framer-motion";
-import { useState } from "react";
 import { useGetCategories } from "@workspace/api-client-react";
 import { cn } from "@/lib/utils";
 import { ListingCarouselSection } from "@/components/ui/ListingCarouselSection";
@@ -17,21 +16,12 @@ const POPULAR_CATEGORIES = [
 ];
 
 export default function Home() {
-  const [_, setLocation] = useLocation();
-  const [searchQuery, setSearchQuery] = useState("");
   const { data: categories } = useGetCategories();
-
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (searchQuery.trim()) {
-      setLocation(`/catalog?search=${encodeURIComponent(searchQuery)}`);
-    }
-  };
 
   return (
     <Layout>
       {/* Hero Section */}
-      <section className="relative pt-20 pb-32 overflow-hidden bg-background">
+      <section className="relative pt-16 pb-24 overflow-hidden bg-background">
         <div className="absolute inset-0 z-0">
           <img 
             src={`${import.meta.env.BASE_URL}images/hero-bg.png`} 
@@ -66,27 +56,19 @@ export default function Home() {
               Крупнейший маркетплейс аренды вещей от людей к людям. Инструменты, туристическое снаряжение, техника — найдите всё, что нужно, прямо сейчас.
             </motion.p>
 
-            <motion.form 
+            <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.2 }}
-              onSubmit={handleSearch}
-              className="glass-panel p-2 rounded-2xl flex flex-col md:flex-row gap-2 max-w-2xl mx-auto"
+              className="flex flex-col sm:flex-row gap-3 justify-center"
             >
-              <div className="flex-grow relative">
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground w-5 h-5" />
-                <input 
-                  type="text" 
-                  placeholder="Что вы ищете? Например: перфоратор" 
-                  className="w-full pl-12 pr-4 py-4 rounded-xl bg-white border-none focus:ring-2 focus:ring-primary outline-none"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                />
-              </div>
-              <button type="submit" className="btn-primary py-4 px-8 text-lg">
-                Найти вещи
-              </button>
-            </motion.form>
+              <Link href="/catalog" className="btn-primary py-4 px-10 text-lg rounded-2xl">
+                Смотреть каталог
+              </Link>
+              <Link href="/auth?tab=register" className="btn-secondary py-4 px-10 text-lg rounded-2xl">
+                Сдать вещь в аренду
+              </Link>
+            </motion.div>
           </div>
         </div>
       </section>

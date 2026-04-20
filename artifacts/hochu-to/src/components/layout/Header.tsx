@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { MapPin, Menu, X, LogOut, Crosshair, Loader2, Bell, Heart, Shield } from "lucide-react";
+import { MapPin, Menu, X, LogOut, Crosshair, Loader2, Bell, Heart, Shield, Search } from "lucide-react";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuthState, getToken, getAuthHeaders } from "@/lib/auth";
@@ -188,59 +188,92 @@ export function Header() {
     { name: "О нас", path: "/about" },
   ];
 
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    const q = searchQuery.trim();
+    if (q) navigate(`/catalog?search=${encodeURIComponent(q)}`);
+    else navigate("/catalog");
+  };
+
+  const SearchBar = ({ className, inputClassName }: { className?: string; inputClassName?: string }) => (
+    <form onSubmit={handleSearch} className={cn("flex items-center gap-2 group", className)}>
+      <Search className="w-4 h-4 text-muted-foreground flex-shrink-0 group-focus-within:text-primary transition-colors" />
+      <input
+        type="text"
+        value={searchQuery}
+        onChange={e => setSearchQuery(e.target.value)}
+        placeholder="Найти вещь для аренды..."
+        className={cn("flex-1 bg-transparent outline-none text-sm placeholder:text-muted-foreground", inputClassName)}
+      />
+      {searchQuery && (
+        <button type="button" onClick={() => setSearchQuery("")} className="text-muted-foreground hover:text-foreground transition-colors">
+          <X className="w-3.5 h-3.5" />
+        </button>
+      )}
+      <button type="submit" className="btn-primary py-1.5 px-4 text-xs rounded-lg flex-shrink-0">
+        Найти
+      </button>
+    </form>
+  );
+
   return (
-    <header className="sticky top-0 z-50 w-full glass-panel border-b-0 border-x-0 border-t-0 bg-background/90">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-20">
+    <header className="sticky top-0 z-50 w-full bg-background/95 backdrop-blur-md border-b border-border/60 shadow-sm">
+      <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6">
+        <div className="flex items-center gap-3 h-16">
 
-          {/* Logo + Region */}
-          <div className="flex-shrink-0 flex items-center gap-6">
-            <Link href="/" className="flex items-center gap-2 group">
-              <div className="w-10 h-10 rounded-xl bg-primary text-white flex items-center justify-center font-display font-black text-xl shadow-lg group-hover:scale-105 transition-transform">
-                Х_Т
-              </div>
-              <span className="font-display font-extrabold text-2xl tracking-tight text-foreground">
-                Хочу<span className="text-primary">_То</span>
-              </span>
-            </Link>
-
-            {/* Desktop Region Selector — pill shape keeps it visually separate from nav */}
-            <div className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border bg-white shadow-sm text-sm text-muted-foreground hover:border-primary/40 transition-colors">
-              <MapPin className="w-3.5 h-3.5 text-primary flex-shrink-0" />
-              <select
-                className="bg-transparent border-none outline-none font-medium cursor-pointer appearance-none text-foreground max-w-[140px] truncate text-sm"
-                value={selectedSlug}
-                onChange={(e) => handleRegionChange(e.target.value)}
-                title={selectedName}
-              >
-                <option value="">Все регионы</option>
-                {regions?.map(r => (
-                  <option key={r.id} value={r.slug}>{r.name}</option>
-                ))}
-              </select>
-              <div className="w-px h-3.5 bg-border mx-0.5 flex-shrink-0" />
-              <button
-                onClick={handleGeoDetect}
-                disabled={geoLoading}
-                title="Определить регион по геолокации"
-                className="p-0.5 rounded-md hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors disabled:opacity-50 flex-shrink-0"
-              >
-                {geoLoading
-                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  : <Crosshair className="w-3.5 h-3.5" />
-                }
-              </button>
+          {/* Logo */}
+          <Link href="/" className="flex-shrink-0 flex items-center gap-2 group">
+            <div className="w-9 h-9 rounded-xl bg-primary text-white flex items-center justify-center font-display font-black text-lg shadow group-hover:scale-105 transition-transform">
+              Х_Т
             </div>
+            <span className="hidden sm:block font-display font-extrabold text-xl tracking-tight text-foreground">
+              Хочу<span className="text-primary">_То</span>
+            </span>
+          </Link>
+
+          {/* Desktop Search Bar — center, takes most space */}
+          <div className="hidden md:flex flex-1 mx-2 items-center bg-muted/50 border border-border rounded-xl px-3 py-2 focus-within:ring-2 focus-within:ring-primary/30 focus-within:border-primary/50 transition-all">
+            <SearchBar className="w-full" />
           </div>
 
-          {/* Desktop Nav */}
-          <nav className="hidden lg:flex items-center gap-8">
+          {/* Desktop Region Selector */}
+          <div className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border bg-white shadow-sm text-sm text-muted-foreground hover:border-primary/40 transition-colors flex-shrink-0">
+            <MapPin className="w-3.5 h-3.5 text-primary flex-shrink-0" />
+            <select
+              className="bg-transparent border-none outline-none font-medium cursor-pointer appearance-none text-foreground max-w-[120px] truncate text-sm"
+              value={selectedSlug}
+              onChange={(e) => handleRegionChange(e.target.value)}
+              title={selectedName}
+            >
+              <option value="">Все регионы</option>
+              {regions?.map(r => (
+                <option key={r.id} value={r.slug}>{r.name}</option>
+              ))}
+            </select>
+            <div className="w-px h-3.5 bg-border mx-0.5 flex-shrink-0" />
+            <button
+              onClick={handleGeoDetect}
+              disabled={geoLoading}
+              title="Определить регион по геолокации"
+              className="p-0.5 rounded-md hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors disabled:opacity-50 flex-shrink-0"
+            >
+              {geoLoading
+                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                : <Crosshair className="w-3.5 h-3.5" />
+              }
+            </button>
+          </div>
+
+          {/* Desktop Nav — only xl+ */}
+          <nav className="hidden xl:flex items-center gap-6 flex-shrink-0">
             {navLinks.map((link) => (
               <Link
                 key={link.path}
                 href={link.path}
                 className={cn(
-                  "text-sm font-semibold transition-colors hover:text-primary",
+                  "text-sm font-semibold transition-colors hover:text-primary whitespace-nowrap",
                   location === link.path ? "text-primary" : "text-foreground"
                 )}
               >
@@ -249,8 +282,11 @@ export function Header() {
             ))}
           </nav>
 
+          {/* Mobile spacer */}
+          <div className="flex-1 md:hidden" />
+
           {/* Desktop Actions */}
-          <div className="hidden md:flex items-center gap-4">
+          <div className="hidden md:flex items-center gap-3 flex-shrink-0">
             {isAuthenticated && user ? (
               <div className="flex items-center gap-3">
                 {/* Favorites Heart */}
@@ -425,6 +461,13 @@ export function Header() {
               {isMobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </button>
           </div>
+        </div>
+      </div>
+
+      {/* Mobile Search Row — always visible, part of sticky header */}
+      <div className="md:hidden px-3 pb-2.5">
+        <div className="flex items-center bg-muted/50 border border-border rounded-xl px-3 py-2.5 focus-within:ring-2 focus-within:ring-primary/30 focus-within:border-primary/50 transition-all">
+          <SearchBar className="w-full" />
         </div>
       </div>
 
