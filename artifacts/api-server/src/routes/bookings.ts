@@ -149,7 +149,9 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
 
   const { listingId, startDate: rawStart, endDate: rawEnd, message, protectionEnabled = true, renterProtectionEnabled = false } = parsed.data;
 
-  const CONTACT_FEE = 150;
+  // Цена открытия контакта берётся из настроек платформы (конфигурируется админом)
+  const platformSettings = await getPlatformSettings();
+  const CONTACT_FEE = platformSettings.contactPriceSingle;
 
   const [listing] = await db.select().from(listingsTable).where(eq(listingsTable.id, listingId)).limit(1);
   if (!listing) {

@@ -53,6 +53,45 @@ export const platformSettingsTable = pgTable("platform_settings", {
   // ── Совместные покупки ────────────────────────────────────────────────
   jointPurchaseFeePercent: numeric("joint_purchase_fee_percent", { precision: 5, scale: 2 }).default("3").notNull(),
 
+  // ── Бесплатный тариф «Объявление» (Free) ───────────────────────────────
+  /** Глобальный переключатель бесплатного тарифа */
+  freeListingsEnabled: boolean("free_listings_enabled").default(true).notNull(),
+  /** Лимит активных Free-объявлений на одного владельца (защита от спама) */
+  freeListingsMaxPerOwner: integer("free_listings_max_per_owner").default(10).notNull(),
+  /** Требовать верифицированный телефон для публикации Free */
+  freeListingsRequirePhone: boolean("free_listings_require_phone").default(true).notNull(),
+  /** Когда показывать телефон владельца Free-объявления арендатору:
+   *  'instant' — сразу в карточке, 'after_payment' — после оплаты контакта */
+  freeShowOwnerPhoneMode: text("free_show_owner_phone_mode").default("after_payment").notNull(),
+
+  // ── Платный доступ к контактам (с арендатора) ──────────────────────────
+  /** Цена за разблокировку 1 контакта владельца */
+  contactPriceSingle: integer("contact_price_single").default(49).notNull(),
+  /** Цена пакета «10 контактов» */
+  contactPricePack10: integer("contact_price_pack10").default(299).notNull(),
+  /** Цена пакета «безлимит на 30 дней» */
+  contactPriceUnlimited30d: integer("contact_price_unlimited_30d").default(699).notNull(),
+  /** Бесплатных контактов новому арендатору (welcome-бонус) */
+  freeContactsBonus: integer("free_contacts_bonus").default(2).notNull(),
+  /** Срок жизни купленного контакта в днях (0 = навсегда) */
+  contactLifetimeDays: integer("contact_lifetime_days").default(0).notNull(),
+  /** Разрешить возврат неиспользованного пакета */
+  contactPackRefundEnabled: boolean("contact_pack_refund_enabled").default(true).notNull(),
+  /** Окно возврата пакета, дней */
+  contactPackRefundWindowDays: integer("contact_pack_refund_window_days").default(7).notNull(),
+
+  // ── Апгрейд бронирования Free → Premium (арендатором) ──────────────────
+  /** Разрешить арендатору доплатить % и получить защиту по Free-объявлению */
+  freeToPremiumUpgradeEnabled: boolean("free_to_premium_upgrade_enabled").default(true).notNull(),
+
+  // ── Витрина и сортировка ──────────────────────────────────────────────
+  /** Сортировка каталога по умолчанию: 'protected_first' | 'newest' | 'price_asc' | 'price_desc' */
+  defaultCatalogSort: text("default_catalog_sort").default("protected_first").notNull(),
+  /** Минимальная доля Premium-объявлений в первой странице выдачи (%) */
+  minPremiumShareInResults: integer("min_premium_share_in_results").default(60).notNull(),
+  /** Показывать бейджи формата сделки на карточках */
+  showFormatBadges: boolean("show_format_badges").default(true).notNull(),
+
   // ── Платёжные системы ──────────────────────────────────────────────────
   /** Юр. модель: self_employed (НПД), ip, ooo */
   paymentMode: text("payment_mode").default("self_employed").notNull(),

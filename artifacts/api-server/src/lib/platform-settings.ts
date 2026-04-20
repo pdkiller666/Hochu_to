@@ -134,5 +134,21 @@ export function publicSettings(s: PlatformSettings) {
     yookassaEnabled: s.yookassaEnabled,
     sbpEnabled: s.sbpEnabled,
     cloudpaymentsEnabled: s.cloudpaymentsEnabled,
+    // ── Free + контакты + витрина (нужны клиенту для UI) ────────────────
+    freeListingsEnabled: s.freeListingsEnabled,
+    freeListingsMaxPerOwner: s.freeListingsMaxPerOwner,
+    freeListingsRequirePhone: s.freeListingsRequirePhone,
+    freeShowOwnerPhoneMode: s.freeShowOwnerPhoneMode,
+    contactPriceSingle: s.contactPriceSingle,
+    contactPricePack10: s.contactPricePack10,
+    contactPriceUnlimited30d: s.contactPriceUnlimited30d,
+    freeContactsBonus: s.freeContactsBonus,
+    contactLifetimeDays: s.contactLifetimeDays,
+    contactPackRefundEnabled: s.contactPackRefundEnabled,
+    contactPackRefundWindowDays: s.contactPackRefundWindowDays,
+    freeToPremiumUpgradeEnabled: s.freeToPremiumUpgradeEnabled,
+    defaultCatalogSort: s.defaultCatalogSort,
+    minPremiumShareInResults: s.minPremiumShareInResults,
+    showFormatBadges: s.showFormatBadges,
   };
 }

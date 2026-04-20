@@ -916,6 +916,13 @@ router.put("/settings", requireAuth, requireAdmin, async (req: AuthRequest, res)
     "yookassaEnabled", "yookassaShopId", "yookassaTestMode",
     "sbpEnabled", "sbpMerchantId",
     "cloudpaymentsEnabled", "cloudpaymentsPublicId",
+    // ── Stage 2: Free + контакты + витрина ──────────────────────────────
+    "freeListingsEnabled", "freeListingsMaxPerOwner", "freeListingsRequirePhone", "freeShowOwnerPhoneMode",
+    "contactPriceSingle", "contactPricePack10", "contactPriceUnlimited30d",
+    "freeContactsBonus", "contactLifetimeDays",
+    "contactPackRefundEnabled", "contactPackRefundWindowDays",
+    "freeToPremiumUpgradeEnabled",
+    "defaultCatalogSort", "minPremiumShareInResults", "showFormatBadges",
   ] as const;
   const body = req.body ?? {};
   const patch: Record<string, any> = {};
@@ -935,9 +942,17 @@ router.put("/settings", requireAuth, requireAdmin, async (req: AuthRequest, res)
     "vipPrice7d", "vipPrice14d", "vipPrice30d",
     "urgentPrice3d", "urgentPrice7d", "boostPrice24h",
     "subscriptionProMonthly", "subscriptionBusinessMonthly",
+    // Stage 2
+    "freeListingsMaxPerOwner",
+    "contactPriceSingle", "contactPricePack10", "contactPriceUnlimited30d",
+    "freeContactsBonus", "contactLifetimeDays", "contactPackRefundWindowDays",
   ] as const;
+  const PERCENT_INT_FIELDS = ["minPremiumShareInResults"] as const;
   const BOOL_FIELDS = [
     "yookassaEnabled", "yookassaTestMode", "sbpEnabled", "cloudpaymentsEnabled",
+    // Stage 2
+    "freeListingsEnabled", "freeListingsRequirePhone",
+    "contactPackRefundEnabled", "freeToPremiumUpgradeEnabled", "showFormatBadges",
   ] as const;
   const NULLABLE_STR_FIELDS = [
     "yookassaShopId", "sbpMerchantId", "cloudpaymentsPublicId",
@@ -994,6 +1009,24 @@ router.put("/settings", requireAuth, requireAdmin, async (req: AuthRequest, res)
   }
   if ("paymentMode" in patch && !["self_employed", "ip", "ooo"].includes(patch.paymentMode)) {
     return res.status(400).json({ error: "invalid_value", field: "paymentMode" });
+  }
+
+  // ── Stage 2: PERCENT_INT (0..100) ────────────────────────────────────
+  for (const k of PERCENT_INT_FIELDS) {
+    if (k in patch) {
+      const v = Number(patch[k]);
+      if (!Number.isFinite(v) || !Number.isInteger(v) || v < 0 || v > 100) {
+        return res.status(400).json({ error: "invalid_value", field: k, message: "Должно быть целое от 0 до 100" });
+      }
+      patch[k] = v;
+    }
+  }
+  // ── Stage 2: enum-поля ──────────────────────────────────────────────
+  if ("freeShowOwnerPhoneMode" in patch && !["instant", "after_payment"].includes(patch.freeShowOwnerPhoneMode)) {
+    return res.status(400).json({ error: "invalid_value", field: "freeShowOwnerPhoneMode", message: "Допустимо: instant | after_payment" });
+  }
+  if ("defaultCatalogSort" in patch && !["protected_first", "newest", "price_asc", "price_desc"].includes(patch.defaultCatalogSort)) {
+    return res.status(400).json({ error: "invalid_value", field: "defaultCatalogSort", message: "Допустимо: protected_first | newest | price_asc | price_desc" });
   }
 
   // Семантическая проверка: shieldFeeMin/riskCoverageMin не могут быть слишком большими

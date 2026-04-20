@@ -9,6 +9,8 @@ export const listingsTable = pgTable("listings", {
   description: text("description"),
   pricePerDay: numeric("price_per_day", { precision: 10, scale: 2 }).notNull(),
   deposit: numeric("deposit", { precision: 10, scale: 2 }),
+  /** Рыночная цена вещи — используется для калибровки лимита фонда (опционально) */
+  marketValue: numeric("market_value", { precision: 12, scale: 2 }),
   categoryId: integer("category_id").notNull(),
   /** Категория защиты фонда: electronics | tools | leisure */
   itemCategory: text("item_category"),

@@ -1623,6 +1623,11 @@ function useSettingsForm() {
       "vipPrice7d","vipPrice14d","vipPrice30d",
       "urgentPrice3d","urgentPrice7d","boostPrice24h",
       "subscriptionProMonthly","subscriptionBusinessMonthly",
+      // Free + контакты + витрина
+      "freeListingsMaxPerOwner",
+      "contactPriceSingle","contactPricePack10","contactPriceUnlimited30d",
+      "freeContactsBonus","contactLifetimeDays","contactPackRefundWindowDays",
+      "minPremiumShareInResults",
     ]);
     const DEC_FIELDS = new Set([
       "serviceFeePercent","taxFeePercent","shieldFeePercent","riskCoveragePercent",
@@ -1790,6 +1795,120 @@ function EconomyTab() {
           <SettingsField label="Business подписка / месяц"><NumInput suffix="₽" value={data.subscriptionBusinessMonthly} onChange={v => set("subscriptionBusinessMonthly", v)} /></SettingsField>
           <SettingsField label="Business: пониженная комиссия"><NumInput step="0.1" suffix="%" value={data.subscriptionBusinessCommissionPercent} onChange={v => set("subscriptionBusinessCommissionPercent", v)} /></SettingsField>
           <SettingsField label="Сбор за совместные покупки"><NumInput step="0.1" suffix="%" value={data.jointPurchaseFeePercent} onChange={v => set("jointPurchaseFeePercent", v)} /></SettingsField>
+        </div>
+      </div>
+
+      {/* ─── Бесплатный тариф (Free) ─────────────────────────────────────── */}
+      <div className="bg-white rounded-xl border border-stone-200 p-6">
+        <h2 className="text-lg font-semibold text-stone-800 mb-1">Бесплатный тариф «Объявление»</h2>
+        <p className="text-sm text-stone-500 mb-4">Авито-формат: владелец получает 100%, платформа зарабатывает на доступе к контактам</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <SettingsField label="Тариф включён" hint="Если выключить — Free-вариант скроется в форме создания">
+            <select
+              value={data.freeListingsEnabled ? "1" : "0"}
+              onChange={e => set("freeListingsEnabled", e.target.value === "1")}
+              className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C65D3B] text-stone-800 bg-white"
+            >
+              <option value="1">Да, доступен</option>
+              <option value="0">Нет, скрыт</option>
+            </select>
+          </SettingsField>
+          <SettingsField label="Лимит активных Free на 1 владельца" hint="Защита от спама">
+            <NumInput value={data.freeListingsMaxPerOwner} onChange={v => set("freeListingsMaxPerOwner", v)} />
+          </SettingsField>
+          <SettingsField label="Требовать верификацию телефона" hint="Без подтверждённого номера Free нельзя опубликовать">
+            <select
+              value={data.freeListingsRequirePhone ? "1" : "0"}
+              onChange={e => set("freeListingsRequirePhone", e.target.value === "1")}
+              className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C65D3B] text-stone-800 bg-white"
+            >
+              <option value="1">Да, обязательна</option>
+              <option value="0">Нет</option>
+            </select>
+          </SettingsField>
+          <SettingsField label="Когда показывать телефон владельца" hint="Сразу — как Авито; После оплаты — мягкая монетизация">
+            <select
+              value={data.freeShowOwnerPhoneMode ?? "after_payment"}
+              onChange={e => set("freeShowOwnerPhoneMode", e.target.value)}
+              className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C65D3B] text-stone-800 bg-white"
+            >
+              <option value="instant">Сразу в карточке</option>
+              <option value="after_payment">Только после оплаты контакта</option>
+            </select>
+          </SettingsField>
+        </div>
+      </div>
+
+      {/* ─── Платные контакты ────────────────────────────────────────────── */}
+      <div className="bg-white rounded-xl border border-stone-200 p-6">
+        <h2 className="text-lg font-semibold text-stone-800 mb-1">Платный доступ к контактам</h2>
+        <p className="text-sm text-stone-500 mb-4">Арендатор платит за разблокировку телефона владельца Free-объявления</p>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <SettingsField label="1 контакт"><NumInput suffix="₽" value={data.contactPriceSingle} onChange={v => set("contactPriceSingle", v)} /></SettingsField>
+          <SettingsField label="Пакет 10 контактов"><NumInput suffix="₽" value={data.contactPricePack10} onChange={v => set("contactPricePack10", v)} /></SettingsField>
+          <SettingsField label="Безлимит на 30 дней"><NumInput suffix="₽" value={data.contactPriceUnlimited30d} onChange={v => set("contactPriceUnlimited30d", v)} /></SettingsField>
+          <SettingsField label="Бесплатно новому пользователю" hint="Welcome-бонус">
+            <NumInput suffix="шт" value={data.freeContactsBonus} onChange={v => set("freeContactsBonus", v)} />
+          </SettingsField>
+          <SettingsField label="Срок жизни контакта" hint="0 = навсегда">
+            <NumInput suffix="дней" value={data.contactLifetimeDays} onChange={v => set("contactLifetimeDays", v)} />
+          </SettingsField>
+          <SettingsField label="Окно возврата пакета">
+            <NumInput suffix="дней" value={data.contactPackRefundWindowDays} onChange={v => set("contactPackRefundWindowDays", v)} />
+          </SettingsField>
+          <SettingsField label="Возврат неиспользованного пакета">
+            <select
+              value={data.contactPackRefundEnabled ? "1" : "0"}
+              onChange={e => set("contactPackRefundEnabled", e.target.value === "1")}
+              className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C65D3B] text-stone-800 bg-white"
+            >
+              <option value="1">Разрешён</option>
+              <option value="0">Запрещён</option>
+            </select>
+          </SettingsField>
+          <SettingsField label="Апгрейд Free → Защищённая сделка" hint="Арендатор может доплатить и получить защиту по Free-объявлению">
+            <select
+              value={data.freeToPremiumUpgradeEnabled ? "1" : "0"}
+              onChange={e => set("freeToPremiumUpgradeEnabled", e.target.value === "1")}
+              className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C65D3B] text-stone-800 bg-white"
+            >
+              <option value="1">Разрешён</option>
+              <option value="0">Запрещён</option>
+            </select>
+          </SettingsField>
+        </div>
+      </div>
+
+      {/* ─── Витрина и сортировка ─────────────────────────────────────────── */}
+      <div className="bg-white rounded-xl border border-stone-200 p-6">
+        <h2 className="text-lg font-semibold text-stone-800 mb-1">Витрина каталога</h2>
+        <p className="text-sm text-stone-500 mb-4">Как сортируются объявления и какая доля Premium показывается на первой странице</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <SettingsField label="Сортировка по умолчанию">
+            <select
+              value={data.defaultCatalogSort ?? "protected_first"}
+              onChange={e => set("defaultCatalogSort", e.target.value)}
+              className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C65D3B] text-stone-800 bg-white"
+            >
+              <option value="protected_first">Защищённые сделки первыми</option>
+              <option value="newest">Сначала новые</option>
+              <option value="price_asc">Цена ↑</option>
+              <option value="price_desc">Цена ↓</option>
+            </select>
+          </SettingsField>
+          <SettingsField label="Минимум Premium на 1-й странице" hint="Гарантирует видимость защищённых сделок">
+            <NumInput suffix="%" value={data.minPremiumShareInResults} onChange={v => set("minPremiumShareInResults", v)} />
+          </SettingsField>
+          <SettingsField label="Бейджи формата на карточках" hint="Иконка «🛡 Защита» / «🪧 Объявление»">
+            <select
+              value={data.showFormatBadges ? "1" : "0"}
+              onChange={e => set("showFormatBadges", e.target.value === "1")}
+              className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C65D3B] text-stone-800 bg-white"
+            >
+              <option value="1">Показывать</option>
+              <option value="0">Скрывать</option>
+            </select>
+          </SettingsField>
         </div>
       </div>
 
