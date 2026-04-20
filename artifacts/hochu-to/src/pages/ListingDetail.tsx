@@ -647,7 +647,7 @@ export default function ListingDetail() {
                       </li>
                       <li className="flex items-start gap-2">
                         <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0 mt-0.5" />
-                        <span>Расчёт стоимости с учётом всех сборов</span>
+                        <span>Платите только за нужные дни — без переплат</span>
                       </li>
                       <li className="flex items-start gap-2">
                         <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0 mt-0.5" />
