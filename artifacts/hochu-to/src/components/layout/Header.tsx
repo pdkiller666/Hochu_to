@@ -1,4 +1,4 @@
-import { Link, useLocation } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import { MapPin, Menu, X, LogOut, Crosshair, Loader2, Bell, Heart, Shield, Search } from "lucide-react";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -79,25 +79,43 @@ interface SearchBarProps {
  * the header to /catalog?search=foo or vice versa pre-fills the input).
  */
 function HeaderSearchBar({ className, inputClassName }: SearchBarProps) {
-  const [, navigate] = useLocation();
-  const [location] = useLocation();
+  const [location, navigate] = useLocation();
+  const searchStr = useSearch();
   const [value, setValue] = useState(() => {
     if (typeof window === "undefined") return "";
     return new URLSearchParams(window.location.search).get("search") || "";
   });
+  // Last value we navigated to — prevents re-triggering nav when URL was set by us
+  const lastNavValue = useRef(value);
 
   // Pre-fill input when URL ?search= changes due to navigation
   useEffect(() => {
-    const sp = new URLSearchParams(window.location.search);
-    setValue(sp.get("search") || "");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location]);
+    const sp = new URLSearchParams(searchStr);
+    const urlV = sp.get("search") || "";
+    setValue(urlV);
+    lastNavValue.current = urlV;
+  }, [searchStr, location]);
+
+  // Live debounced search on /catalog: auto-navigate ~350ms after user stops typing
+  useEffect(() => {
+    if (location !== "/catalog") return;
+    const q = value.trim();
+    if (q === lastNavValue.current) return;
+    const t = setTimeout(() => {
+      const sp = new URLSearchParams(window.location.search);
+      if (q) sp.set("search", q); else sp.delete("search");
+      lastNavValue.current = q;
+      navigate(`/catalog?${sp.toString()}`, { replace: true });
+    }, 350);
+    return () => clearTimeout(t);
+  }, [value, location, navigate]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const q = value.trim();
     const sp = new URLSearchParams(window.location.search);
     if (q) sp.set("search", q); else sp.delete("search");
+    lastNavValue.current = q;
     navigate(`/catalog?${sp.toString()}`);
   };
 

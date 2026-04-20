@@ -1,7 +1,7 @@
 import { Layout } from "@/components/layout/Layout";
 import { useGetListings, useGetCategories, useGetRegions, useGetCurrentUser } from "@workspace/api-client-react";
 import { ListingCard } from "@/components/ui/ListingCard";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { useState, useEffect, useRef } from "react";
 import { Search, X, SlidersHorizontal, MapPin, Loader2, ChevronDown, ArrowUpDown } from "lucide-react";
 import { getToken, getAuthHeaders } from "@/lib/auth";
@@ -71,6 +71,7 @@ async function detectRegionByGeo(regions: { name: string; slug: string }[]): Pro
 
 export default function Catalog() {
   const [location] = useLocation();
+  const searchStr = useSearch();
 
   // URL-параметры имеют приоритет над sessionStorage
   const searchParams = new URLSearchParams(window.location.search);
@@ -114,16 +115,17 @@ export default function Catalog() {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  // Sync search/category/region from URL when navigating (e.g. from header search)
+  // Sync search/category/region from URL when navigating (e.g. from header search).
+  // Depends on searchStr so it reacts even when only ?search= changes (pathname stays /catalog).
   useEffect(() => {
-    const sp = new URLSearchParams(window.location.search);
+    const sp = new URLSearchParams(searchStr);
     const s = sp.get("search") || "";
     const c = sp.get("category") || "";
     const r = sp.get("region") || "";
     setSearch(s);
     if (c) setCategory(c);
     if (r) { setRegion(r); regionInitialized.current = true; }
-  }, [location]);
+  }, [location, searchStr]);
 
   useEffect(() => {
     if (regionInitialized.current) return;
