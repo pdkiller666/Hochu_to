@@ -103,7 +103,9 @@ export function useAuthState() {
   };
 
   const logout = () => {
-    void logoutEverywhere();
+    void logoutEverywhere().then(() => {
+      window.location.href = '/';
+    });
     setIsAuthenticated(false);
   };
 
