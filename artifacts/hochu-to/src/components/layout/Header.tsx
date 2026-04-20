@@ -188,13 +188,23 @@ export function Header() {
     { name: "О нас", path: "/about" },
   ];
 
-  const [searchQuery, setSearchQuery] = useState("");
+  const [searchQuery, setSearchQuery] = useState(() => {
+    const sp = new URLSearchParams(window.location.search);
+    return sp.get("search") || "";
+  });
+
+  // Sync header search input with URL ?search= when route changes
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search);
+    setSearchQuery(sp.get("search") || "");
+  }, [location]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     const q = searchQuery.trim();
-    if (q) navigate(`/catalog?search=${encodeURIComponent(q)}`);
-    else navigate("/catalog");
+    const sp = new URLSearchParams(window.location.search);
+    if (q) sp.set("search", q); else sp.delete("search");
+    navigate(`/catalog?${sp.toString()}`);
   };
 
   const SearchBar = ({ className, inputClassName }: { className?: string; inputClassName?: string }) => (

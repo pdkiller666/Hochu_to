@@ -114,6 +114,17 @@ export default function Catalog() {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
+  // Sync search/category/region from URL when navigating (e.g. from header search)
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search);
+    const s = sp.get("search") || "";
+    const c = sp.get("category") || "";
+    const r = sp.get("region") || "";
+    setSearch(s);
+    if (c) setCategory(c);
+    if (r) { setRegion(r); regionInitialized.current = true; }
+  }, [location]);
+
   useEffect(() => {
     if (regionInitialized.current) return;
     if (!regions?.length) return;
@@ -163,35 +174,17 @@ export default function Catalog() {
     <Layout>
       {/* ── Sticky filter bar ── */}
       <div
-        className={`sticky top-20 z-30 bg-background/95 backdrop-blur-md transition-shadow duration-200 ${
+        className={`sticky top-[114px] md:top-16 z-30 bg-background/95 backdrop-blur-md transition-shadow duration-200 ${
           isScrolled ? "shadow-md border-b border-border/80" : "border-b border-border/40"
         }`}
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
 
-          {/* Search row — always full width on mobile */}
+          {/* Filter row */}
           <div className="pt-3 pb-2">
             <div className="flex gap-2 items-center">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-                <input
-                  type="text"
-                  placeholder="Поиск по каталогу..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="w-full pl-9 pr-4 py-2.5 bg-white border border-border rounded-xl text-sm focus:border-primary focus:ring-2 focus:ring-primary/10 outline-none transition-all"
-                />
-                {search && (
-                  <button
-                    onClick={() => setSearch("")}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
 
-              {/* Region — hidden on xs, shown md+ */}
+              {/* Region — hidden on xs, shown sm+ */}
               <div className="hidden sm:flex items-center gap-1.5 bg-white border border-border rounded-xl px-3 py-2.5 min-w-[140px] max-w-[180px]">
                 <MapPin className="w-4 h-4 text-primary flex-shrink-0" />
                 <select
