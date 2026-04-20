@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { MapPin, Star, Heart, Info, ShieldCheck } from "lucide-react";
+import { MapPin, Star, Heart, Info, ShieldCheck, Sparkles, Award, Flame, Crown, Zap } from "lucide-react";
 import { Listing } from "@workspace/api-client-react";
 import { formatPrice, calculateTotalPrice, calcDeposit, type ItemCategory } from "@/lib/utils";
 import { useState } from "react";
@@ -18,9 +18,56 @@ function getPhotoSrc(url: string) {
   return url.startsWith("http") ? url : `${API_BASE}${url}`;
 }
 
+type Badge = {
+  key: string;
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  className: string;
+  tier: "paid" | "earned" | "default";
+};
+
+function getListingBadges(listing: Listing): Badge[] {
+  const out: Badge[] = [];
+  const l = listing as any;
+  const now = Date.now();
+
+  // ── Платные (приоритет в выдаче) ──────────────────────────────
+  if (l.isFeatured && (!l.featuredUntil || new Date(l.featuredUntil).getTime() > now)) {
+    out.push({ key: "vip", icon: Crown, label: "VIP", className: "bg-amber-100 text-amber-800 border-amber-300", tier: "paid" });
+  }
+  if (l.isUrgent && (!l.urgentUntil || new Date(l.urgentUntil).getTime() > now)) {
+    out.push({ key: "urgent", icon: Zap, label: "Срочно", className: "bg-red-100 text-red-700 border-red-300", tier: "paid" });
+  }
+
+  // ── Бесплатные (заработанные) ─────────────────────────────────
+  if (l.ownerProtectionEnabled !== false) {
+    out.push({ key: "safe", icon: ShieldCheck, label: "Безопасная сделка", className: "bg-green-50 text-green-700 border-green-200", tier: "default" });
+  }
+  const rating = typeof l.rating === "number" ? l.rating : 0;
+  const reviewCount = typeof l.reviewCount === "number" ? l.reviewCount : 0;
+  if (rating >= 4.5 && reviewCount >= 3) {
+    out.push({ key: "rating", icon: Star, label: "Высокий рейтинг", className: "bg-amber-50 text-amber-700 border-amber-200", tier: "earned" });
+  }
+  if (reviewCount >= 10 && rating < 4.5) {
+    out.push({ key: "popular", icon: Flame, label: "Часто берут", className: "bg-orange-50 text-orange-700 border-orange-200", tier: "earned" });
+  }
+  if (l.createdAt) {
+    const daysAgo = (now - new Date(l.createdAt).getTime()) / (1000 * 60 * 60 * 24);
+    if (daysAgo <= 14) {
+      out.push({ key: "new", icon: Sparkles, label: "Новинка", className: "bg-sky-50 text-sky-700 border-sky-200", tier: "earned" });
+    }
+  }
+  if (l.ownerVerified || l.ownerIsVerified) {
+    out.push({ key: "verified-owner", icon: Award, label: "Проверенный владелец", className: "bg-violet-50 text-violet-700 border-violet-200", tier: "earned" });
+  }
+
+  return out.slice(0, 3);
+}
+
 export function ListingCard({ listing }: ListingCardProps) {
   const [imgError, setImgError] = useState(false);
   const [showTooltip, setShowTooltip] = useState(false);
+  const badges = getListingBadges(listing);
   const hasPhoto = (listing.photos?.length ?? 0) > 0 && !imgError;
   const photoUrl = listing.photos?.[0] ? getPhotoSrc(listing.photos[0]) : null;
   const { isFavorite, toggle } = useFavorites();
@@ -90,10 +137,12 @@ export function ListingCard({ listing }: ListingCardProps) {
           <h3 className="font-bold text-sm sm:text-lg leading-tight line-clamp-2" title={listing.title}>
             {listing.title}
           </h3>
-          <div className="flex items-center gap-0.5 text-xs sm:text-sm font-bold bg-amber-50 text-amber-600 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-md shrink-0">
-            <Star className="w-3 sm:w-3.5 h-3 sm:h-3.5 fill-current" />
-            {listing.rating ? listing.rating.toFixed(1) : "Новое"}
-          </div>
+          {listing.rating ? (
+            <div className="flex items-center gap-0.5 text-xs sm:text-sm font-bold bg-amber-50 text-amber-600 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-md shrink-0">
+              <Star className="w-3 sm:w-3.5 h-3 sm:h-3.5 fill-current" />
+              {listing.rating.toFixed(1)}
+            </div>
+          ) : null}
         </div>
 
         <div className="flex items-center gap-1 text-muted-foreground text-xs sm:text-sm mb-3">
@@ -114,26 +163,17 @@ export function ListingCard({ listing }: ListingCardProps) {
             return (
               <>
                 {/* Base price — реальный минимум за 1 сутки с учётом фонда */}
-                <div className="flex items-end justify-between">
-                  <div className="relative">
+                <div className="flex items-end justify-between gap-2">
+                  <div className="relative min-w-0">
                     <div
-                      className="font-display font-bold text-base sm:text-xl text-primary cursor-default flex items-baseline gap-1"
+                      className="font-display font-bold text-base sm:text-xl text-primary cursor-default flex items-baseline gap-1 flex-wrap"
                       onMouseEnter={() => setShowTooltip(true)}
                       onMouseLeave={() => setShowTooltip(false)}
                     >
                       <span className="text-[10px] sm:text-xs font-semibold text-muted-foreground">от</span>
-                      {formatPrice(total)}
+                      <span>{formatPrice(total)}</span>
+                      <span className="text-[10px] sm:text-xs font-semibold text-muted-foreground">за сутки</span>
                       <Info className="w-3 h-3 text-primary/50 shrink-0 mb-0.5" />
-                    </div>
-                    <div className="flex items-center gap-1 text-[10px] sm:text-xs">
-                      {ownerProt ? (
-                        <span className="inline-flex items-center gap-1 text-green-700 font-semibold">
-                          <ShieldCheck className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
-                          Безопасная сделка
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground">за сутки</span>
-                      )}
                     </div>
 
                     {showTooltip && (
@@ -158,11 +198,30 @@ export function ListingCard({ listing }: ListingCardProps) {
                   </div>
                   <Link
                     href={`/listings/${listing.id}`}
-                    className="btn-primary py-1.5 sm:py-2 px-3 sm:px-4 rounded-xl text-xs sm:text-sm whitespace-nowrap"
+                    className="btn-primary py-1.5 sm:py-2 px-3 sm:px-4 rounded-xl text-xs sm:text-sm whitespace-nowrap shrink-0"
                   >
                     Подробнее
                   </Link>
                 </div>
+
+                {/* Бейджи — отличительные метки объявления */}
+                {badges.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {badges.map(b => {
+                      const Icon = b.icon;
+                      return (
+                        <span
+                          key={b.key}
+                          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[10px] sm:text-[11px] font-semibold ${b.className}`}
+                          title={b.label}
+                        >
+                          <Icon className="w-3 h-3 shrink-0" />
+                          <span className="truncate">{b.label}</span>
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
               </>
             );
           })()}
