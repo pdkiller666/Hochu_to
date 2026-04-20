@@ -462,12 +462,47 @@ export default function ListingForm() {
                   <div className="bg-primary/5 border border-primary/20 rounded-2xl p-4 space-y-3">
                     <p className="text-sm font-bold text-foreground">Ваши условия за 1 сутки</p>
                     <div className="grid grid-cols-2 gap-3">
-                      <div className="bg-white rounded-xl p-3 text-center border border-green-200">
-                        <p className="text-xs text-muted-foreground mb-1">Вы получите на руки</p>
+                      <div className="bg-white rounded-xl p-3 text-center border border-green-200 relative group">
+                        <div className="flex items-center justify-center gap-1 mb-1">
+                          <p className="text-xs text-muted-foreground">Вы получите на руки</p>
+                          <button
+                            type="button"
+                            tabIndex={0}
+                            aria-label="Откуда такая сумма"
+                            className="w-4 h-4 rounded-full bg-muted text-muted-foreground hover:bg-primary hover:text-white focus:bg-primary focus:text-white transition-colors flex items-center justify-center cursor-help"
+                          >
+                            <Info className="w-2.5 h-2.5" />
+                          </button>
+                        </div>
                         <p className="text-lg font-black text-green-700">{ownerPayout.toLocaleString("ru", { maximumFractionDigits: 0 })} ₽</p>
                         <p className="text-[10px] text-muted-foreground mt-0.5">
                           {formData.ownerProtectionEnabled ? "выплата на карту через 24 ч" : "наличными при возврате"}
                         </p>
+
+                        {/* Подсказка с разбивкой суммы */}
+                        <div
+                          role="tooltip"
+                          className="pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-[calc(100%+8px)] w-64 max-w-[80vw] bg-foreground text-white text-[11px] rounded-xl p-3 shadow-xl opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity z-20 leading-relaxed text-left"
+                        >
+                          <p className="font-bold mb-1.5 text-white">Откуда такая сумма?</p>
+                          <div className="space-y-0.5 text-white/90">
+                            <div className="flex justify-between"><span>Цена аренды</span><span>{rent.toLocaleString("ru")} ₽</span></div>
+                            <div className="flex justify-between text-white/70"><span>− Сервис платформы (10%)</span><span>−{(rent * 0.10).toLocaleString("ru", { maximumFractionDigits: 0 })} ₽</span></div>
+                            <div className="flex justify-between text-white/70"><span>− Налоговая компенсация (6%)</span><span>−{(rent * 0.06).toLocaleString("ru", { maximumFractionDigits: 0 })} ₽</span></div>
+                            {formData.ownerProtectionEnabled && (
+                              <div className="flex justify-between text-white/70"><span>− Страховое покрытие (5%)</span><span>−{Math.max(rent * 0.05, 100).toLocaleString("ru", { maximumFractionDigits: 0 })} ₽</span></div>
+                            )}
+                            <div className="flex justify-between font-bold border-t border-white/20 pt-1 mt-1 text-green-300">
+                              <span>= К выплате</span>
+                              <span>{ownerPayout.toLocaleString("ru", { maximumFractionDigits: 0 })} ₽</span>
+                            </div>
+                          </div>
+                          <p className="mt-2 text-white/70 text-[10px] leading-snug">
+                            Это плата за размещение, безопасную сделку, защиту от мошенничества и налоги — мы берём всё на себя.
+                          </p>
+                          {/* стрелочка вниз */}
+                          <span className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-8 border-r-8 border-t-8 border-transparent border-t-foreground" />
+                        </div>
                       </div>
                       <div className={`bg-white rounded-xl p-3 text-center border ${formData.ownerProtectionEnabled ? "border-primary/20" : "border-amber-300"}`}>
                         <p className="text-xs text-muted-foreground mb-1">Ваша вещь защищена на</p>
