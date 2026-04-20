@@ -95,10 +95,10 @@ export default function Catalog() {
   const token = getToken();
   const { data: categories } = useGetCategories();
   const { data: regions } = useGetRegions();
-  const { data: currentUser } = useGetCurrentUser(
-    { request: getAuthHeaders() },
-    { query: { enabled: !!token } }
-  );
+  const { data: currentUser } = useGetCurrentUser({
+    request: { headers: getAuthHeaders() as Record<string, string> },
+    query: { enabled: !!token } as any,
+  });
 
   // Сохраняем фильтры в sessionStorage при каждом изменении
   useEffect(() => {

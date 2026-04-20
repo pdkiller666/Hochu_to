@@ -154,10 +154,10 @@ export function Header() {
     setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
   };
 
-  const { data: user } = useGetCurrentUser(
-    { request: { headers: { Authorization: `Bearer ${token}` } } },
-    { query: { enabled: isAuthenticated } }
-  );
+  const { data: user } = useGetCurrentUser({
+    request: { headers: { Authorization: `Bearer ${token}` } },
+    query: { enabled: isAuthenticated } as any,
+  });
   const { data: regions } = useGetRegions();
   const { selectedRegion: selectedSlug, setSelectedRegion } = useRegion();
 

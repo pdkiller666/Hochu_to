@@ -45,8 +45,8 @@ artifacts-monorepo/
 
 ## Pages
 
-- **/** — Home: hero banner, categories, how it works, advantages, reviews
-- **/catalog** — Catalog with filters (category, price, region) and listing cards
+- **/** — Home: hero banner with 2 CTA buttons («Смотреть каталог» + «Сдать вещь в аренду»), marketing carousels, categories, how it works, advantages, reviews
+- **/catalog** — Catalog with filters (category, price, region, sort) and listing cards. Search is performed via the global header search bar (URL-synced via `?search=`)
 - **/listings/:id** — Listing detail with gallery, booking calendar, booking form
 - **/admin** — Expanded admin panel (7 tabs): Overview with Recharts charts, Users (edit/ban/notify), Listings (edit/hide/delete), Bookings (status override), Support tickets, Reports (жалобы), Audit log
 - **/auth** — Login/Register with role selection (renter/owner) and region selector
@@ -99,17 +99,36 @@ Tables:
 
 ## Demo Data
 
-- 3 demo users (password: `password123` for all)
-  - alex@demo.com — owner
-  - maria@demo.com — renter
-  - dmitry@demo.com — owner
+- 3 seeded demo users (password: `Demo1234!` for all):
+  - alexey@example.com — owner («Сдаю технику и инструменты»)
+  - maria@example.com — owner («Фотограф. Профессиональное оборудование»)
+  - dmitry@example.com — owner («Спортивный инвентарь»)
 - 10 listings across categories
 - 4 reviews
 - 3 joint purchase requests
 
+**Test accounts (local DB only):**
+- test_renter@test.local / `Test5678!` (renter)
+- test_owner@test.local / `Test1234!` (owner)
+
+## Global Header (Sticky)
+
+Marketplace-style sticky header (Avito/Wildberries pattern) — visible on all pages:
+
+**Desktop (md+):** Logo + centered Search bar (flex-grow) + Region pill + Nav (xl+) + Auth/Profile actions on a single 64px row.
+
+**Mobile (<md):** Two-row layout — row 1: Logo + Heart/Bell icons + Burger; row 2: full-width Search bar (always visible while scrolling). Total height ~114px.
+
+**Search behavior:**
+- Submitting navigates to `/catalog?search=<query>` while preserving other URL params (region, category)
+- Header search input syncs with URL `?search=` on every route change (so opening `/catalog?search=дрель` pre-fills the input)
+- The `HeaderSearchBar` is a stable component declared outside `Header()` so React preserves the input DOM node — mobile keyboards do NOT close after each character
+
+**Region selector:** Persists across pages via `useRegion` context. On `/catalog`, changing the region updates the URL `?region=` param.
+
 ## Marketing Carousels (Homepage)
 
-Four horizontally-scrollable product carousels between the hero search bar and the category grid.
+Four horizontally-scrollable product carousels between the hero CTA section and the category grid.
 
 ### Carousels (top to bottom)
 1. 🔥 **Хиты аренды** (`sort=popular`) — sorted by confirmed/active/completed booking count DESC
