@@ -340,10 +340,10 @@ export default function ListingForm() {
                   onChange={e => setFormData({ ...formData, itemCategory: e.target.value as any })}
                 >
                   <option value="">Не указана (инструменты по умолчанию)</option>
-                  <option value="electronics">Электроника (защита ×50)</option>
-                  <option value="tools">Инструменты (защита ×20)</option>
-                  <option value="leisure">Отдых и спорт (защита ×15)</option>
-                  <option value="special_machinery">Спецтехника (защита ×10)</option>
+                  <option value="electronics">Электроника — фонд до 50 стоимостей/сутки</option>
+                  <option value="tools">Инструменты — фонд до 20 стоимостей/сутки</option>
+                  <option value="leisure">Отдых и спорт — фонд до 15 стоимостей/сутки</option>
+                  <option value="special_machinery">Спецтехника — фонд до 10 стоимостей/сутки</option>
                 </select>
                 <p className="text-xs text-muted-foreground mt-1">Определяет лимит компенсации из фонда</p>
               </div>
@@ -392,7 +392,7 @@ export default function ListingForm() {
                       <div className="flex justify-between text-muted-foreground text-xs"><span>Аренда</span><span>{rent.toLocaleString("ru")} ₽</span></div>
                       {formData.ownerProtectionEnabled && (
                         <div className="flex justify-between text-xs text-primary/80">
-                          <span className="flex items-center gap-1">🛡 Защита Shield</span>
+                          <span className="flex items-center gap-1">🛡 Гарантийный фонд</span>
                           <span>{combinedServiceFee.toLocaleString("ru", { maximumFractionDigits: 0 })} ₽</span>
                         </div>
                       )}
@@ -420,12 +420,12 @@ export default function ListingForm() {
                       {formData.ownerProtectionEnabled ? "Гарантийный фонд подключён" : "Гарантийный фонд отключён"}
                     </p>
                     {formData.ownerProtectionEnabled ? (
-                      <p className="text-xs text-muted-foreground mt-0.5 leading-tight">
-                        Взнос включён в комиссию сервиса. При подтверждённом повреждении — компенсация до лимита фонда. Без автоматических выплат, всё через модератора.
+                      <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+                        Фонд — это ваша страховая сеть. Если арендатор повредит вещь или потеряет её, платформа рассмотрит заявку и возместит ущерб до лимита. Вы сдаёте с уверенностью.
                       </p>
                     ) : (
-                      <p className="text-xs text-amber-700 mt-0.5 leading-tight">
-                        ⚠️ Без фонда вы несёте весь риск самостоятельно. При повреждении вещи компенсация не гарантирована.
+                      <p className="text-xs text-amber-700 mt-0.5 leading-relaxed">
+                        Без фонда весь риск — на вас. Объявления с фондом просматривают вдвое чаще и чаще бронируют. Рекомендуем включить.
                       </p>
                     )}
                   </div>

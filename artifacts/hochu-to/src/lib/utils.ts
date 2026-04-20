@@ -61,9 +61,9 @@ export function calcMaxProtectionLimit(
 }
 
 /**
- * Shield Fee (страховой сбор) — платит АРЕНДАТОР сверх стоимости аренды.
+ * Взнос в Гарантийный фонд — платит АРЕНДАТОР сверх стоимости аренды.
  * Формула: max(rent × 5%, 100 ₽).
- * Идёт в защитный пул платформы.
+ * Идёт в пул Гарантийного фонда платформы.
  */
 export function calcShieldFee(rent: number): number {
   return Math.max(parseFloat((rent * 0.05).toFixed(2)), 100);
@@ -90,7 +90,7 @@ export function calcDeposit(pricePerDay: number): number {
 
 export interface PriceBreakdown {
   rent: number;
-  /** Страховой сбор Shield — добавляется к сумме арендатора (5% мин 100₽) */
+  /** Взнос в Гарантийный фонд — добавляется к сумме арендатора (5% мин 100₽) */
   shieldFee: number;
   /** Сервисная комиссия — скрытая, удерживается из выплаты владельцу (10%) */
   serviceFee: number;

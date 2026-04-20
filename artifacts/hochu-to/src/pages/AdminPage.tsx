@@ -1484,7 +1484,7 @@ function ClaimsTab() {
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-stone-500">Управление заявками Shield — возмещение ущерба арендодателям</p>
+      <p className="text-sm text-stone-500">Управление заявками Гарантийного фонда — возмещение ущерба арендодателям</p>
       {loading ? (
         <div className="text-center py-8 text-stone-400">Загрузка…</div>
       ) : !data?.length ? (
@@ -1572,7 +1572,7 @@ const TABS: { id: Tab; label: string; icon: any }[] = [
   { id: "bookings", label: "Бронирования", icon: CalendarDays },
   { id: "support", label: "Поддержка", icon: LifeBuoy },
   { id: "reports", label: "Жалобы", icon: Flag },
-  { id: "claims", label: "Заявки Shield", icon: Shield },
+  { id: "claims", label: "Заявки фонда", icon: Shield },
   { id: "audit", label: "Аудит", icon: ScrollText },
 ];
 

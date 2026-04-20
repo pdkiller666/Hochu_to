@@ -516,15 +516,25 @@ export default function ListingDetail() {
                         <div>
                           <p>Залог: <strong className="text-foreground">{formatPrice(deposit)}</strong> — возвращается сразу после сдачи вещи в том же состоянии.</p>
                           {ownerProt && maxProt && maxProt > 0 && (
-                            <p className="text-xs mt-1 text-primary/80">Ваша вещь защищена на: <strong>{maxProt.toLocaleString("ru")} ₽</strong></p>
+                            <p className="text-xs mt-1 text-primary/80">Защита фонда: до <strong>{maxProt.toLocaleString("ru")} ₽</strong> при повреждении или краже</p>
                           )}
                         </div>
                       </div>
+                      {/* Гарантийный фонд — мотивационный блок для арендатора */}
+                      {ownerProt && !isOwnerRole && (
+                        <div className="flex items-start gap-2.5 bg-green-50 border border-green-200 p-3 rounded-xl text-sm text-green-800">
+                          <ShieldCheck className="w-4 h-4 shrink-0 mt-0.5 text-green-600" />
+                          <div className="space-y-0.5">
+                            <p className="font-semibold text-green-800">Гарантийный фонд</p>
+                            <p className="text-xs leading-relaxed text-green-700">Платформа выступает арбитром — если возникнет спор, мы разберёмся и возместим ущерб. Берите с уверенностью.</p>
+                          </div>
+                        </div>
+                      )}
                       {/* Fund warning for renter when owner disabled protection */}
                       {!ownerProt && !isOwnerRole && isAuthenticated && (
                         <div className="flex items-start gap-2 text-sm bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-xl">
                           <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-600" />
-                          <p>Владелец не подключил гарантийный фонд. В случае спора урегулирование — на ваше усмотрение.</p>
+                          <p>Владелец не подключил Гарантийный фонд. В случае спора урегулирование — на ваше усмотрение.</p>
                         </div>
                       )}
                     </div>
@@ -744,40 +754,6 @@ export default function ListingDetail() {
                       </div>
                     </div>
 
-                    {/* ─── Тоггл фонда для арендатора (только Сценарий А) ── */}
-                    {protectionEnabled && (
-                      <div className={`rounded-2xl border-2 p-4 transition-colors ${renterFundEnabled ? "border-green-300 bg-green-50" : "border-border bg-muted/30"}`}>
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex items-start gap-2.5">
-                            {renterFundEnabled
-                              ? <ShieldCheck className="w-5 h-5 text-green-600 shrink-0 mt-0.5" />
-                              : <ShieldOff className="w-5 h-5 text-muted-foreground shrink-0 mt-0.5" />
-                            }
-                            <div>
-                              <p className={`font-bold text-sm ${renterFundEnabled ? "text-green-700" : "text-foreground"}`}>
-                                {renterFundEnabled ? "Моя защита из фонда" : "Защита арендатора отключена"}
-                              </p>
-                              <p className="text-xs text-muted-foreground mt-0.5 leading-tight">
-                                {renterFundEnabled
-                                  ? "Ваш взнос в фонд покрывает споры о состоянии вещи и форс-мажоры. Независимо от выбора владельца."
-                                  : "Вы берёте на себя риск спорных ситуаций без дополнительной поддержки фонда."
-                                }
-                              </p>
-                            </div>
-                          </div>
-                          <button
-                            type="button"
-                            role="switch"
-                            aria-checked={renterFundEnabled}
-                            onClick={() => setRenterFundEnabled(v => !v)}
-                            className={`relative w-12 h-6 rounded-full transition-colors shrink-0 ${renterFundEnabled ? "bg-green-500" : "bg-muted-foreground/30"}`}
-                          >
-                            <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-all ${renterFundEnabled ? "left-7" : "left-1"}`} />
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
                     {/* ─── Календарь — всегда виден ──────────────────────── */}
                     <>
                       {/* Calendar hint */}
@@ -871,7 +847,7 @@ export default function ListingDetail() {
                             <div className="flex justify-between text-primary/80">
                               <span className="flex items-center gap-1.5">
                                 <ShieldCheck className="w-3.5 h-3.5" />
-                                Защита Shield
+                                Взнос в Гарантийный фонд
                               </span>
                               <span>{formatPrice(shieldFee)}</span>
                             </div>
@@ -880,7 +856,7 @@ export default function ListingDetail() {
                             <span>Итого к оплате</span>
                             <span className="text-xl text-primary">{formatPrice(total)}</span>
                           </div>
-                          <p className="text-[11px] text-muted-foreground">Цена включает полную защиту Shield и сервисные сборы</p>
+                          <p className="text-[11px] text-muted-foreground">Взнос в фонд покрывает ущерб и споры — платформа на вашей стороне</p>
                           <div className="flex justify-between text-amber-700 text-xs pt-1 border-t border-primary/10">
                             <span>Залог (возвращается после сдачи вещи)</span>
                             <span className="font-medium">{formatPrice(deposit)}</span>
