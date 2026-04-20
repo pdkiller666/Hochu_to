@@ -261,8 +261,13 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
   const settings = await getPlatformSettings();
   const ownerProtEnabled = listing.ownerProtectionEnabled !== false;
 
-  const serviceFee = parseFloat((rent * num(settings.serviceFeePercent) / 100).toFixed(2));
-  const taxFee     = parseFloat((rent * num(settings.taxFeePercent) / 100).toFixed(2));
+  // Free-тариф: если владелец отключил защиту — комиссии не удерживаются (получает 100%).
+  const serviceFee = ownerProtEnabled
+    ? parseFloat((rent * num(settings.serviceFeePercent) / 100).toFixed(2))
+    : 0;
+  const taxFee = ownerProtEnabled
+    ? parseFloat((rent * num(settings.taxFeePercent) / 100).toFixed(2))
+    : 0;
 
   const shieldFee = ownerProtEnabled
     ? Math.max(parseFloat((rent * num(settings.shieldFeePercent) / 100).toFixed(2)), settings.shieldFeeMin)

@@ -188,20 +188,15 @@ export default function ListingForm() {
     const selectedCategory = categories?.find(c => c.id === Number(formData.categoryId));
     const itemCategory = mapCategorySlugToItemCategory(selectedCategory?.slug);
 
-    // Залог: при включённой Безопасной сделке — undefined (рассчитается автоматически).
-    // При прямой аренде — обязательное поле, минимум 500 ₽.
+    // Залог:
+    //   • Защищённая сделка — undefined (рассчитается автоматически из настроек фонда).
+    //   • Бесплатное объявление — поле опциональное; пустое = без залога; число > 0 = по желанию владельца.
     let depositValue: number | undefined;
-    if (!formData.ownerProtectionEnabled) {
+    if (!formData.ownerProtectionEnabled && formData.manualDeposit) {
       const dep = Number(formData.manualDeposit);
-      if (!formData.manualDeposit || isNaN(dep) || dep < 500) {
-        toast({
-          title: "Укажите залог",
-          description: "При прямой аренде укажите залог не меньше 500 ₽ — это ваша единственная страховка.",
-          variant: "destructive",
-        });
-        return;
+      if (!isNaN(dep) && dep > 0) {
+        depositValue = dep;
       }
-      depositValue = dep;
     }
 
     const payload = {
