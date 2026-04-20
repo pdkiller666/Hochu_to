@@ -204,15 +204,24 @@ export function calculateTotalPrice(
 
   const servicePct = rateNum(rates, "serviceFeePercent");
   const taxPct = rateNum(rates, "taxFeePercent");
-  const serviceFee = parseFloat((rent * servicePct / 100).toFixed(2));
-  const taxFee = parseFloat((rent * taxPct / 100).toFixed(2));
+
+  // Free тариф (Объявление): платформа НЕ удерживает ни сервисную, ни налоговую комиссию.
+  // Владелец получает 100% суммы аренды лично от арендатора (как на Авито).
+  const serviceFee = ownerProtectionEnabled
+    ? parseFloat((rent * servicePct / 100).toFixed(2))
+    : 0;
+  const taxFee = ownerProtectionEnabled
+    ? parseFloat((rent * taxPct / 100).toFixed(2))
+    : 0;
 
   const shieldFee = ownerProtectionEnabled ? calcShieldFee(rent, rates) : 0;
   const rawRiskCoverage = ownerProtectionEnabled ? calcRiskCoverage(rent, rates) : 0;
   const maxRisk = Math.max(0, parseFloat((rent - serviceFee - taxFee).toFixed(2)));
   const riskCoverage = Math.min(rawRiskCoverage, maxRisk);
 
-  const maxProtectionLimit = calcMaxProtectionLimit(pricePerDay, cat, completedDealsCount, rates);
+  const maxProtectionLimit = ownerProtectionEnabled
+    ? calcMaxProtectionLimit(pricePerDay, cat, completedDealsCount, rates)
+    : 0;
 
   const total = parseFloat((rent + shieldFee).toFixed(2));
   const ownerPayout = parseFloat((rent - serviceFee - taxFee - riskCoverage).toFixed(2));

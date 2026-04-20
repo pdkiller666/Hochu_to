@@ -410,24 +410,24 @@ export default function ListingForm() {
                   aria-pressed={!formData.ownerProtectionEnabled}
                   className={`text-left p-4 rounded-2xl border-2 transition-all ${
                     !formData.ownerProtectionEnabled
-                      ? "border-amber-400 bg-amber-50 shadow-sm"
-                      : "border-border bg-white hover:border-amber-300"
+                      ? "border-slate-400 bg-slate-50 shadow-sm"
+                      : "border-border bg-white hover:border-slate-300"
                   }`}
                 >
                   <div className="flex items-start gap-2.5 mb-2">
-                    <ShieldOff className={`w-5 h-5 shrink-0 mt-0.5 ${!formData.ownerProtectionEnabled ? "text-amber-600" : "text-muted-foreground"}`} />
+                    <ShieldOff className={`w-5 h-5 shrink-0 mt-0.5 ${!formData.ownerProtectionEnabled ? "text-slate-700" : "text-muted-foreground"}`} />
                     <div className="flex-1">
-                      <p className={`font-bold text-sm ${!formData.ownerProtectionEnabled ? "text-amber-800" : "text-foreground"}`}>
-                        Прямая аренда
+                      <p className={`font-bold text-sm ${!formData.ownerProtectionEnabled ? "text-slate-800" : "text-foreground"}`}>
+                        🪧 Объявление
                       </p>
-                      <p className="text-[11px] text-muted-foreground">ваш риск</p>
+                      <p className="text-[11px] text-emerald-700 font-bold">бесплатно</p>
                     </div>
                   </div>
                   <ul className="text-xs text-muted-foreground space-y-1 leading-relaxed">
-                    <li>• Деньги и залог — наличными от арендатора</li>
-                    <li>• Расписку оформляете сами</li>
-                    <li>• Платформа не возмещает ущерб</li>
-                    <li>• Споры решаете лично</li>
+                    <li><span className="text-emerald-600 font-bold">✓</span> Получаете 100% от арендатора</li>
+                    <li><span className="text-emerald-600 font-bold">✓</span> Размещение, поиск, чат, карта — всё бесплатно</li>
+                    <li><span className="text-slate-500">•</span> Сделку проводите лично, как удобно</li>
+                    <li><span className="text-slate-500">•</span> Без эскроу, страховки и помощи в спорах</li>
                   </ul>
                 </button>
               </div>
@@ -479,9 +479,12 @@ export default function ListingForm() {
                             <Info className="w-2.5 h-2.5" />
                           </button>
                         </div>
-                        <p className="text-lg font-black text-green-700">{ownerPayout.toLocaleString("ru", { maximumFractionDigits: 0 })} ₽</p>
+                        <p className={`text-lg font-black ${formData.ownerProtectionEnabled ? "text-green-700" : "text-emerald-600"}`}>
+                          {ownerPayout.toLocaleString("ru", { maximumFractionDigits: 0 })} ₽
+                          {!formData.ownerProtectionEnabled && <span className="text-xs font-bold text-emerald-700 ml-1">(100%)</span>}
+                        </p>
                         <p className="text-[10px] text-muted-foreground mt-0.5">
-                          {formData.ownerProtectionEnabled ? "выплата на карту через 24 ч" : "наличными при возврате"}
+                          {formData.ownerProtectionEnabled ? "выплата на карту через 24 ч" : "лично от арендатора"}
                         </p>
 
                         {/* Подсказка с разбивкой суммы */}
@@ -489,41 +492,54 @@ export default function ListingForm() {
                           role="tooltip"
                           className="pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-[calc(100%+8px)] w-64 max-w-[80vw] bg-foreground text-white text-[11px] rounded-xl p-3 shadow-xl opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity z-20 leading-relaxed text-left"
                         >
-                          <p className="font-bold mb-1.5 text-white">Откуда такая сумма?</p>
-                          <div className="space-y-0.5 text-white/90">
-                            <div className="flex justify-between"><span>Цена аренды</span><span>{rent.toLocaleString("ru")} ₽</span></div>
-                            <div className="flex justify-between text-white/70"><span>− Сервис платформы (10%)</span><span>−{(rent * 0.10).toLocaleString("ru", { maximumFractionDigits: 0 })} ₽</span></div>
-                            <div className="flex justify-between text-white/70"><span>− Налоговая компенсация (6%)</span><span>−{(rent * 0.06).toLocaleString("ru", { maximumFractionDigits: 0 })} ₽</span></div>
-                            {formData.ownerProtectionEnabled && (
-                              <div className="flex justify-between text-white/70"><span>− Страховое покрытие (5%)</span><span>−{Math.max(rent * 0.05, 100).toLocaleString("ru", { maximumFractionDigits: 0 })} ₽</span></div>
-                            )}
-                            <div className="flex justify-between font-bold border-t border-white/20 pt-1 mt-1 text-green-300">
-                              <span>= К выплате</span>
-                              <span>{ownerPayout.toLocaleString("ru", { maximumFractionDigits: 0 })} ₽</span>
-                            </div>
-                          </div>
-                          <p className="mt-2 text-white/70 text-[10px] leading-snug">
-                            Это плата за размещение, безопасную сделку, защиту от мошенничества и налоги — мы берём всё на себя.
-                          </p>
-                          {/* стрелочка вниз */}
+                          {formData.ownerProtectionEnabled ? (
+                            <>
+                              <p className="font-bold mb-1.5 text-white">Откуда такая сумма?</p>
+                              <div className="space-y-0.5 text-white/90">
+                                <div className="flex justify-between"><span>Цена аренды</span><span>{rent.toLocaleString("ru")} ₽</span></div>
+                                <div className="flex justify-between text-white/70"><span>− Сервис платформы (10%)</span><span>−{(rent * 0.10).toLocaleString("ru", { maximumFractionDigits: 0 })} ₽</span></div>
+                                <div className="flex justify-between text-white/70"><span>− Налоговая компенсация (6%)</span><span>−{(rent * 0.06).toLocaleString("ru", { maximumFractionDigits: 0 })} ₽</span></div>
+                                <div className="flex justify-between text-white/70"><span>− Страховое покрытие (5%)</span><span>−{Math.max(rent * 0.05, 100).toLocaleString("ru", { maximumFractionDigits: 0 })} ₽</span></div>
+                                <div className="flex justify-between font-bold border-t border-white/20 pt-1 mt-1 text-green-300">
+                                  <span>= К выплате</span>
+                                  <span>{ownerPayout.toLocaleString("ru", { maximumFractionDigits: 0 })} ₽</span>
+                                </div>
+                              </div>
+                              <p className="mt-2 text-white/70 text-[10px] leading-snug">
+                                Это плата за эскроу, страхование вещи, помощь в спорах и налоги — мы берём всё на себя.
+                              </p>
+                            </>
+                          ) : (
+                            <>
+                              <p className="font-bold mb-1.5 text-white">Полная сумма — ваша</p>
+                              <p className="text-white/85 text-[11px] leading-snug">
+                                Размещение бесплатное. Платформа <strong className="text-emerald-300">не удерживает ни копейки</strong> с аренды — все {rent.toLocaleString("ru")} ₽ вы получаете лично от арендатора.
+                              </p>
+                              <p className="mt-2 text-white/70 text-[10px] leading-snug">
+                                Зарабатываем мы на тех арендаторах, кто покупает доступ к контактам. Так вам приходят только серьёзные люди.
+                              </p>
+                            </>
+                          )}
                           <span className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-8 border-r-8 border-t-8 border-transparent border-t-foreground" />
                         </div>
                       </div>
-                      <div className={`bg-white rounded-xl p-3 text-center border ${formData.ownerProtectionEnabled ? "border-primary/20" : "border-amber-300"}`}>
-                        <p className="text-xs text-muted-foreground mb-1">Ваша вещь защищена на</p>
-                        <p className={`text-lg font-black ${formData.ownerProtectionEnabled ? "text-primary" : "text-amber-700"}`}>
-                          {formData.ownerProtectionEnabled ? `${maxProt.toLocaleString("ru")} ₽` : "0 ₽"}
+                      <div className={`bg-white rounded-xl p-3 text-center border ${formData.ownerProtectionEnabled ? "border-primary/20" : "border-slate-200"}`}>
+                        <p className="text-xs text-muted-foreground mb-1">
+                          {formData.ownerProtectionEnabled ? "Ваша вещь защищена на" : "Гарантия от платформы"}
+                        </p>
+                        <p className={`text-lg font-black ${formData.ownerProtectionEnabled ? "text-primary" : "text-slate-700"}`}>
+                          {formData.ownerProtectionEnabled ? `${maxProt.toLocaleString("ru")} ₽` : "Своими силами"}
                         </p>
                         {formData.ownerProtectionEnabled && maxProt <= 25_000 && (
                           <p className="text-[10px] text-amber-600 mt-0.5">лимит для новых аккаунтов</p>
                         )}
                         {!formData.ownerProtectionEnabled && (
-                          <p className="text-[10px] text-amber-600 mt-0.5">только сам залог</p>
+                          <p className="text-[10px] text-slate-500 mt-0.5">залог + расписка</p>
                         )}
                       </div>
                     </div>
 
-                    {/* Объяснение «почему сумма меньше» — только при безопасной сделке */}
+                    {/* Объяснение «почему сумма меньше» — только при защищённой сделке */}
                     {formData.ownerProtectionEnabled && ownerCut > 0 && (
                       <div className="bg-white rounded-xl p-3 border border-border">
                         <p className="text-xs font-bold text-foreground mb-2 flex items-center gap-1.5">
@@ -558,57 +574,65 @@ export default function ListingForm() {
                         <span>{total.toLocaleString("ru", { maximumFractionDigits: 0 })} ₽</span>
                       </div>
                       <p className="text-[10px] text-muted-foreground">
-                        + залог {depositToShow.toLocaleString("ru")} ₽ (возвратный
-                        {formData.ownerProtectionEnabled ? ", удерживается платформой" : ", наличными от арендатора"})
+                        {formData.ownerProtectionEnabled
+                          ? `+ залог ${depositToShow.toLocaleString("ru")} ₽ (возвратный, удерживается платформой)`
+                          : depositToShow > 0
+                            ? `+ залог ${depositToShow.toLocaleString("ru")} ₽ (по договорённости, наличными)`
+                            : "Залог по договорённости с владельцем"}
                       </p>
+                      {!formData.ownerProtectionEnabled && (
+                        <p className="text-[10px] text-slate-500 italic pt-1 border-t border-border">
+                          💬 Доступ к вашим контактам арендатор покупает у платформы — так к вам обращаются только серьёзные люди
+                        </p>
+                      )}
                     </div>
                   </div>
                 </div>
               );
             })()}
 
-            {/* ─── Поле ручного залога — только для прямой аренды ─────── */}
+            {/* ─── Поле залога + честные факты — для бесплатного объявления ─────── */}
             {!formData.ownerProtectionEnabled && (
-              <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-4 space-y-3">
+              <div className="rounded-2xl border-2 border-slate-200 bg-slate-50 p-4 space-y-3">
                 <div className="flex items-start gap-2.5">
-                  <HandCoins className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                  <HandCoins className="w-5 h-5 text-slate-700 shrink-0 mt-0.5" />
                   <div className="flex-1">
-                    <p className="font-bold text-sm text-amber-900">Залог наличными — ваша единственная страховка</p>
-                    <p className="text-xs text-amber-800 mt-0.5 leading-relaxed">
-                      Установите сумму, которую арендатор оставит вам при получении вещи. Возвращайте при возврате в исправном виде.
-                      Чем дороже вещь — тем больший залог имеет смысл просить.
+                    <p className="font-bold text-sm text-slate-900">Залог по желанию</p>
+                    <p className="text-xs text-slate-700 mt-0.5 leading-relaxed">
+                      Можете попросить залог наличными при передаче вещи — это поможет защититься от повреждений.
+                      Поле необязательное: оставьте пустым, если работаете без залога.
                     </p>
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-amber-900 mb-1.5">Размер залога (₽) <span className="text-red-500">*</span></label>
+                  <label className="block text-xs font-bold text-slate-800 mb-1.5">Размер залога (₽), необязательно</label>
                   <input
                     type="number"
-                    min="500"
+                    min="0"
                     step="100"
                     className="input-field max-w-xs"
                     placeholder={formData.pricePerDay ? `Например, ${calcDeposit(Number(formData.pricePerDay)).toLocaleString("ru")}` : "Например, 3000"}
                     value={formData.manualDeposit}
                     onChange={e => setFormData({ ...formData, manualDeposit: e.target.value })}
                   />
-                  <p className="text-[11px] text-amber-700 mt-1">Минимум 500 ₽. Рекомендуем не меньше двух стоимостей суток аренды.</p>
+                  <p className="text-[11px] text-slate-500 mt-1">Если указываете — рекомендуем не меньше двух стоимостей суток.</p>
                 </div>
 
-                <div className="bg-white/60 rounded-xl p-3 border border-amber-200">
-                  <p className="text-xs font-bold text-amber-900 mb-1.5 flex items-center gap-1.5">
-                    <AlertTriangle className="w-3.5 h-3.5" />
-                    На что вы соглашаетесь, выбирая прямую аренду:
+                <div className="bg-white rounded-xl p-3 border border-slate-200">
+                  <p className="text-xs font-bold text-slate-800 mb-1.5 flex items-center gap-1.5">
+                    <Info className="w-3.5 h-3.5 text-slate-600" />
+                    Как это работает (как на Авито)
                   </p>
-                  <ul className="text-[11px] text-amber-800 space-y-1 leading-relaxed pl-1">
-                    <li>• Платформа <strong>не удерживает деньги</strong> и не выплачивает их вам</li>
-                    <li>• При повреждении или потере вещи <strong>фонд не покроет</strong> ущерб</li>
-                    <li>• Если арендатор пропадёт — мы передадим контакты, но <strong>не компенсируем</strong></li>
-                    <li>• Расписку, договор и передачу залога оформляете <strong>лично</strong></li>
-                    <li>• Объявления без защиты получают <strong>≈ в 2 раза меньше</strong> бронирований</li>
+                  <ul className="text-[11px] text-slate-700 space-y-1 leading-relaxed pl-1">
+                    <li><span className="text-emerald-600 font-bold">✓</span> Объявление в каталоге, поиск, фото, чат, карта — <strong>бесплатно</strong></li>
+                    <li><span className="text-emerald-600 font-bold">✓</span> Деньги от арендатора получаете <strong>лично, в полном объёме</strong></li>
+                    <li><span className="text-emerald-600 font-bold">✓</span> Платформа берёт плату <strong>с арендатора</strong> за доступ к вашим контактам — спам-обращений нет</li>
+                    <li><span className="text-slate-500">•</span> Сделку, расписку и передачу залога оформляете лично</li>
+                    <li><span className="text-slate-500">•</span> Спорные ситуации решаете самостоятельно</li>
                   </ul>
-                  <p className="text-[11px] text-amber-900 font-semibold mt-2">
-                    Согласны? Отлично — вы делаете осознанный выбор. Если передумаете — просто переключите формат сделки выше.
+                  <p className="text-[11px] text-slate-700 mt-2 pt-2 border-t border-slate-200">
+                    💡 <strong>Хотите эскроу, страховку и помощь в спорах?</strong> Переключите формат на «🛡 Защищённую сделку» выше — за {21}% от аренды платформа берёт всё на себя.
                   </p>
                 </div>
               </div>

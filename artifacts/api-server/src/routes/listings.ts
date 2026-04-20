@@ -434,28 +434,22 @@ router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
 
   const { title, description, pricePerDay, categoryId, regionId, city, lat, lng, meetingAddress, photos, itemCategory, ownerProtectionEnabled: ownerProt, deposit, isAvailable } = req.body;
 
-  // Логика залога: при безопасной сделке — null (рассчитается из настроек),
-  // при прямой аренде — обязательное положительное число.
+  // Логика залога:
+  //   • Защищённая сделка (Premium): залог рассчитывается из настроек фонда → сбрасываем ручной в null.
+  //   • Бесплатное объявление (Free): залог опциональный, владелец сам выбирает — указать или нет.
   const effectiveProtection = ownerProt !== undefined ? ownerProt : existing.ownerProtectionEnabled;
-  const existingDeposit = existing.deposit ? parseFloat(existing.deposit as unknown as string) : 0;
 
   let depositUpdate: string | null | undefined;
   if (effectiveProtection === false) {
-    // Прямая аренда — требуем валидный залог: либо в этом запросе, либо уже сохранённый.
+    // Free-тариф: принимаем любое неотрицательное число; 0/undefined = без залога.
     if (typeof deposit === "number" && deposit > 0) {
       depositUpdate = deposit.toFixed(2);
-    } else if (deposit === undefined && existingDeposit > 0) {
-      // Залог уже был — оставляем как есть.
-      depositUpdate = undefined;
-    } else {
-      res.status(400).json({
-        error: "deposit_required",
-        message: "При прямой аренде укажите положительный залог (минимум 500 ₽).",
-      });
-      return;
+    } else if (deposit === 0 || deposit === null) {
+      depositUpdate = null;
     }
+    // если deposit === undefined и владелец не трогал поле — оставляем как было
   } else if (ownerProt === true) {
-    // Включение безопасной сделки — обнуляем ручной залог.
+    // Включение защищённой сделки — обнуляем ручной залог.
     depositUpdate = null;
   }
 
