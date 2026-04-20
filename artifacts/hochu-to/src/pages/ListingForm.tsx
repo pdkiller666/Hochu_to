@@ -375,26 +375,31 @@ export default function ListingForm() {
                   type="button"
                   onClick={() => setFormData({ ...formData, ownerProtectionEnabled: true })}
                   aria-pressed={formData.ownerProtectionEnabled}
-                  className={`text-left p-4 rounded-2xl border-2 transition-all ${
+                  className={`text-left p-4 rounded-2xl border-2 transition-all relative ${
                     formData.ownerProtectionEnabled
-                      ? "border-primary bg-primary/5 shadow-sm"
-                      : "border-border bg-white hover:border-primary/30"
+                      ? "border-green-500 bg-gradient-to-br from-green-50 to-emerald-50 shadow-md ring-2 ring-green-200/60"
+                      : "border-green-200 bg-green-50/40 hover:border-green-400 hover:bg-green-50"
                   }`}
                 >
+                  {formData.ownerProtectionEnabled && (
+                    <span className="absolute -top-2 -right-2 bg-green-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm uppercase tracking-wide">
+                      ✓ выбрано
+                    </span>
+                  )}
                   <div className="flex items-start gap-2.5 mb-2">
-                    <ShieldCheck className={`w-5 h-5 shrink-0 mt-0.5 ${formData.ownerProtectionEnabled ? "text-primary" : "text-muted-foreground"}`} />
+                    <ShieldCheck className={`w-5 h-5 shrink-0 mt-0.5 ${formData.ownerProtectionEnabled ? "text-green-600" : "text-green-500/70"}`} />
                     <div className="flex-1">
-                      <p className={`font-bold text-sm ${formData.ownerProtectionEnabled ? "text-primary" : "text-foreground"}`}>
+                      <p className={`font-bold text-sm ${formData.ownerProtectionEnabled ? "text-green-800" : "text-green-700"}`}>
                         Безопасная сделка
                       </p>
-                      <p className="text-[11px] text-muted-foreground">рекомендуем</p>
+                      <p className="text-[11px] text-green-700/80 font-medium">рекомендуем</p>
                     </div>
                   </div>
-                  <ul className="text-xs text-muted-foreground space-y-1 leading-relaxed">
-                    <li>✓ Гарантированная выплата на карту</li>
-                    <li>✓ Возмещение ущерба из фонда</li>
-                    <li>✓ Решение споров платформой</li>
-                    <li>✓ Бронируют в 2 раза чаще</li>
+                  <ul className={`text-xs space-y-1 leading-relaxed ${formData.ownerProtectionEnabled ? "text-green-900/80" : "text-muted-foreground"}`}>
+                    <li><span className="text-green-600 font-bold">✓</span> Гарантированная выплата на карту</li>
+                    <li><span className="text-green-600 font-bold">✓</span> Возмещение ущерба из фонда</li>
+                    <li><span className="text-green-600 font-bold">✓</span> Решение споров платформой</li>
+                    <li><span className="text-green-600 font-bold">✓</span> Бронируют в 2 раза чаще</li>
                   </ul>
                 </button>
 
