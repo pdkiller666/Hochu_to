@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db, listingsTable, usersTable, categoriesTable, regionsTable, reviewsTable, bookingsTable } from "@workspace/db";
-import { eq, and, gte, lte, ilike, sql, or, desc } from "drizzle-orm";
+import { eq, and, gte, lte, sql, or, desc } from "drizzle-orm";
 import { requireAuth, AuthRequest } from "../middleware/auth.js";
 import { CreateListingBody } from "@workspace/api-zod";
 import fs from "fs";
@@ -91,12 +91,17 @@ router.get("/", async (req, res) => {
 
   if (minPrice) baseConditions.push(gte(listingsTable.pricePerDay, minPrice));
   if (maxPrice) baseConditions.push(lte(listingsTable.pricePerDay, maxPrice));
-  if (search) baseConditions.push(
-    or(
-      ilike(listingsTable.title, `%${search}%`),
-      ilike(sql`COALESCE(${listingsTable.description}, '')`, `%${search}%`)
-    )!
-  );
+  if (search) {
+    // Используем LOWER() явно — ILIKE в PostgreSQL может не корректно работать
+    // с кириллицей при locale=C. LOWER() работает с UTF-8 в любом случае.
+    const pattern = `%${search.toLowerCase()}%`;
+    baseConditions.push(
+      or(
+        sql`LOWER(${listingsTable.title}) LIKE ${pattern}`,
+        sql`LOWER(COALESCE(${listingsTable.description}, '')) LIKE ${pattern}`
+      )!
+    );
+  }
 
   // Региональное условие добавляем поверх базовых
   let regionCondition: any = null;
