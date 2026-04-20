@@ -61,6 +61,37 @@ function matchRegion(stateName: string, regions: { name: string; slug: string }[
   return match?.slug ?? null;
 }
 
+interface SearchBarProps {
+  className?: string;
+  inputClassName?: string;
+  searchQuery: string;
+  onChangeQuery: (v: string) => void;
+  onSubmit: (e: React.FormEvent) => void;
+}
+
+function HeaderSearchBar({ className, inputClassName, searchQuery, onChangeQuery, onSubmit }: SearchBarProps) {
+  return (
+    <form onSubmit={onSubmit} className={cn("flex items-center gap-2 group", className)}>
+      <Search className="w-4 h-4 text-muted-foreground flex-shrink-0 group-focus-within:text-primary transition-colors" />
+      <input
+        type="text"
+        value={searchQuery}
+        onChange={e => onChangeQuery(e.target.value)}
+        placeholder="Найти вещь для аренды..."
+        className={cn("flex-1 bg-transparent outline-none text-sm placeholder:text-muted-foreground", inputClassName)}
+      />
+      {searchQuery && (
+        <button type="button" onClick={() => onChangeQuery("")} className="text-muted-foreground hover:text-foreground transition-colors">
+          <X className="w-3.5 h-3.5" />
+        </button>
+      )}
+      <button type="submit" className="btn-primary py-1.5 px-4 text-xs rounded-lg flex-shrink-0">
+        Найти
+      </button>
+    </form>
+  );
+}
+
 export function Header() {
   const [location, navigate] = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -207,27 +238,6 @@ export function Header() {
     navigate(`/catalog?${sp.toString()}`);
   };
 
-  const SearchBar = ({ className, inputClassName }: { className?: string; inputClassName?: string }) => (
-    <form onSubmit={handleSearch} className={cn("flex items-center gap-2 group", className)}>
-      <Search className="w-4 h-4 text-muted-foreground flex-shrink-0 group-focus-within:text-primary transition-colors" />
-      <input
-        type="text"
-        value={searchQuery}
-        onChange={e => setSearchQuery(e.target.value)}
-        placeholder="Найти вещь для аренды..."
-        className={cn("flex-1 bg-transparent outline-none text-sm placeholder:text-muted-foreground", inputClassName)}
-      />
-      {searchQuery && (
-        <button type="button" onClick={() => setSearchQuery("")} className="text-muted-foreground hover:text-foreground transition-colors">
-          <X className="w-3.5 h-3.5" />
-        </button>
-      )}
-      <button type="submit" className="btn-primary py-1.5 px-4 text-xs rounded-lg flex-shrink-0">
-        Найти
-      </button>
-    </form>
-  );
-
   return (
     <header className="sticky top-0 z-50 w-full bg-background/95 backdrop-blur-md border-b border-border/60 shadow-sm">
       <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6">
@@ -245,7 +255,7 @@ export function Header() {
 
           {/* Desktop Search Bar — center, takes most space */}
           <div className="hidden md:flex flex-1 mx-2 items-center bg-muted/50 border border-border rounded-xl px-3 py-2 focus-within:ring-2 focus-within:ring-primary/30 focus-within:border-primary/50 transition-all">
-            <SearchBar className="w-full" />
+            <HeaderSearchBar className="w-full" searchQuery={searchQuery} onChangeQuery={setSearchQuery} onSubmit={handleSearch} />
           </div>
 
           {/* Desktop Region Selector */}
@@ -477,7 +487,7 @@ export function Header() {
       {/* Mobile Search Row — always visible, part of sticky header */}
       <div className="md:hidden px-3 pb-2.5">
         <div className="flex items-center bg-muted/50 border border-border rounded-xl px-3 py-2.5 focus-within:ring-2 focus-within:ring-primary/30 focus-within:border-primary/50 transition-all">
-          <SearchBar className="w-full" />
+          <HeaderSearchBar className="w-full" searchQuery={searchQuery} onChangeQuery={setSearchQuery} onSubmit={handleSearch} />
         </div>
       </div>
 
