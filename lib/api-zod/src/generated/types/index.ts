@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from "./appNotification";
 export * from "./authResponse";
 export * from "./booking";
 export * from "./bookingStatus";
@@ -16,6 +17,7 @@ export * from "./createJointPurchaseRequest";
 export * from "./createListingRequest";
 export * from "./createReviewRequest";
 export * from "./dateRange";
+export * from "./dateRangeStatus";
 export * from "./errorResponse";
 export * from "./getListingsParams";
 export * from "./healthStatus";
@@ -34,6 +36,7 @@ export * from "./successResponse";
 export * from "./updateBookingStatusRequest";
 export * from "./updateBookingStatusRequestStatus";
 export * from "./updateProfileRequest";
+export * from "./updateProfileRequestRole";
 export * from "./user";
 export * from "./userProfile";
 export * from "./userRole";

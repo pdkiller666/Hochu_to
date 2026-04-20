@@ -12,4 +12,6 @@ export interface ListingsResponse {
   total: number;
   page: number;
   totalPages: number;
+  /** Объявления из других регионов (показываются, когда в выбранном регионе ничего не найдено) */
+  otherRegionsListings?: Listing[];
 }

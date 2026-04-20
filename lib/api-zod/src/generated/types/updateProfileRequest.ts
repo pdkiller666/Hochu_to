@@ -5,10 +5,15 @@
  * Хочу_То — Rental Marketplace API
  * OpenAPI spec version: 0.1.0
  */
+import type { UpdateProfileRequestRole } from "./updateProfileRequestRole";
 
 export interface UpdateProfileRequest {
   name?: string;
   phone?: string;
   avatar?: string;
+  bio?: string;
+  telegram?: string;
+  website?: string;
   regionId?: number;
+  role?: UpdateProfileRequestRole;
 }

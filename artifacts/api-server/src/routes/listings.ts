@@ -81,27 +81,35 @@ router.get("/", async (req, res) => {
   const limitNum = Math.min(50, Math.max(1, parseInt(limit)));
   const offset = (pageNum - 1) * limitNum;
 
-  const conditions = [eq(listingsTable.isAvailable, true)];
+  // Базовые условия (без региона) — нужны и для основного запроса, и для fallback "других регионов"
+  const baseConditions = [eq(listingsTable.isAvailable, true)];
 
   if (category) {
     const [cat] = await db.select().from(categoriesTable).where(eq(categoriesTable.slug, category)).limit(1);
-    if (cat) conditions.push(eq(listingsTable.categoryId, cat.id));
+    if (cat) baseConditions.push(eq(listingsTable.categoryId, cat.id));
   }
 
-  if (region) {
-    const [reg] = await db.select().from(regionsTable).where(eq(regionsTable.slug, region)).limit(1);
-    if (reg) conditions.push(eq(listingsTable.regionId, reg.id));
-  }
-
-  if (minPrice) conditions.push(gte(listingsTable.pricePerDay, minPrice));
-  if (maxPrice) conditions.push(lte(listingsTable.pricePerDay, maxPrice));
-  if (search) conditions.push(
+  if (minPrice) baseConditions.push(gte(listingsTable.pricePerDay, minPrice));
+  if (maxPrice) baseConditions.push(lte(listingsTable.pricePerDay, maxPrice));
+  if (search) baseConditions.push(
     or(
       like(listingsTable.title, `%${search}%`),
       like(listingsTable.description ?? sql`''`, `%${search}%`)
     )!
   );
 
+  // Региональное условие добавляем поверх базовых
+  let regionCondition: any = null;
+  let resolvedRegionId: number | null = null;
+  if (region) {
+    const [reg] = await db.select().from(regionsTable).where(eq(regionsTable.slug, region)).limit(1);
+    if (reg) {
+      resolvedRegionId = reg.id;
+      regionCondition = eq(listingsTable.regionId, reg.id);
+    }
+  }
+
+  const conditions = regionCondition ? [...baseConditions, regionCondition] : baseConditions;
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
   const [totalResult] = await db
@@ -207,11 +215,72 @@ router.get("/", async (req, res) => {
     sortedListings = sortedListings.slice(offset, offset + limitNum);
   }
 
+  // Fallback: если выбран регион и в нём ничего не найдено — выдаём объявления из других регионов
+  // (как на Авито: "В вашем регионе ничего не найдено, но смотрите похожие в других регионах")
+  let otherRegionsListings: any[] | undefined;
+  if (resolvedRegionId !== null && total === 0) {
+    const otherRegionsRaw = await db
+      .select({
+        id: listingsTable.id,
+        listingNumber: listingsTable.listingNumber,
+        title: listingsTable.title,
+        description: listingsTable.description,
+        pricePerDay: listingsTable.pricePerDay,
+        deposit: listingsTable.deposit,
+        itemCategory: listingsTable.itemCategory,
+        maxProtectionLimit: listingsTable.maxProtectionLimit,
+        requiresManualVerification: listingsTable.requiresManualVerification,
+        ownerProtectionEnabled: listingsTable.ownerProtectionEnabled,
+        categoryId: listingsTable.categoryId,
+        categoryName: categoriesTable.name,
+        regionId: listingsTable.regionId,
+        regionName: regionsTable.name,
+        city: listingsTable.city,
+        lat: listingsTable.lat,
+        lng: listingsTable.lng,
+        meetingAddress: listingsTable.meetingAddress,
+        photos: listingsTable.photos,
+        isAvailable: listingsTable.isAvailable,
+        ownerId: listingsTable.ownerId,
+        ownerName: usersTable.name,
+        ownerAvatar: usersTable.avatar,
+        ownerPhone: usersTable.phone,
+        createdAt: listingsTable.createdAt,
+      })
+      .from(listingsTable)
+      .leftJoin(categoriesTable, eq(listingsTable.categoryId, categoriesTable.id))
+      .leftJoin(regionsTable, eq(listingsTable.regionId, regionsTable.id))
+      .leftJoin(usersTable, eq(listingsTable.ownerId, usersTable.id))
+      .where(and(...baseConditions))
+      .orderBy(desc(listingsTable.createdAt))
+      .limit(12);
+
+    otherRegionsListings = await Promise.all(otherRegionsRaw.map(async (l: any) => {
+      const [ratingResult] = await db
+        .select({
+          avg: sql<number>`COALESCE(AVG(${reviewsTable.rating}), 0)::float`,
+          count: sql<number>`COUNT(*)::int`,
+        })
+        .from(reviewsTable)
+        .where(eq(reviewsTable.listingId, l.id));
+      return {
+        ...l,
+        pricePerDay: parseFloat(l.pricePerDay as unknown as string),
+        deposit: l.deposit ? parseFloat(l.deposit as unknown as string) : undefined,
+        createdAt: l.createdAt.toISOString(),
+        rating: ratingResult?.avg ?? 0,
+        reviewCount: ratingResult?.count ?? 0,
+        bookingCount: 0,
+      };
+    }));
+  }
+
   res.json({
     listings: sortedListings,
     total,
     page: pageNum,
     totalPages: Math.ceil(total / limitNum),
+    ...(otherRegionsListings && otherRegionsListings.length > 0 ? { otherRegionsListings } : {}),
   });
 });
 

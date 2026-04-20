@@ -367,16 +367,55 @@ export default function Catalog() {
             <p>Не удалось загрузить каталог. Попробуйте обновить страницу.</p>
           </div>
         ) : !data?.listings?.length ? (
-          <div className="bg-white border border-border p-12 rounded-2xl text-center flex flex-col items-center justify-center">
-            <Search className="w-16 h-16 text-muted-foreground mb-4 opacity-50" />
-            <h3 className="text-xl font-bold mb-2">Ничего не найдено</h3>
-            <p className="text-muted-foreground mb-6 max-w-md">
-              По вашим фильтрам нет подходящих вещей. Попробуйте изменить параметры поиска или выбрать другую категорию.
-            </p>
-            <button onClick={resetFilters} className="btn-secondary">
-              Сбросить фильтры
-            </button>
-          </div>
+          <>
+            {/* Сообщение: в выбранном регионе ничего нет */}
+            <div className="bg-white border border-border p-8 sm:p-10 rounded-2xl text-center flex flex-col items-center justify-center">
+              <Search className="w-14 h-14 text-muted-foreground mb-4 opacity-50" />
+              <h3 className="text-xl font-bold mb-2">
+                {selectedRegionName
+                  ? `В регионе «${selectedRegionName}» таких вещей пока нет`
+                  : "Ничего не найдено"}
+              </h3>
+              <p className="text-muted-foreground mb-5 max-w-md">
+                {selectedRegionName
+                  ? "Попробуйте изменить параметры поиска, выбрать другую категорию или регион."
+                  : "По вашим фильтрам нет подходящих вещей. Попробуйте изменить параметры."}
+              </p>
+              <div className="flex gap-3 flex-wrap justify-center">
+                {selectedRegionName && (
+                  <button
+                    onClick={() => { setRegion(""); regionInitialized.current = true; }}
+                    className="btn-primary"
+                  >
+                    Искать во всех регионах
+                  </button>
+                )}
+                <button onClick={resetFilters} className="btn-secondary">
+                  Сбросить фильтры
+                </button>
+              </div>
+            </div>
+
+            {/* Объявления из других регионов (если есть) */}
+            {(data as any)?.otherRegionsListings?.length > 0 && (
+              <div className="mt-10">
+                <div className="mb-5 flex items-center gap-3">
+                  <MapPin className="w-5 h-5 text-primary flex-shrink-0" />
+                  <div>
+                    <h2 className="text-lg sm:text-xl font-bold">Похожие в других регионах</h2>
+                    <p className="text-sm text-muted-foreground">
+                      Возможно, вам подойдут эти предложения
+                    </p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-6">
+                  {(data as any).otherRegionsListings.map((listing: any) => (
+                    <ListingCard key={`other-${listing.id}`} listing={listing} />
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
         ) : (
           <>
             <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-6">

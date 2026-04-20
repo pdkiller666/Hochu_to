@@ -653,6 +653,12 @@ components:
           type: string
         avatar:
           type: string
+        bio:
+          type: string
+        telegram:
+          type: string
+        website:
+          type: string
         regionId:
           type: integer
         regionName:
@@ -677,6 +683,8 @@ components:
           type: string
         role:
           type: string
+        bio:
+          type: string
         regionName:
           type: string
         createdAt:
@@ -684,6 +692,8 @@ components:
         totalListings:
           type: integer
         totalBookings:
+          type: integer
+        completedDeals:
           type: integer
         rating:
           type: number
@@ -704,11 +714,46 @@ components:
           type: string
         avatar:
           type: string
+        bio:
+          type: string
+        telegram:
+          type: string
+        website:
+          type: string
         regionId:
           type: integer
         role:
           type: string
           enum: [renter, owner]
+
+    AppNotification:
+      type: object
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        type:
+          type: string
+        title:
+          type: string
+        message:
+          type: string
+        bookingId:
+          type: integer
+        listingTitle:
+          type: string
+        isRead:
+          type: boolean
+        createdAt:
+          type: string
+      required:
+        - id
+        - userId
+        - type
+        - title
+        - isRead
+        - createdAt
 
     Region:
       type: object
@@ -819,6 +864,11 @@ components:
           type: integer
         totalPages:
           type: integer
+        otherRegionsListings:
+          type: array
+          description: Объявления из других регионов (показываются, когда в выбранном регионе ничего не найдено)
+          items:
+            $ref: "#/components/schemas/Listing"
       required:
         - listings
         - total

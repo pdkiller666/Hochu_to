@@ -6,12 +6,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type BookingStatus = (typeof BookingStatus)[keyof typeof BookingStatus];
+export type DateRangeStatus =
+  (typeof DateRangeStatus)[keyof typeof DateRangeStatus];
 
-export const BookingStatus = {
+export const DateRangeStatus = {
   pending: "pending",
   confirmed: "confirmed",
-  rejected: "rejected",
-  completed: "completed",
-  cancelled: "cancelled",
 } as const;

@@ -14,6 +14,9 @@ export interface User {
   role: UserRole;
   phone?: string;
   avatar?: string;
+  bio?: string;
+  telegram?: string;
+  website?: string;
   regionId?: number;
   regionName?: string;
   createdAt: string;

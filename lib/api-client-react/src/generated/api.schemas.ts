@@ -83,6 +83,25 @@ export interface UserProfile {
   rating?: number;
 }
 
+export type UpdateProfileRequestRole =
+  (typeof UpdateProfileRequestRole)[keyof typeof UpdateProfileRequestRole];
+
+export const UpdateProfileRequestRole = {
+  renter: "renter",
+  owner: "owner",
+} as const;
+
+export interface UpdateProfileRequest {
+  name?: string;
+  phone?: string;
+  avatar?: string;
+  bio?: string;
+  telegram?: string;
+  website?: string;
+  regionId?: number;
+  role?: UpdateProfileRequestRole;
+}
+
 export interface AppNotification {
   id: number;
   userId: number;
@@ -93,17 +112,6 @@ export interface AppNotification {
   listingTitle?: string;
   isRead: boolean;
   createdAt: string;
-}
-
-export interface UpdateProfileRequest {
-  name?: string;
-  phone?: string;
-  avatar?: string;
-  bio?: string;
-  telegram?: string;
-  website?: string;
-  regionId?: number;
-  role?: string;
 }
 
 export interface Region {
@@ -166,6 +174,8 @@ export interface ListingsResponse {
   total: number;
   page: number;
   totalPages: number;
+  /** Объявления из других регионов (показываются, когда в выбранном регионе ничего не найдено) */
+  otherRegionsListings?: Listing[];
 }
 
 export interface CreateListingRequest {
@@ -179,9 +189,18 @@ export interface CreateListingRequest {
   isAvailable?: boolean;
 }
 
+export type DateRangeStatus =
+  (typeof DateRangeStatus)[keyof typeof DateRangeStatus];
+
+export const DateRangeStatus = {
+  pending: "pending",
+  confirmed: "confirmed",
+} as const;
+
 export interface DateRange {
   startDate: string;
   endDate: string;
+  status?: DateRangeStatus;
 }
 
 export interface CreateBookingRequest {
@@ -197,8 +216,6 @@ export type UpdateBookingStatusRequestStatus =
 export const UpdateBookingStatusRequestStatus = {
   pending: "pending",
   confirmed: "confirmed",
-  active: "active",
-  return_pending: "return_pending",
   rejected: "rejected",
   completed: "completed",
   cancelled: "cancelled",
@@ -213,8 +230,6 @@ export type BookingStatus = (typeof BookingStatus)[keyof typeof BookingStatus];
 export const BookingStatus = {
   pending: "pending",
   confirmed: "confirmed",
-  active: "active",
-  return_pending: "return_pending",
   rejected: "rejected",
   completed: "completed",
   cancelled: "cancelled",
@@ -222,25 +237,20 @@ export const BookingStatus = {
 
 export interface Booking {
   id: number;
-  bookingNumber?: string;
   listingId: number;
   listingTitle?: string;
   listingPhoto?: string;
   renterId: number;
   renterName?: string;
-  renterAvatar?: string;
   ownerId: number;
   ownerName?: string;
-  ownerPhone?: string;
-  ownerTelegram?: string;
-  ownerWebsite?: string;
   startDate: string;
   endDate: string;
   totalDays?: number;
   totalPrice: number;
   status: BookingStatus;
   message?: string;
-  ownerComment?: string;
+  ownerPhone?: string;
   createdAt: string;
 }
 

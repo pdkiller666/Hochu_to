@@ -11,9 +11,11 @@ export interface UserProfile {
   name: string;
   avatar?: string;
   role: string;
+  bio?: string;
   regionName?: string;
   createdAt: string;
   totalListings: number;
   totalBookings: number;
+  completedDeals?: number;
   rating?: number;
 }

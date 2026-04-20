@@ -42,6 +42,9 @@ export const LoginUserResponse = zod.object({
     role: zod.enum(["renter", "owner", "admin"]),
     phone: zod.string().optional(),
     avatar: zod.string().optional(),
+    bio: zod.string().optional(),
+    telegram: zod.string().optional(),
+    website: zod.string().optional(),
     regionId: zod.number().optional(),
     regionName: zod.string().optional(),
     createdAt: zod.string(),
@@ -67,6 +70,9 @@ export const GetCurrentUserResponse = zod.object({
   role: zod.enum(["renter", "owner", "admin"]),
   phone: zod.string().optional(),
   avatar: zod.string().optional(),
+  bio: zod.string().optional(),
+  telegram: zod.string().optional(),
+  website: zod.string().optional(),
   regionId: zod.number().optional(),
   regionName: zod.string().optional(),
   createdAt: zod.string(),
@@ -136,6 +142,33 @@ export const GetListingsResponse = zod.object({
   total: zod.number(),
   page: zod.number(),
   totalPages: zod.number(),
+  otherRegionsListings: zod
+    .array(
+      zod.object({
+        id: zod.number(),
+        title: zod.string(),
+        description: zod.string().optional(),
+        pricePerDay: zod.number(),
+        categoryId: zod.number(),
+        categoryName: zod.string().optional(),
+        regionId: zod.number(),
+        regionName: zod.string().optional(),
+        photos: zod.array(zod.string()).optional(),
+        ownerId: zod.number(),
+        ownerName: zod.string().optional(),
+        ownerAvatar: zod.string().optional(),
+        ownerPhone: zod.string().optional(),
+        rating: zod.number().optional(),
+        reviewCount: zod.number().optional(),
+        isAvailable: zod.boolean(),
+        deposit: zod.number().optional(),
+        createdAt: zod.string(),
+      }),
+    )
+    .optional()
+    .describe(
+      "Объявления из других регионов (показываются, когда в выбранном регионе ничего не найдено)",
+    ),
 });
 
 /**
@@ -144,16 +177,11 @@ export const GetListingsResponse = zod.object({
 export const CreateListingBody = zod.object({
   title: zod.string(),
   description: zod.string().optional(),
-  pricePerDay: zod.number().min(100),
+  pricePerDay: zod.number(),
   categoryId: zod.number(),
   regionId: zod.number(),
-  city: zod.string().optional(),
-  lat: zod.number().optional(),
-  lng: zod.number().optional(),
-  meetingAddress: zod.string().optional(),
   photos: zod.array(zod.string()).optional(),
-  itemCategory: zod.enum(["electronics", "tools", "leisure"]).optional(),
-  ownerProtectionEnabled: zod.boolean().optional(),
+  deposit: zod.number().optional(),
   isAvailable: zod.boolean().optional(),
 });
 
@@ -220,16 +248,11 @@ export const UpdateListingParams = zod.object({
 export const UpdateListingBody = zod.object({
   title: zod.string(),
   description: zod.string().optional(),
-  pricePerDay: zod.number().min(100),
+  pricePerDay: zod.number(),
   categoryId: zod.number(),
   regionId: zod.number(),
-  city: zod.string().optional(),
-  lat: zod.number().optional(),
-  lng: zod.number().optional(),
-  meetingAddress: zod.string().optional(),
   photos: zod.array(zod.string()).optional(),
-  itemCategory: zod.enum(["electronics", "tools", "leisure"]).optional(),
-  ownerProtectionEnabled: zod.boolean().optional(),
+  deposit: zod.number().optional(),
   isAvailable: zod.boolean().optional(),
 });
 
@@ -276,6 +299,7 @@ export const GetListingUnavailableDatesParams = zod.object({
 export const GetListingUnavailableDatesResponseItem = zod.object({
   startDate: zod.string(),
   endDate: zod.string(),
+  status: zod.enum(["pending", "confirmed"]).optional(),
 });
 export const GetListingUnavailableDatesResponse = zod.array(
   GetListingUnavailableDatesResponseItem,
@@ -315,11 +339,9 @@ export const GetMyBookingsResponse = zod.array(GetMyBookingsResponseItem);
  */
 export const CreateBookingBody = zod.object({
   listingId: zod.number(),
-  startDate: zod.string().optional(),
-  endDate: zod.string().optional(),
+  startDate: zod.string(),
+  endDate: zod.string(),
   message: zod.string().optional(),
-  protectionEnabled: zod.boolean().optional(),
-  renterProtectionEnabled: zod.boolean().optional(),
 });
 
 /**
@@ -408,10 +430,12 @@ export const GetUserByIdResponse = zod.object({
   name: zod.string(),
   avatar: zod.string().optional(),
   role: zod.string(),
+  bio: zod.string().optional(),
   regionName: zod.string().optional(),
   createdAt: zod.string(),
   totalListings: zod.number(),
   totalBookings: zod.number(),
+  completedDeals: zod.number().optional(),
   rating: zod.number().optional(),
 });
 
@@ -426,7 +450,11 @@ export const UpdateUserProfileBody = zod.object({
   name: zod.string().optional(),
   phone: zod.string().optional(),
   avatar: zod.string().optional(),
+  bio: zod.string().optional(),
+  telegram: zod.string().optional(),
+  website: zod.string().optional(),
   regionId: zod.number().optional(),
+  role: zod.enum(["renter", "owner"]).optional(),
 });
 
 export const UpdateUserProfileResponse = zod.object({
@@ -436,6 +464,9 @@ export const UpdateUserProfileResponse = zod.object({
   role: zod.enum(["renter", "owner", "admin"]),
   phone: zod.string().optional(),
   avatar: zod.string().optional(),
+  bio: zod.string().optional(),
+  telegram: zod.string().optional(),
+  website: zod.string().optional(),
   regionId: zod.number().optional(),
   regionName: zod.string().optional(),
   createdAt: zod.string(),

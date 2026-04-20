@@ -5,8 +5,10 @@
  * Хочу_То — Rental Marketplace API
  * OpenAPI spec version: 0.1.0
  */
+import type { DateRangeStatus } from "./dateRangeStatus";
 
 export interface DateRange {
   startDate: string;
   endDate: string;
+  status?: DateRangeStatus;
 }

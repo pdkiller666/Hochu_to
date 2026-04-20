@@ -15,7 +15,6 @@ export interface Listing {
   categoryName?: string;
   regionId: number;
   regionName?: string;
-  city?: string;
   photos?: string[];
   ownerId: number;
   ownerName?: string;

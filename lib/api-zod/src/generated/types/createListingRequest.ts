@@ -12,7 +12,6 @@ export interface CreateListingRequest {
   pricePerDay: number;
   categoryId: number;
   regionId: number;
-  city?: string;
   photos?: string[];
   deposit?: number;
   isAvailable?: boolean;
