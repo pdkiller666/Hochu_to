@@ -64,27 +64,70 @@ function matchRegion(stateName: string, regions: { name: string; slug: string }[
 interface SearchBarProps {
   className?: string;
   inputClassName?: string;
-  searchQuery: string;
-  onChangeQuery: (v: string) => void;
-  onSubmit: (e: React.FormEvent) => void;
 }
 
-function HeaderSearchBar({ className, inputClassName, searchQuery, onChangeQuery, onSubmit }: SearchBarProps) {
+/**
+ * HeaderSearchBar — owns its OWN input state.
+ *
+ * Why: previously the parent <Header> owned `searchQuery`. Every keystroke
+ * caused Header to re-render the entire tree (auth, regions, notifications,
+ * etc.), which on mobile browsers (especially iOS Safari / Chrome) caused
+ * the input to lose focus and the keyboard to dismiss after each character.
+ *
+ * Now: input state lives here. Typing only re-renders this small component.
+ * URL `?search=` is read on mount + on pathname changes (so navigating from
+ * the header to /catalog?search=foo or vice versa pre-fills the input).
+ */
+function HeaderSearchBar({ className, inputClassName }: SearchBarProps) {
+  const [, navigate] = useLocation();
+  const [location] = useLocation();
+  const [value, setValue] = useState(() => {
+    if (typeof window === "undefined") return "";
+    return new URLSearchParams(window.location.search).get("search") || "";
+  });
+
+  // Pre-fill input when URL ?search= changes due to navigation
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search);
+    setValue(sp.get("search") || "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const q = value.trim();
+    const sp = new URLSearchParams(window.location.search);
+    if (q) sp.set("search", q); else sp.delete("search");
+    navigate(`/catalog?${sp.toString()}`);
+  };
+
   return (
-    <form onSubmit={onSubmit} className={cn("flex items-center gap-2 group", className)}>
+    <form onSubmit={handleSubmit} className={cn("flex items-center gap-2 group", className)} role="search">
       <Search className="w-4 h-4 text-muted-foreground flex-shrink-0 group-focus-within:text-primary transition-colors" />
       <input
-        type="text"
-        value={searchQuery}
-        onChange={e => onChangeQuery(e.target.value)}
+        type="search"
+        enterKeyHint="search"
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck={false}
+        value={value}
+        onChange={e => setValue(e.target.value)}
         placeholder="Найти вещь для аренды..."
-        className={cn("flex-1 bg-transparent outline-none text-sm placeholder:text-muted-foreground", inputClassName)}
+        className={cn("flex-1 bg-transparent outline-none text-sm placeholder:text-muted-foreground appearance-none [&::-webkit-search-cancel-button]:hidden", inputClassName)}
       />
-      {searchQuery && (
-        <button type="button" onClick={() => onChangeQuery("")} className="text-muted-foreground hover:text-foreground transition-colors">
-          <X className="w-3.5 h-3.5" />
-        </button>
-      )}
+      <button
+        type="button"
+        onClick={() => setValue("")}
+        aria-label="Очистить"
+        tabIndex={-1}
+        className={cn(
+          "text-muted-foreground hover:text-foreground transition-opacity flex-shrink-0",
+          value ? "opacity-100" : "opacity-0 pointer-events-none"
+        )}
+      >
+        <X className="w-3.5 h-3.5" />
+      </button>
       <button type="submit" className="btn-primary py-1.5 px-4 text-xs rounded-lg flex-shrink-0">
         Найти
       </button>
@@ -219,25 +262,6 @@ export function Header() {
     { name: "О нас", path: "/about" },
   ];
 
-  const [searchQuery, setSearchQuery] = useState(() => {
-    const sp = new URLSearchParams(window.location.search);
-    return sp.get("search") || "";
-  });
-
-  // Sync header search input with URL ?search= when route changes
-  useEffect(() => {
-    const sp = new URLSearchParams(window.location.search);
-    setSearchQuery(sp.get("search") || "");
-  }, [location]);
-
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    const q = searchQuery.trim();
-    const sp = new URLSearchParams(window.location.search);
-    if (q) sp.set("search", q); else sp.delete("search");
-    navigate(`/catalog?${sp.toString()}`);
-  };
-
   return (
     <header className="sticky top-0 z-50 w-full bg-background/95 backdrop-blur-md border-b border-border/60 shadow-sm">
       <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6">
@@ -255,7 +279,7 @@ export function Header() {
 
           {/* Desktop Search Bar — center, takes most space */}
           <div className="hidden md:flex flex-1 mx-2 items-center bg-muted/50 border border-border rounded-xl px-3 py-2 focus-within:ring-2 focus-within:ring-primary/30 focus-within:border-primary/50 transition-all">
-            <HeaderSearchBar className="w-full" searchQuery={searchQuery} onChangeQuery={setSearchQuery} onSubmit={handleSearch} />
+            <HeaderSearchBar className="w-full" />
           </div>
 
           {/* Desktop Region Selector */}
@@ -487,7 +511,7 @@ export function Header() {
       {/* Mobile Search Row — always visible, part of sticky header */}
       <div className="md:hidden px-3 pb-2.5">
         <div className="flex items-center bg-muted/50 border border-border rounded-xl px-3 py-2.5 focus-within:ring-2 focus-within:ring-primary/30 focus-within:border-primary/50 transition-all">
-          <HeaderSearchBar className="w-full" searchQuery={searchQuery} onChangeQuery={setSearchQuery} onSubmit={handleSearch} />
+          <HeaderSearchBar className="w-full" />
         </div>
       </div>
 
