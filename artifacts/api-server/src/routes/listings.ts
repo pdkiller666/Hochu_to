@@ -5,6 +5,7 @@ import { requireAuth, AuthRequest } from "../middleware/auth.js";
 import { CreateListingBody } from "@workspace/api-zod";
 import fs from "fs";
 import path from "path";
+import { UPLOADS_DIR } from "../lib/uploadsDir.js";
 
 const router = Router();
 
@@ -13,7 +14,7 @@ function deleteUploadedFiles(photos: string[]): void {
     if (!url.startsWith("/uploads/")) continue;
     const filename = path.basename(url);
     if (!filename || filename.includes("..")) continue;
-    const filePath = path.resolve("uploads", filename);
+    const filePath = path.join(UPLOADS_DIR, filename);
     try {
       if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
     } catch {

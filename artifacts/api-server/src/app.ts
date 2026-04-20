@@ -6,6 +6,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { logger } from "./lib/logger";
 import routes from "./routes";
+import { UPLOADS_DIR } from "./lib/uploadsDir.js";
 
 // Настройка путей для ES-модулей
 const __filename = fileURLToPath(import.meta.url);
@@ -37,8 +38,9 @@ app.use(
 );
 
 // 5. Раздача загруженных файлов (всегда — и в dev, и в prod)
-const uploadsDir = path.resolve("uploads");
-app.use("/uploads", express.static(uploadsDir));
+// В продакшне UPLOADS_DIR = /data/uploads (persistent volume Amvera).
+// В разработке = ./uploads.
+app.use("/uploads", express.static(UPLOADS_DIR));
 
 // 6. API РОУТЫ
 app.use("/api", routes);

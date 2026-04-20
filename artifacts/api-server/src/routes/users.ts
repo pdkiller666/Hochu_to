@@ -7,14 +7,14 @@ import multer from "multer";
 import path from "path";
 import { randomUUID } from "crypto";
 import fs from "fs";
+import { UPLOADS_DIR } from "../lib/uploadsDir.js";
 
 const router = Router();
 
 const avatarStorage = multer.diskStorage({
   destination: (_req, _file, cb) => {
-    const dir = path.join(process.cwd(), "uploads");
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    cb(null, dir);
+    // UPLOADS_DIR создаётся при старте приложения в uploadsDir.ts
+    cb(null, UPLOADS_DIR);
   },
   filename: (_req, _file, cb) => {
     cb(null, `${randomUUID()}.jpg`);
@@ -152,7 +152,8 @@ router.post("/:id/avatar", requireAuth, uploadAvatar.single("avatar"), async (re
   // Delete old avatar file if it was uploaded
   const [currentUser] = await db.select({ avatar: usersTable.avatar }).from(usersTable).where(eq(usersTable.id, id)).limit(1);
   if (currentUser?.avatar && currentUser.avatar.startsWith("/uploads/")) {
-    const oldPath = path.join(process.cwd(), currentUser.avatar);
+    const oldFilename = path.basename(currentUser.avatar);
+    const oldPath = path.join(UPLOADS_DIR, oldFilename);
     if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
   }
 
