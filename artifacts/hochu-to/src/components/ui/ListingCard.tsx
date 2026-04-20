@@ -106,58 +106,55 @@ export function ListingCard({ listing }: ListingCardProps) {
         </div>
 
         <div className="mt-auto pt-3 border-t border-border space-y-2">
-          {/* Base price */}
-          <div className="flex items-end justify-between">
-            <div>
-              <div className="font-display font-bold text-base sm:text-xl text-primary">
-                {formatPrice(listing.pricePerDay)}
-              </div>
-              <div className="text-[10px] sm:text-xs text-muted-foreground">за сутки</div>
-            </div>
-            <Link
-              href={`/listings/${listing.id}`}
-              className="btn-primary py-1.5 sm:py-2 px-3 sm:px-4 rounded-xl text-xs sm:text-sm whitespace-nowrap"
-            >
-              Подробнее
-            </Link>
-          </div>
-
-          {/* Total with protection (1 day estimate) */}
           {(() => {
             const cat = ((listing as any).itemCategory ?? "tools") as ItemCategory;
             const ownerProt = (listing as any).ownerProtectionEnabled !== false;
             const { total, combinedServiceFee } = calculateTotalPrice(listing.pricePerDay, cat, 1, ownerProt);
             const deposit = calcDeposit(listing.pricePerDay);
             return (
-              <div className="relative">
-                <div
-                  className="flex items-center gap-1 text-[10px] sm:text-xs text-muted-foreground cursor-default"
-                  onMouseEnter={() => setShowTooltip(true)}
-                  onMouseLeave={() => setShowTooltip(false)}
-                >
-                  <span className="text-foreground font-semibold">{formatPrice(total)}</span>
-                  <span>с защитой / сутки</span>
-                  <Info className="w-3 h-3 text-primary/60 shrink-0" />
-                </div>
+              <>
+                {/* Base price — реальный минимум за 1 сутки с учётом фонда */}
+                <div className="flex items-end justify-between">
+                  <div className="relative">
+                    <div
+                      className="font-display font-bold text-base sm:text-xl text-primary cursor-default flex items-baseline gap-1"
+                      onMouseEnter={() => setShowTooltip(true)}
+                      onMouseLeave={() => setShowTooltip(false)}
+                    >
+                      <span className="text-[10px] sm:text-xs font-semibold text-muted-foreground">от</span>
+                      {formatPrice(total)}
+                      <Info className="w-3 h-3 text-primary/50 shrink-0 mb-0.5" />
+                    </div>
+                    <div className="text-[10px] sm:text-xs text-muted-foreground">за сутки, всё включено</div>
 
-                {showTooltip && (
-                  <div className="absolute bottom-full left-0 mb-2 z-30 bg-popover border border-border rounded-xl shadow-xl p-3 w-60 text-xs space-y-1 pointer-events-none">
-                    <p className="font-bold text-foreground mb-1.5">Расчёт за 1 сутки:</p>
-                    <div className="flex justify-between text-muted-foreground">
-                      <span>Аренда</span><span>{formatPrice(listing.pricePerDay)}</span>
-                    </div>
-                    <div className="flex justify-between text-muted-foreground">
-                      <span>Комиссия сервиса</span><span>{formatPrice(combinedServiceFee)}</span>
-                    </div>
-                    <div className="flex justify-between font-bold border-t border-border pt-1 text-foreground">
-                      <span>Итого</span><span>{formatPrice(total)}</span>
-                    </div>
-                    <div className="flex justify-between text-amber-600 border-t border-border pt-1">
-                      <span>+ залог (возврат)</span><span>{formatPrice(deposit)}</span>
-                    </div>
+                    {showTooltip && (
+                      <div className="absolute bottom-full left-0 mb-2 z-30 bg-popover border border-border rounded-xl shadow-xl p-3 w-60 text-xs space-y-1 pointer-events-none">
+                        <p className="font-bold text-foreground mb-1.5">Минимум за 1 сутки:</p>
+                        <div className="flex justify-between text-muted-foreground">
+                          <span>Аренда</span><span>{formatPrice(listing.pricePerDay)}</span>
+                        </div>
+                        {ownerProt && combinedServiceFee > 0 && (
+                          <div className="flex justify-between text-muted-foreground">
+                            <span>Гарантийный фонд</span><span>{formatPrice(combinedServiceFee)}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between font-bold border-t border-border pt-1 text-foreground">
+                          <span>Итого</span><span>{formatPrice(total)}</span>
+                        </div>
+                        <div className="flex justify-between text-amber-600 border-t border-border pt-1">
+                          <span>+ залог (возвращается)</span><span>{formatPrice(deposit)}</span>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
+                  <Link
+                    href={`/listings/${listing.id}`}
+                    className="btn-primary py-1.5 sm:py-2 px-3 sm:px-4 rounded-xl text-xs sm:text-sm whitespace-nowrap"
+                  >
+                    Подробнее
+                  </Link>
+                </div>
+              </>
             );
           })()}
         </div>

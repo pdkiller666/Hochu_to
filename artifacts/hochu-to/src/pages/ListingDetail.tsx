@@ -499,10 +499,18 @@ export default function ListingDetail() {
           <div className="lg:col-span-1">
             <div className="sticky top-28 glass-panel p-6 rounded-3xl">
               <div className="mb-6 pb-6 border-b border-border">
-                <div className="flex items-end gap-2 mb-2">
-                  <span className="text-4xl font-display font-black text-primary">{formatPrice(listing.pricePerDay)}</span>
-                  <span className="text-muted-foreground pb-1">/ сутки</span>
-                </div>
+                {(() => {
+                  const cat = ((listing as any).itemCategory ?? "tools") as ItemCategory;
+                  const ownerProt = (listing as any).ownerProtectionEnabled !== false;
+                  const { total } = calculateTotalPrice(listing.pricePerDay, cat, 1, ownerProt);
+                  return (
+                    <div className="flex items-end gap-2 mb-2">
+                      <span className="text-sm font-bold text-muted-foreground pb-2">от</span>
+                      <span className="text-4xl font-display font-black text-primary">{formatPrice(total)}</span>
+                      <span className="text-muted-foreground pb-1">/ сутки</span>
+                    </div>
+                  );
+                })()}
                 {(() => {
                   const cat = ((listing as any).itemCategory ?? "tools") as ItemCategory;
                   const maxProt = (listing as any).maxProtectionLimit as number | undefined;
@@ -620,6 +628,53 @@ export default function ListingDetail() {
                     <Settings className="w-4 h-4" />
                     Сменить роль в настройках
                   </Link>
+                </div>
+              ) : !isAuthenticated ? (
+                /* Неавторизованный пользователь — мотивация к регистрации */
+                <div className="space-y-4">
+                  <div className="rounded-2xl border-2 border-primary/30 bg-gradient-to-br from-primary/5 via-background to-accent/5 p-5 text-center">
+                    <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-3">
+                      <Shield className="w-7 h-7 text-primary" />
+                    </div>
+                    <h3 className="font-display font-black text-lg mb-1.5">Войдите, чтобы арендовать</h3>
+                    <p className="text-sm text-muted-foreground leading-relaxed mb-4">
+                      После регистрации вы увидите календарь свободных дат, точную стоимость аренды и сможете отправить заявку владельцу — всё под защитой Гарантийного фонда.
+                    </p>
+                    <ul className="text-left space-y-2 mb-5 text-sm">
+                      <li className="flex items-start gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0 mt-0.5" />
+                        <span>Календарь со свободными датами</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0 mt-0.5" />
+                        <span>Расчёт стоимости с учётом всех сборов</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0 mt-0.5" />
+                        <span>Защита сделки и арбитраж при спорах</span>
+                      </li>
+                      <li className="flex items-start gap-2">
+                        <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0 mt-0.5" />
+                        <span>Чат с владельцем прямо на платформе</span>
+                      </li>
+                    </ul>
+                    <Link href="/auth" className="btn-primary w-full block py-3.5 text-base mb-2">
+                      Войти или зарегистрироваться
+                    </Link>
+                    <p className="text-[11px] text-muted-foreground">Регистрация займёт меньше минуты</p>
+                  </div>
+                  {(() => {
+                    const cat = ((listing as any).itemCategory ?? "tools") as ItemCategory;
+                    const ownerProt = (listing as any).ownerProtectionEnabled !== false;
+                    const { total } = calculateTotalPrice(listing.pricePerDay, cat, 1, ownerProt);
+                    return (
+                      <div className="rounded-2xl bg-muted/40 p-4 text-center">
+                        <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold mb-1">Стоимость аренды</p>
+                        <p className="text-2xl font-display font-black text-primary">от {formatPrice(total)} <span className="text-sm font-bold text-muted-foreground">/ сутки</span></p>
+                        <p className="text-[11px] text-muted-foreground mt-1">Точная цена — после выбора дат в личном кабинете</p>
+                      </div>
+                    );
+                  })()}
                 </div>
               ) : bookingSuccess ? (
                 <div className="text-center py-6">
