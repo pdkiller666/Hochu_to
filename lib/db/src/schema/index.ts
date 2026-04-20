@@ -12,3 +12,4 @@ export * from "./booking_messages";
 export * from "./favorites";
 export * from "./support";
 export * from "./auth_sessions";
+export * from "./claims";

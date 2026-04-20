@@ -17,6 +17,7 @@ import favoritesRouter from "./favorites.js";
 import geoipRouter from "./geoip.js";
 import supportRouter from "./support.js";
 import reportsRouter from "./reports.js";
+import claimsRouter from "./claims.js";
 
 const router: IRouter = Router();
 
@@ -35,6 +36,7 @@ router.use("/joint-purchases", jointPurchasesRouter);
 router.use("/favorites", favoritesRouter);
 router.use("/support", supportRouter);
 router.use("/reports", reportsRouter);
+router.use("/claims", claimsRouter);
 router.use("/admin", adminRouter);
 router.use(geoipRouter);
 router.use(miscRouter);

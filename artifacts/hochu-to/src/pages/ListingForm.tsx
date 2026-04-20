@@ -7,7 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ChevronLeft, Loader2, ImagePlus, X, ShieldCheck, ShieldOff, AlertTriangle, Info } from "lucide-react";
 import { Link } from "wouter";
 import { LocationPicker } from "@/components/ui/LocationPicker";
-import { calculateTotalPrice, calcMaxProtectionLimit, calcDeposit, calcFundContribution, ITEM_CATEGORY_LABELS, CATEGORY_AVG_PRICE, type ItemCategory } from "@/lib/utils";
+import { calculateTotalPrice, calcMaxProtectionLimit, calcDeposit, ITEM_CATEGORY_LABELS, CATEGORY_AVG_PRICE, type ItemCategory } from "@/lib/utils";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "";
 const DRAFT_KEY = "hochu_to_listing_draft";
@@ -340,9 +340,10 @@ export default function ListingForm() {
                   onChange={e => setFormData({ ...formData, itemCategory: e.target.value as any })}
                 >
                   <option value="">Не указана (инструменты по умолчанию)</option>
-                  <option value="electronics">Электроника (множитель ×60)</option>
-                  <option value="tools">Инструменты (множитель ×30)</option>
-                  <option value="leisure">Отдых и спорт (множитель ×15)</option>
+                  <option value="electronics">Электроника (защита ×50)</option>
+                  <option value="tools">Инструменты (защита ×20)</option>
+                  <option value="leisure">Отдых и спорт (защита ×15)</option>
+                  <option value="special_machinery">Спецтехника (защита ×10)</option>
                 </select>
                 <p className="text-xs text-muted-foreground mt-1">Определяет лимит компенсации из фонда</p>
               </div>
@@ -356,8 +357,7 @@ export default function ListingForm() {
               const isAnomaly = ppd > avgPrice * 3;
               const maxProt = calcMaxProtectionLimit(ppd, cat, 0); // 0 сделок — самый консервативный кап
               const deposit = calcDeposit(ppd);
-              const fundPerDay = calcFundContribution(maxProt);
-              const { rent, combinedServiceFee, total } = calculateTotalPrice(ppd, cat, 1, formData.ownerProtectionEnabled);
+              const { rent, combinedServiceFee, total, ownerPayout } = calculateTotalPrice(ppd, cat, 1, formData.ownerProtectionEnabled);
 
               return (
                 <div className="space-y-3">
@@ -372,29 +372,35 @@ export default function ListingForm() {
                     </div>
                   )}
 
-                  {/* Preview-карточка */}
+                  {/* Preview-карточка — "Invisible Complexity" */}
                   <div className="bg-primary/5 border border-primary/20 rounded-2xl p-4 space-y-3">
-                    <p className="text-sm font-bold text-foreground">Ваша защита и условия для арендатора</p>
+                    <p className="text-sm font-bold text-foreground">Ваши условия и расчёт</p>
                     <div className="grid grid-cols-2 gap-3">
-                      <div className="bg-white rounded-xl p-3 text-center border border-border">
-                        <p className="text-xs text-muted-foreground mb-1">Ваша защита (фонд)</p>
-                        <p className="text-lg font-black text-primary">{maxProt.toLocaleString("ru")} ₽</p>
-                        {maxProt <= 25_000 && <p className="text-[10px] text-amber-600 mt-0.5">кап для новых аккаунтов</p>}
+                      <div className="bg-white rounded-xl p-3 text-center border border-green-200">
+                        <p className="text-xs text-muted-foreground mb-1">Вы получите на руки</p>
+                        <p className="text-lg font-black text-green-700">{ownerPayout.toLocaleString("ru", { maximumFractionDigits: 0 })} ₽</p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">за 1 сутки аренды</p>
                       </div>
-                      <div className="bg-white rounded-xl p-3 text-center border border-border">
-                        <p className="text-xs text-muted-foreground mb-1">Залог арендатора</p>
-                        <p className="text-lg font-black text-foreground">{deposit.toLocaleString("ru")} ₽</p>
-                        <p className="text-[10px] text-muted-foreground mt-0.5">возврат после аренды</p>
+                      <div className="bg-white rounded-xl p-3 text-center border border-primary/20">
+                        <p className="text-xs text-muted-foreground mb-1">Ваша вещь защищена на</p>
+                        <p className="text-lg font-black text-primary">{maxProt.toLocaleString("ru")} ₽</p>
+                        {maxProt <= 25_000 && <p className="text-[10px] text-amber-600 mt-0.5">лимит для новых аккаунтов</p>}
                       </div>
                     </div>
-                    <div className="bg-white rounded-xl p-3 text-sm space-y-1 border border-border">
-                      <p className="font-semibold text-foreground text-xs mb-1.5">Что видит арендатор за 1 сутки</p>
+                    <div className="bg-white rounded-xl p-3 text-sm space-y-1.5 border border-border">
+                      <p className="font-semibold text-foreground text-xs mb-1.5 uppercase tracking-wide text-muted-foreground">Что видит арендатор за 1 сутки</p>
                       <div className="flex justify-between text-muted-foreground text-xs"><span>Аренда</span><span>{rent.toLocaleString("ru")} ₽</span></div>
-                      <div className="flex justify-between text-muted-foreground text-xs">
-                        <span>Комиссия сервиса {formData.ownerProtectionEnabled ? `(включая взнос ${fundPerDay.toLocaleString("ru")} ₽ в фонд)` : ""}</span>
-                        <span>{combinedServiceFee.toLocaleString("ru", { maximumFractionDigits: 0 })} ₽</span>
+                      {formData.ownerProtectionEnabled && (
+                        <div className="flex justify-between text-xs text-primary/80">
+                          <span className="flex items-center gap-1">🛡 Защита Shield</span>
+                          <span>{combinedServiceFee.toLocaleString("ru", { maximumFractionDigits: 0 })} ₽</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between font-bold border-t border-border pt-1.5 text-xs text-foreground">
+                        <span>Итого к оплате</span>
+                        <span>{total.toLocaleString("ru", { maximumFractionDigits: 0 })} ₽</span>
                       </div>
-                      <div className="flex justify-between font-bold border-t border-border pt-1 text-xs text-foreground"><span>Итого</span><span>{total.toLocaleString("ru", { maximumFractionDigits: 0 })} ₽</span></div>
+                      <p className="text-[10px] text-muted-foreground">+ залог {deposit.toLocaleString("ru")} ₽ (возвратный)</p>
                     </div>
                   </div>
                 </div>

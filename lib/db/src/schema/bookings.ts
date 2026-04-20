@@ -20,6 +20,8 @@ export const bookingsTable = pgTable("bookings", {
   fundContribution: numeric("fund_contribution", { precision: 10, scale: 2 }),
   renterFundContribution: numeric("renter_fund_contribution", { precision: 10, scale: 2 }),
   depositAmount: numeric("deposit_amount", { precision: 10, scale: 2 }),
+  /** Выплата владельцу = rentAmount - serviceFee - taxFee - fundContribution */
+  ownerPayout: numeric("owner_payout", { precision: 10, scale: 2 }),
   protectionEnabled: boolean("protection_enabled").default(true),
   renterProtectionEnabled: boolean("renter_protection_enabled").default(false),
   status: bookingStatusEnum("status").notNull().default("pending"),

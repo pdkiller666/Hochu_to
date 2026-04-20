@@ -253,29 +253,35 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
   ));
 
   const pricePerDay = parseFloat(listing.pricePerDay as unknown as string);
-  const rent = days * pricePerDay;
-  const serviceFee = parseFloat((rent * 0.10).toFixed(2));
-  const taxFee = parseFloat((rent * 0.06).toFixed(2));
+  const rent = parseFloat((days * pricePerDay).toFixed(2));
 
-  // ─── Гарантийный фонд ─────────────────────────────────────────────────────
-  // Лимит фонда уже рассчитан и сохранён в объявлении (maxProtectionLimit)
-  const maxProt = listing.maxProtectionLimit ?? 0;
-  // Взнос в фонд: maxProt * 0.5%, мин. 99 ₽/сутки
-  const perDayFund = maxProt > 0 ? Math.max(parseFloat((maxProt * 0.005).toFixed(2)), 99) : 0;
-
+  // ─── Новая двойная Shield-модель монетизации ──────────────────────────────
+  // Платформа берёт с обеих сторон — "невидимая сложность" для пользователей.
   const ownerProtEnabled = listing.ownerProtectionEnabled !== false;
-  const fundContribution = ownerProtEnabled && maxProt > 0
-    ? parseFloat((perDayFund * days).toFixed(2))
-    : 0;
-  const renterFundContrib = renterProtectionEnabled && maxProt > 0
-    ? parseFloat((perDayFund * days).toFixed(2))
-    : 0;
+
+  const serviceFee   = parseFloat((rent * 0.10).toFixed(2));   // скрытая комиссия с владельца
+  const taxFee       = parseFloat((rent * 0.06).toFixed(2));   // скрытый налог с владельца
+
+  // Shield Fee — платит арендатор сверху (5%, мин 100 ₽)
+  const shieldFee    = ownerProtEnabled ? Math.max(parseFloat((rent * 0.05).toFixed(2)), 100) : 0;
+  // Risk Coverage — удерживается из выплаты владельца (5%, мин 100 ₽)
+  const riskCoverage = ownerProtEnabled ? Math.max(parseFloat((rent * 0.05).toFixed(2)), 100) : 0;
+
+  // Выплата владельцу = аренда − комиссия − налог − страховое покрытие
+  const ownerPayout = parseFloat((rent - serviceFee - taxFee - riskCoverage).toFixed(2));
 
   // Залог: Math.max(1500, pricePerDay * 2) — небольшой, не отпугивает арендаторов
   const listingDeposit = listing.deposit ? parseFloat(listing.deposit as unknown as string) : null;
   const depositAmount = listingDeposit ?? Math.max(1500, pricePerDay * 2);
 
-  const totalPrice = parseFloat((rent + serviceFee + taxFee + fundContribution + renterFundContrib).toFixed(2));
+  // Итого для арендатора = аренда + Shield Fee (депозит — отдельно, возвратный)
+  const totalPrice = parseFloat((rent + shieldFee).toFixed(2));
+
+  // Обратная совместимость с полями БД:
+  // fundContribution → riskCoverage (удерживается с владельца)
+  // renterFundContribution → shieldFee (добавляется к оплате арендатора)
+  const fundContribution = riskCoverage;
+  const renterFundContrib = shieldFee;
 
   const [booking] = await db.insert(bookingsTable).values({
     listingId,
@@ -291,6 +297,7 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
     fundContribution: fundContribution.toString(),
     renterFundContribution: renterFundContrib.toString(),
     depositAmount: depositAmount.toString(),
+    ownerPayout: ownerPayout.toString(),
     protectionEnabled: true,
     renterProtectionEnabled,
     status: "pending",

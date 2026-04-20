@@ -1447,8 +1447,123 @@ function AuditLogTab() {
   );
 }
 
+// ─── Claims Tab ───────────────────────────────────────────────────────────────
+function ClaimsTab() {
+  const API = import.meta.env.VITE_API_URL ?? "";
+  const { data, loading, refresh } = useFetch<any[]>(`${API}/api/claims`, []);
+
+  const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
+    pending:     { label: "На рассмотрении", color: "bg-amber-100 text-amber-700" },
+    reviewing:   { label: "Проверяется",     color: "bg-blue-100 text-blue-700" },
+    approved:    { label: "Одобрена",         color: "bg-green-100 text-green-700" },
+    paid:        { label: "Выплачено",        color: "bg-green-200 text-green-800" },
+    rejected:    { label: "Отклонена",        color: "bg-red-100 text-red-700" },
+  };
+
+  const TYPE_LABEL: Record<string, string> = {
+    damage: "Повреждение",
+    theft:  "Кража",
+  };
+
+  const [processing, setProcessing] = useState<number | null>(null);
+
+  async function handleAction(id: number, status: "approved" | "rejected", adminNote?: string) {
+    setProcessing(id);
+    try {
+      const token = localStorage.getItem("token");
+      await fetch(`${API}/api/claims/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ status, adminNote }),
+      });
+      refresh?.();
+    } finally {
+      setProcessing(null);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-stone-500">Управление заявками Shield — возмещение ущерба арендодателям</p>
+      {loading ? (
+        <div className="text-center py-8 text-stone-400">Загрузка…</div>
+      ) : !data?.length ? (
+        <div className="text-center py-12 text-stone-400">
+          <Shield className="w-10 h-10 mx-auto mb-2 opacity-30" />
+          Заявок пока нет
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {data.map((claim: any) => {
+            const cfg = STATUS_CONFIG[claim.status] ?? { label: claim.status, color: "bg-stone-100 text-stone-600" };
+            return (
+              <div key={claim.id} className="bg-white rounded-xl border border-stone-200 p-4 space-y-3">
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${cfg.color}`}>{cfg.label}</span>
+                      <span className="text-xs text-stone-400">#{claim.id}</span>
+                      <span className="text-xs font-medium text-stone-600">{TYPE_LABEL[claim.type] ?? claim.type}</span>
+                    </div>
+                    <p className="text-sm text-stone-700">{claim.description}</p>
+                    {claim.requestedAmount && (
+                      <p className="text-xs text-stone-500">
+                        Запрошено: <strong className="text-stone-800">{Number(claim.requestedAmount).toLocaleString("ru")} ₽</strong>
+                      </p>
+                    )}
+                  </div>
+                  <div className="text-xs text-stone-400 shrink-0">
+                    {format(new Date(claim.createdAt), "dd.MM.yyyy HH:mm")}
+                    <br />
+                    <span className="text-stone-500">Бронирование #{claim.bookingId}</span>
+                  </div>
+                </div>
+
+                {claim.evidenceUrl && (
+                  <a href={claim.evidenceUrl} target="_blank" rel="noopener noreferrer"
+                     className="text-xs text-primary underline break-all">
+                    📎 Доказательство
+                  </a>
+                )}
+
+                {claim.adminNote && (
+                  <div className="bg-stone-50 rounded-lg p-2 text-xs text-stone-600 italic">
+                    Заметка: {claim.adminNote}
+                  </div>
+                )}
+
+                {claim.status === "pending" && (
+                  <div className="flex gap-2 flex-wrap">
+                    <button
+                      onClick={() => handleAction(claim.id, "approved")}
+                      disabled={processing === claim.id}
+                      className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-medium rounded-lg transition-colors disabled:opacity-50"
+                    >
+                      ✓ Одобрить
+                    </button>
+                    <button
+                      onClick={() => {
+                        const note = prompt("Причина отклонения (необязательно):");
+                        handleAction(claim.id, "rejected", note ?? undefined);
+                      }}
+                      disabled={processing === claim.id}
+                      className="px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white text-xs font-medium rounded-lg transition-colors disabled:opacity-50"
+                    >
+                      ✕ Отклонить
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main AdminPage ────────────────────────────────────────────────────────────
-type Tab = "overview" | "users" | "listings" | "bookings" | "support" | "reports" | "audit";
+type Tab = "overview" | "users" | "listings" | "bookings" | "support" | "reports" | "claims" | "audit";
 
 const TABS: { id: Tab; label: string; icon: any }[] = [
   { id: "overview", label: "Обзор", icon: LayoutDashboard },
@@ -1457,6 +1572,7 @@ const TABS: { id: Tab; label: string; icon: any }[] = [
   { id: "bookings", label: "Бронирования", icon: CalendarDays },
   { id: "support", label: "Поддержка", icon: LifeBuoy },
   { id: "reports", label: "Жалобы", icon: Flag },
+  { id: "claims", label: "Заявки Shield", icon: Shield },
   { id: "audit", label: "Аудит", icon: ScrollText },
 ];
 
@@ -1514,6 +1630,7 @@ export default function AdminPage() {
         {tab === "bookings" && <BookingsTab />}
         {tab === "support" && <SupportTab />}
         {tab === "reports" && <ReportsTab />}
+        {tab === "claims" && <ClaimsTab />}
         {tab === "audit" && <AuditLogTab />}
       </div>
 

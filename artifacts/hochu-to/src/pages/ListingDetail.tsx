@@ -2,7 +2,7 @@ import { Layout } from "@/components/layout/Layout";
 import { useRoute } from "wouter";
 import { useGetListingById, useGetListingUnavailableDates, useCreateBooking, useGetCurrentUser } from "@workspace/api-client-react";
 import { Loader2, MapPin, Star, Shield, ShieldOff, ShieldCheck, Info, User, ChevronLeft, CheckCircle2, AlertTriangle, Settings, CalendarDays, X, Expand, Hash, MessageSquare, Phone, Heart } from "lucide-react";
-import { formatPrice, calculateTotalPrice, calcDeposit, calcMaxProtectionLimit, calcFundContribution, type ItemCategory } from "@/lib/utils";
+import { formatPrice, calculateTotalPrice, calcDeposit, calcMaxProtectionLimit, type ItemCategory } from "@/lib/utils";
 import { useState, useEffect, useCallback } from "react";
 import { useAuthState, getToken } from "@/lib/auth";
 import { Link, useLocation } from "wouter";
@@ -516,7 +516,7 @@ export default function ListingDetail() {
                         <div>
                           <p>Залог: <strong className="text-foreground">{formatPrice(deposit)}</strong> — возвращается сразу после сдачи вещи в том же состоянии.</p>
                           {ownerProt && maxProt && maxProt > 0 && (
-                            <p className="text-xs mt-1 text-primary/80">Гарантийный фонд: лимит компенсации <strong>{maxProt.toLocaleString("ru")} ₽</strong></p>
+                            <p className="text-xs mt-1 text-primary/80">Ваша вещь защищена на: <strong>{maxProt.toLocaleString("ru")} ₽</strong></p>
                           )}
                         </div>
                       </div>
@@ -859,33 +859,30 @@ export default function ListingDetail() {
                     ) : startDate && endDate && (() => {
                       const cat = ((listing as any).itemCategory ?? "tools") as ItemCategory;
                       const ownerProt = (listing as any).ownerProtectionEnabled !== false;
-                      const { rent, combinedServiceFee, renterFundContribution, total, deposit } =
-                        calculateTotalPrice(listing.pricePerDay, cat, totalDays, ownerProt, renterFundEnabled);
+                      const { rent, shieldFee, total, deposit } =
+                        calculateTotalPrice(listing.pricePerDay, cat, totalDays, ownerProt);
                       return (
-                        <div className="bg-primary/5 p-4 rounded-xl border border-primary/20 space-y-1.5 text-sm">
+                        <div className="bg-primary/5 p-4 rounded-xl border border-primary/20 space-y-2 text-sm">
                           <div className="flex justify-between text-muted-foreground">
                             <span>{totalDays} {totalDays === 1 ? "сутки" : "суток"} × {formatPrice(listing.pricePerDay)}</span>
                             <span>{formatPrice(rent)}</span>
                           </div>
-                          <div className="flex justify-between text-muted-foreground">
-                            <span>Комиссия сервиса</span>
-                            <span>{formatPrice(combinedServiceFee)}</span>
-                          </div>
-                          {renterFundEnabled && renterFundContribution > 0 && (
-                            <div className="flex justify-between text-green-700">
-                              <span className="flex items-center gap-1">
+                          {ownerProt && shieldFee > 0 && (
+                            <div className="flex justify-between text-primary/80">
+                              <span className="flex items-center gap-1.5">
                                 <ShieldCheck className="w-3.5 h-3.5" />
-                                Моя защита из фонда
+                                Защита Shield
                               </span>
-                              <span>{formatPrice(renterFundContribution)}</span>
+                              <span>{formatPrice(shieldFee)}</span>
                             </div>
                           )}
-                          <div className="flex justify-between items-center font-bold border-t border-primary/20 pt-1.5 mt-1">
+                          <div className="flex justify-between items-center font-bold border-t border-primary/20 pt-2 mt-1">
                             <span>Итого к оплате</span>
-                            <span className="text-lg text-primary">{formatPrice(total)}</span>
+                            <span className="text-xl text-primary">{formatPrice(total)}</span>
                           </div>
-                          <div className="flex justify-between text-amber-700 text-xs pt-1">
-                            <span>+ залог (возвращается сразу после сдачи)</span>
+                          <p className="text-[11px] text-muted-foreground">Цена включает полную защиту Shield и сервисные сборы</p>
+                          <div className="flex justify-between text-amber-700 text-xs pt-1 border-t border-primary/10">
+                            <span>Залог (возвращается после сдачи вещи)</span>
                             <span className="font-medium">{formatPrice(deposit)}</span>
                           </div>
                         </div>
