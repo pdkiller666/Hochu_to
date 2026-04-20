@@ -572,7 +572,7 @@ export default function ListingDetail() {
                           <p className="flex items-start gap-1.5"><span className="text-amber-500 font-bold mt-0.5">•</span> Арбитраж решает споры нейтрально — без стресса</p>
                         </div>
                         <Link
-                          href={`/listings/${listing.id}/edit`}
+                          href={`/dashboard/listings/${listing.id}/edit`}
                           className="flex items-center justify-center gap-2 w-full py-2.5 px-4 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-sm transition-colors"
                         >
                           <Shield className="w-4 h-4" />
@@ -582,7 +582,7 @@ export default function ListingDetail() {
                     );
                   })()}
                   <Link
-                    href={`/listings/${listing.id}/edit`}
+                    href={`/dashboard/listings/${listing.id}/edit`}
                     className="flex items-center justify-center gap-2 w-full py-2.5 px-4 rounded-xl border border-border hover:bg-muted text-sm font-semibold transition-colors"
                   >
                     <Settings className="w-4 h-4" />
