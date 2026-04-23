@@ -146,7 +146,7 @@ function HeaderSearchBar({ className, inputClassName }: SearchBarProps) {
       >
         <X className="w-3.5 h-3.5" />
       </button>
-      <button type="submit" className="hidden md:block 2xl:hidden btn-primary py-1.5 px-4 text-xs rounded-lg flex-shrink-0">
+      <button type="submit" className="hidden 2xl:block btn-primary py-1.5 px-4 text-xs rounded-lg flex-shrink-0">
         Найти
       </button>
     </form>
@@ -296,12 +296,12 @@ export function Header() {
           </Link>
 
           {/* Desktop Search Bar — center, takes most space */}
-          <div className="hidden md:flex flex-1 min-w-0 mx-2 items-center bg-muted/50 border border-border rounded-xl px-3 py-2 focus-within:ring-2 focus-within:ring-primary/30 focus-within:border-primary/50 transition-all">
+          <div className="hidden md:flex flex-1 min-w-[160px] overflow-hidden mx-2 items-center bg-muted/50 border border-border rounded-xl px-3 py-2 focus-within:ring-2 focus-within:ring-primary/30 focus-within:border-primary/50 transition-all">
             <HeaderSearchBar className="w-full min-w-0" />
           </div>
 
-          {/* Desktop Region Selector */}
-          <div className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border bg-white shadow-sm text-sm text-muted-foreground hover:border-primary/40 transition-colors flex-shrink-0">
+          {/* Desktop Region Selector — visible from xl to avoid squeezing the search bar */}
+          <div className="hidden xl:flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border bg-white shadow-sm text-sm text-muted-foreground hover:border-primary/40 transition-colors flex-shrink-0">
             <MapPin className="w-3.5 h-3.5 text-primary flex-shrink-0" />
             <select
               className="bg-transparent border-none outline-none font-medium cursor-pointer appearance-none text-foreground max-w-[120px] truncate text-sm"

@@ -1,7 +1,7 @@
 import { Layout } from "@/components/layout/Layout";
 import { useGetJointPurchases, useCreateJointPurchase } from "@workspace/api-client-react";
 import { formatPrice } from "@/lib/utils";
-import { Users, Target, ArrowRight } from "lucide-react";
+import { Users, Target, ArrowRight, Clock } from "lucide-react";
 import { useState } from "react";
 import { useToast } from "@/hooks/use-toast";
 
@@ -13,6 +13,10 @@ export default function JointPurchases() {
   const [form, setForm] = useState({
     itemName: "", targetAmount: "", description: "", contactEmail: ""
   });
+
+  const handleParticipate = () => {
+    toast({ title: "Скоро!", description: "Функция участия в покупке появится в следующем обновлении." });
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -72,7 +76,9 @@ export default function JointPurchases() {
                 <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
                   <Users className="w-4 h-4" /> {p.participantsCount} участников
                 </div>
-                <button className="text-primary font-bold text-sm hover:underline">Участвовать</button>
+                <button onClick={handleParticipate} className="flex items-center gap-1 text-primary font-bold text-sm hover:underline">
+                  <Clock className="w-3.5 h-3.5" />Участвовать
+                </button>
               </div>
             </div>
           ))}

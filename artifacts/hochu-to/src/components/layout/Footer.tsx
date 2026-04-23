@@ -74,7 +74,6 @@ export function Footer() {
               <li><Link href="/about" className="text-muted-foreground hover:text-primary transition-colors">О нас</Link></li>
               <li><Link href="/contacts" className="text-muted-foreground hover:text-primary transition-colors">Контакты</Link></li>
               <li><Link href="/privacy" className="text-muted-foreground hover:text-primary transition-colors">Политика конфиденциальности</Link></li>
-              <li><a href="#" className="text-muted-foreground hover:text-primary transition-colors">Пользовательское соглашение</a></li>
             </ul>
           </div>
 
