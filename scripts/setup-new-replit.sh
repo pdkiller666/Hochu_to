@@ -48,10 +48,13 @@ fi
 # 5. Секреты
 echo ""
 echo "🔐 ПРОВЕРЬ СЕКРЕТЫ В Tools → Secrets:"
-echo "   ─ SESSION_SECRET — обязателен (любая случайная строка >32 символов)"
-[ -z "$SESSION_SECRET" ] && echo "     ❌ НЕ НАЙДЕН" || echo "     ✅ установлен"
-echo "   ─ GITHUB_TOKEN  — для пуша на GitHub (опционально)"
-[ -z "$GITHUB_TOKEN" ] && echo "     ⚠️  НЕ найден (см. docs/AGENT_INSTRUCTIONS.md, раздел GitHub)" || echo "     ✅ установлен"
+echo "   ─ DATABASE_URL — обязателен (Replit auto-provisions при модуле postgresql-16)"
+echo "     ✅ найден (см. выше)"
+echo "   ─ GITHUB_TOKEN  — для пуша на GitHub (опционально, см. docs/AGENT_INSTRUCTIONS.md §13)"
+[ -z "$GITHUB_TOKEN" ] && echo "     ⚠️  НЕ найден" || echo "     ✅ установлен"
+echo ""
+echo "ℹ️  Других секретов сейчас не требуется (auth работает на cookie без подписи)."
+echo "   Когда подключишь ЮKassa — добавь YOOKASSA_SHOP_ID + YOOKASSA_SECRET_KEY."
 
 echo ""
 echo "🎉 Готово! Запусти workflow «Start application» (кнопка Run сверху)."

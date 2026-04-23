@@ -609,6 +609,50 @@ GITHUB_TOKEN=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 bash scripts/github-push.s
 
 ---
 
+## 12a. Чек-лист переезда на новый Replit-аккаунт
+
+> Готовность: **высокая**. Весь код в GitHub, БД дампится автоматически, секретов почти нет.
+> Если что-то незакоммичено локально — сначала пушни (см. §13), потом переезжай.
+
+### Что унесёт переезд автоматически (после `git clone` + setup-скрипта)
+- ✅ Весь исходный код (pnpm monorepo)
+- ✅ Схема БД (через `pnpm --filter @workspace/db push`)
+- ✅ Тестовые данные: 7 пользователей, 22 объявления, 7 броней, регионы, категории, отзывы, нотификации, и т.д. — `scripts/db-snapshots/dev-data.sql` (~590 INSERT-ов, актуален на 23.04.2026 23:00)
+- ✅ Загруженные изображения объявлений (~10 МБ, 20 файлов в `artifacts/api-server/uploads/`) — лежат прямо в репо
+- ✅ Конфиги: `.replit`, `replit.nix`, `pnpm-workspace.yaml`, `tsconfig.base.json`, и т.д.
+- ✅ Документация: `docs/AGENT_INSTRUCTIONS.md` (журнал всех итераций), `replit.md`
+
+### Что нужно сделать вручную на новом аккаунте
+1. **Создать новый Repl** → импортировать из GitHub (`pdkiller666/Hochu_to`).
+2. **Tools → Database** → подключить **PostgreSQL 16**. Replit создаст `DATABASE_URL` автоматически.
+3. **Tools → Secrets** → добавить:
+   - `GITHUB_TOKEN` = `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` (для `scripts/github-push.sh`)
+   - **больше ничего не нужно** — auth работает на cookie без подписи, JWT-секрета нет.
+4. В Shell: `bash scripts/setup-new-replit.sh` — установит зависимости, накатит схему, зальёт снапшот.
+5. Нажать **Run** (workflow «Start application» уже сконфигурирован).
+
+### Тестовые аккаунты после восстановления
+- `admin@example.com` / `admin123` — администратор
+- `owner1@example.com`, `owner2@example.com` / `owner123` — владельцы (есть Premium-брони → доступны выплаты)
+- `renter1@example.com`, `renter2@example.com` / `renter123` — арендаторы
+
+### Перед самим переездом (на старом аккаунте)
+1. **Запушить всё** — `bash scripts/github-push.sh "финальный коммит"` из Shell.
+2. **Обновить снапшот БД**, если со времени последнего обновления (см. метку выше) накапливал данные:
+   ```bash
+   PGSSLMODE=require pg_dump "$DATABASE_URL" --data-only --inserts --no-owner --no-acl --schema=public > scripts/db-snapshots/dev-data.sql
+   git add scripts/db-snapshots/dev-data.sql && git commit -m "Refresh DB snapshot" && bash scripts/github-push.sh "Refresh DB snapshot"
+   ```
+3. **Проверить uploads** — если добавлял новые фото листингов, они должны быть в `artifacts/api-server/uploads/` и закоммичены (`uploads/` НЕ в `.gitignore`).
+4. **Amvera-деплой** — переезд не затронет, т.к. он деплоится из GitHub по webhook независимо от Replit-аккаунта.
+
+### Что НЕ переедет (и не нужно)
+- ❌ Данные production-БД на Amvera — это отдельная база, доступ через её панель.
+- ❌ Replit-checkpoints — не переносятся между аккаунтами; это нормально, т.к. в GitHub есть полная история.
+- ❌ Local-only файлы в `/tmp/`, `node_modules/`, `dist/`, `.expo/` — пересоздадутся.
+
+---
+
 ## 13. Команда для пуша после каждой итерации
 
 ```bash
