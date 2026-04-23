@@ -146,7 +146,7 @@ function HeaderSearchBar({ className, inputClassName }: SearchBarProps) {
       >
         <X className="w-3.5 h-3.5" />
       </button>
-      <button type="submit" className="hidden md:block btn-primary py-1.5 px-4 text-xs rounded-lg flex-shrink-0">
+      <button type="submit" className="hidden md:block 2xl:hidden btn-primary py-1.5 px-4 text-xs rounded-lg flex-shrink-0">
         Найти
       </button>
     </form>
@@ -329,7 +329,7 @@ export function Header() {
           </div>
 
           {/* Desktop Nav — only xl+ */}
-          <nav className="hidden xl:flex items-center gap-6 flex-shrink-0">
+          <nav className="hidden xl:flex items-center gap-3 2xl:gap-5 flex-shrink-0">
             {navLinks.map((link) => (
               <Link
                 key={link.path}
@@ -451,14 +451,14 @@ export function Header() {
 
                 <Link
                   href="/dashboard"
-                  className="flex items-center gap-2 xl:gap-3 px-2 xl:px-4 py-1.5 xl:py-2 rounded-xl bg-white border border-border hover:border-primary transition-all group flex-shrink-0 min-w-0"
+                  className="flex items-center gap-2 px-2 2xl:px-4 py-1.5 2xl:py-2 rounded-xl bg-white border border-border hover:border-primary transition-all group flex-shrink-0 min-w-0"
                   title={`${user.name} — ${user.role === "admin" ? "Администратор" : user.role === "owner" ? "Владелец" : "Арендатор"}`}
                 >
-                  <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold flex-shrink-0">
+                  <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold flex-shrink-0 text-sm">
                     {user.name.charAt(0).toUpperCase()}
                   </div>
-                  <div className="hidden xl:flex flex-col min-w-0">
-                    <span className="text-sm font-bold leading-none group-hover:text-primary transition-colors truncate max-w-[140px]">{user.name}</span>
+                  <div className="hidden 2xl:flex flex-col min-w-0">
+                    <span className="text-sm font-bold leading-none group-hover:text-primary transition-colors truncate max-w-[120px]">{user.name}</span>
                     <span className="text-xs text-muted-foreground leading-none mt-1">
                       {user.role === "admin" ? "Администратор" : user.role === "owner" ? "Владелец" : "Арендатор"}
                     </span>
@@ -468,10 +468,10 @@ export function Header() {
                   <Link
                     href="/admin"
                     title="Админ-панель"
-                    className="flex items-center gap-1.5 px-2 lg:px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#C65D3B]/10 text-[#C65D3B] hover:bg-[#C65D3B]/20 transition-colors flex-shrink-0"
+                    className="flex items-center gap-1.5 px-2 py-1.5 text-xs font-semibold rounded-lg bg-[#C65D3B]/10 text-[#C65D3B] hover:bg-[#C65D3B]/20 transition-colors flex-shrink-0"
                   >
                     <Shield className="w-4 h-4" />
-                    <span className="hidden xl:inline">Панель</span>
+                    <span className="hidden 2xl:inline">Панель</span>
                   </Link>
                 )}
                 <button
