@@ -15,7 +15,10 @@ function genTicketNumber(id: number): string {
 
 // ─── POST /api/support/tickets — create ticket ────────────────────────────────
 router.post("/tickets", requireAuth, async (req: AuthRequest, res) => {
-  const { subject, category, body } = req.body;
+  const { subject, body } = req.body;
+  const VALID_CATEGORIES = ["general", "dispute", "technical", "billing"] as const;
+  const rawCategory = req.body.category;
+  const category = VALID_CATEGORIES.includes(rawCategory) ? rawCategory : "general";
   if (!subject?.trim() || !body?.trim()) {
     res.status(400).json({ error: "bad_request", message: "Тема и сообщение обязательны" });
     return;

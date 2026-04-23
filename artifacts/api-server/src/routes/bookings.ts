@@ -71,9 +71,11 @@ function formatBooking(
     serviceFee: b.serviceFee ? parseFloat(b.serviceFee as unknown as string) : undefined,
     taxFee: b.taxFee ? parseFloat(b.taxFee as unknown as string) : undefined,
     fundContribution: b.fundContribution ? parseFloat(b.fundContribution as unknown as string) : undefined,
+    renterFundContribution: b.renterFundContribution ? parseFloat(b.renterFundContribution as unknown as string) : undefined,
     ownerPayout: b.ownerPayout !== null && b.ownerPayout !== undefined ? parseFloat(b.ownerPayout as unknown as string) : undefined,
     depositAmount: b.depositAmount ? parseFloat(b.depositAmount as unknown as string) : undefined,
     protectionEnabled: b.protectionEnabled ?? true,
+    renterProtectionEnabled: b.renterProtectionEnabled ?? false,
     status: b.status,
     message: b.message ?? undefined,
     ownerComment: b.ownerComment ?? undefined,
@@ -382,7 +384,7 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
   await createNotification({
     userId: listing.ownerId,
     type: "booking_created",
-    title: renterUpgradedFromFree
+    title: isFreeUpgrade
       ? `🛡️ Защищённая заявка — «${listing.title}»`
       : `📬 Новая заявка — «${listing.title}»`,
     message: msgText,
