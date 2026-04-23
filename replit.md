@@ -86,16 +86,26 @@ All routes prefixed with `/api`:
 
 ## Database Schema
 
-Tables:
-- `users` — User accounts (role: renter/owner/admin)
+Tables (`lib/db/src/schema/`):
+- `users` — User accounts (role: renter/owner/admin), `ownerProtectionEnabled` (per-user default), rating/reviewCount
+- `auth_sessions` — Active JWT sessions (logout/revoke support)
 - `regions` — Russian cities/regions (10 major cities seeded)
-- `categories` — Item categories (10 categories seeded)
-- `listings` — Rental items
-- `bookings` — Rental bookings (status: pending/confirmed/active/return_pending/rejected/completed/cancelled)
-- `reviews` — Reviews for listings
-- `joint_purchases` — Joint purchase requests
-- `newsletter` — Newsletter subscribers
-- `booking_messages` — In-app chat messages per booking (id, booking_id, sender_id, content, is_read, created_at)
+- `categories` — Item categories (10 catalog slugs)
+- `listings` — Rental items, `itemCategory` (electronics/tools/leisure/special_machinery), `ownerProtectionEnabled`, `maxProtectionLimit`, `requiresManualVerification`
+- `bookings` — Rental bookings (status: pending/confirmed/active/return_pending/rejected/completed/cancelled), full fee breakdown columns, `protectionEnabled` (renter opt-in)
+- `booking_events` — Audit log per booking (status changes, manager notes)
+- `booking_messages` — In-app chat per booking
+- `reviews` — Two types (listing / renter), tied to completed booking
+- `claims` — Shield-фонд заявки на возмещение (damage / theft, статусы pending→reviewing→approved|rejected→paid)
+- `favorites` — Избранные объявления (renter)
+- `notifications` — In-app уведомления (тип, ссылка, прочитано)
+- `support` — Тикеты поддержки (категория, статус, переписка)
+- `reports` — Жалобы на объявления/пользователей
+- `admin_audit_log` — Действия админов (для тикетов/банов/правок настроек)
+- `platform_settings` — Singleton: все ставки, цены, paymentMode, ID шлюзов
+- `joint_purchases` — Заявки на совместные закупки
+- `contacts` — Заявки с формы «Контакты»
+- `newsletter` — Подписчики
 
 ## Demo Data
 
@@ -332,6 +342,47 @@ DB поле `boosted_until` (timestamp). Сортировка `?sort=new` уже
 4. Эндпоинт `POST /listings/:id/promote` с типом услуги — ставит флаг + дату.
 5. Заглушка оплаты → ЮKassa интеграция в Этапе 2 общего роадмапа.
 6. Админка: вкладка «Продвижение» — список активных VIP/срочных + ручная активация.
+
+## Project Checklist (актуальное состояние)
+
+### ✅ Готово и работает
+- **Каркас монорепо** (pnpm + TS + esbuild), артефакты `api-server` + `hochu-to`
+- **OpenAPI → Orval кодоген** — единый источник типов (`lib/api-spec` → `api-zod` + `api-client-react`); enum `itemCategory` синхронен на всех слоях (4 категории)
+- **Аутентификация**: register/login/logout/me, JWT-like, bcrypt, сессии в БД
+- **Роли**: renter / owner / admin; переключение ренты↔владельца в профиле
+- **Каталог + поиск**: фильтры (категория/регион/цена/sort), URL-синхронизация, мобильный sticky search
+- **Карточка объявления (ListingDetail)**: галерея, бейджи, бронирование, отзывы, чат, мотивационные тексты выгод для арендатора и владельца (escrow / фонд / арбитраж)
+- **Создание/редактирование объявлений** с автоматическим расчётом `maxProtectionLimit`, флагом ручной модерации (аномальная цена)
+- **Бронирования**: полный поток pending→confirmed→active→return_pending→completed, отмены/отказы, история, нумерация `ХТ-YYYY-NNNNNN`
+- **Финансовая модель Dual Shield** (см. ниже): множители, Shield Fee, риск-резерв, ownerPayout — все ставки в `platform_settings`, кэш 60с
+- **Админка (7+ вкладок)**: Обзор+аналитика, Пользователи, Объявления, Бронирования, Поддержка, Жалобы, Аудит, **Экономика** (множители фонда, комиссии, Shield), **Платежи** (paymentMode, шлюзы), **Заявки Shield** (claims)
+- **Отзывы (двусторонние)**: listing-review + renter-review с привязкой к завершённой брони, ответ от рецензируемой стороны
+- **Чат по бронированию** (`booking_messages`): уведомления о новых сообщениях, бейджи unread
+- **Уведомления**: in-app + sсheduler с 6 правилами напоминаний (cron каждый час)
+- **Аудит-trail брони** (`booking_events`) с поиском админа по номеру `ХТ-…`
+- **Маркетинговые карусели на главной** (4 шт: хиты / новинки / рейтинг / выгодные)
+- **Бейджи объявлений** (VIP / Срочно / Безопасная сделка / Высокий рейтинг / Часто берут / Новинка / Проверенный)
+- **Избранное** (`favorites`)
+- **Поддержка** (тикеты с категорией и перепиской)
+- **Жалобы** (reports) — на объявления и пользователей
+- **Совместные закупки** (заявки + страница)
+- **GeoIP** для авто-выбора региона
+- **Health endpoint + Vite proxy** для dev
+- **Деплой**: GitHub → Amvera webhook (Docker), пуш через `bash scripts/github-push.sh`
+
+### 🟡 В работе / частично
+- **Платное продвижение**: схема бейджей готова, но колонки `is_featured / featured_until / is_urgent / urgent_until / boosted_until` ещё не в `listings`
+- **Подписки владельцев** (Pro / Бизнес) — спроектированы, не реализованы
+- **Реальные выплаты из Shield-фонда** — статусы есть, исполнения платежа нет
+- **Цифровой Акт check-in/check-out** (фото + видео + GPS) — не начато
+- **СБП/QR + загрузка чека + подтверждение админом** — `paymentMode` есть, потока нет
+- **ЮKassa / CloudPayments интеграция** — публичные ID настраиваются в админке, серверной интеграции нет
+- **Trust Score** — не начато
+
+### 🔴 Roadmap (не начато)
+- Партнёрские договоры с юрлицами (бейдж «Партнёр платформы», 5% комиссии)
+- Dokan/WooCommerce multivendor шлюз
+- API для бизнес-подписки
 
 ## What Is NOT Yet Implemented (roadmap)
 
