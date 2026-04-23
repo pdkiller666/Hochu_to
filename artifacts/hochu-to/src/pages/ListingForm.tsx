@@ -4,7 +4,7 @@ import { useLocation, useRoute } from "wouter";
 import { useCreateListing, useUpdateListing, useGetListingById, useGetCategories, useGetRegions } from "@workspace/api-client-react";
 import { useAuthState } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
-import { ChevronLeft, Loader2, ImagePlus, X, ShieldCheck, ShieldOff, AlertTriangle, Info, HandCoins } from "lucide-react";
+import { ChevronLeft, Loader2, ImagePlus, X, ShieldCheck, ShieldOff, AlertTriangle, Info, HandCoins, Link2, Check } from "lucide-react";
 import { Link } from "wouter";
 import { LocationPicker } from "@/components/ui/LocationPicker";
 import { CollapsibleMap } from "@/components/ui/CollapsibleMap";
@@ -163,6 +163,41 @@ export default function ListingForm() {
 
   const removePhoto = (index: number) => {
     setPhotos(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const [urlInputOpen, setUrlInputOpen] = useState(false);
+  const [urlValue, setUrlValue] = useState("");
+  const [urlChecking, setUrlChecking] = useState(false);
+
+  const addPhotoByUrl = async () => {
+    const url = urlValue.trim();
+    if (!url) return;
+    if (photos.length >= 10) {
+      toast({ title: "Максимум 10 фото", variant: "destructive" });
+      return;
+    }
+    if (!/^https?:\/\//i.test(url)) {
+      toast({ title: "Ссылка должна начинаться с http:// или https://", variant: "destructive" });
+      return;
+    }
+    setUrlChecking(true);
+    try {
+      // Проверяем, что по ссылке доступна картинка
+      await new Promise<void>((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error("not_image"));
+        img.src = url;
+      });
+      setPhotos(prev => [...prev, url]);
+      setUrlValue("");
+      setUrlInputOpen(false);
+      toast({ title: "Фото добавлено по ссылке" });
+    } catch {
+      toast({ title: "Не удалось загрузить изображение по ссылке", description: "Проверьте, что ссылка ведёт на картинку (jpg, png, webp).", variant: "destructive" });
+    } finally {
+      setUrlChecking(false);
+    }
   };
 
   const setMainPhoto = (index: number) => {
@@ -648,30 +683,74 @@ export default function ListingForm() {
           </div>
 
           <div className="space-y-4 pt-6 border-t border-border">
-            <div className="flex items-center justify-between">
+            <div className="flex items-start justify-between gap-3 flex-wrap">
               <div>
                 <h3 className="text-xl font-bold">Фотографии</h3>
-                <p className="text-sm text-muted-foreground mt-0.5">До 10 фото с вашего устройства</p>
+                <p className="text-sm text-muted-foreground mt-0.5">До 10 фото — с устройства или по ссылке</p>
               </div>
-              <label
-                htmlFor={uploadInputId}
-                aria-disabled={uploading || photos.length >= 10}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-primary text-white text-sm font-bold cursor-pointer hover:bg-primary/90 transition-colors aria-disabled:opacity-50 aria-disabled:pointer-events-none"
-              >
-                {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImagePlus className="w-4 h-4" />}
-                {uploading ? "Загрузка..." : "Добавить фото"}
-              </label>
-              <input
-                id={uploadInputId}
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                multiple
-                disabled={uploading || photos.length >= 10}
-                className="sr-only"
-                onChange={handleFilesChange}
-              />
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => setUrlInputOpen(v => !v)}
+                  disabled={photos.length >= 10}
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-white border border-border text-sm font-bold hover:border-primary hover:text-primary transition-colors disabled:opacity-50 disabled:pointer-events-none"
+                >
+                  <Link2 className="w-4 h-4" />
+                  По ссылке
+                </button>
+                <label
+                  htmlFor={uploadInputId}
+                  aria-disabled={uploading || photos.length >= 10}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-primary text-white text-sm font-bold cursor-pointer hover:bg-primary/90 transition-colors aria-disabled:opacity-50 aria-disabled:pointer-events-none"
+                >
+                  {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImagePlus className="w-4 h-4" />}
+                  {uploading ? "Загрузка..." : "Добавить фото"}
+                </label>
+                <input
+                  id={uploadInputId}
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  disabled={uploading || photos.length >= 10}
+                  className="sr-only"
+                  onChange={handleFilesChange}
+                />
+              </div>
             </div>
+
+            {urlInputOpen && (
+              <div className="flex flex-col sm:flex-row gap-2 p-3 rounded-xl bg-muted/40 border border-border">
+                <input
+                  type="url"
+                  inputMode="url"
+                  placeholder="https://example.com/photo.jpg"
+                  value={urlValue}
+                  onChange={e => setUrlValue(e.target.value)}
+                  onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addPhotoByUrl(); } }}
+                  className="flex-1 px-3 py-2 rounded-lg border border-border bg-white text-sm focus:outline-none focus:border-primary"
+                  autoFocus
+                />
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={addPhotoByUrl}
+                    disabled={urlChecking || !urlValue.trim()}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-white text-sm font-bold hover:bg-primary/90 transition-colors disabled:opacity-50"
+                  >
+                    {urlChecking ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                    Добавить
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setUrlInputOpen(false); setUrlValue(""); }}
+                    className="inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-white border border-border text-sm font-bold hover:bg-muted transition-colors"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            )}
 
             {photos.length === 0 ? (
               <label
