@@ -43,6 +43,9 @@ app.use(
 app.use("/uploads", express.static(UPLOADS_DIR));
 
 // 6. API РОУТЫ
+app.get("/api/health", (_req, res) => {
+  res.json({ status: "ok", ts: new Date().toISOString() });
+});
 app.use("/api", routes);
 
 // 6. РАЗДАЧА ФРОНТЕНДА
