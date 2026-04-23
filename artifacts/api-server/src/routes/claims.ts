@@ -103,6 +103,144 @@ router.get("/fund-status", requireAuth, async (req: AuthRequest, res) => {
   res.json(await calcFundBalance());
 });
 
+// ─── GET /claims/analytics — аналитика фонда (admin) ────────────────────────
+//   Возвращает: ежедневный баланс за N дней, топ получателей, флаги подозрительных
+router.get("/analytics", requireAuth, async (req: AuthRequest, res) => {
+  if (!(await isAdmin(req.userId!))) {
+    res.status(403).json({ error: "forbidden" });
+    return;
+  }
+  const days = Math.min(365, Math.max(7, parseInt(String(req.query.days ?? "30"), 10) || 30));
+  // UTC-начало окна: предсказуемо совпадает с TO_CHAR(...::date) в Postgres (UTC).
+  const now = new Date();
+  const sinceUtcMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) - (days - 1) * 86_400_000;
+  const since = new Date(sinceUtcMs);
+
+  // 1. Поступления по дням (completed Premium-брони)
+  const inflowRows = await db
+    .select({
+      day: sql<string>`TO_CHAR(${bookingsTable.updatedAt}::date, 'YYYY-MM-DD')`,
+      amount: sql<string>`COALESCE(SUM(${bookingsTable.fundContribution} + ${bookingsTable.renterFundContribution}), 0)`,
+    })
+    .from(bookingsTable)
+    .where(and(
+      eq(bookingsTable.status, "completed"),
+      eq(bookingsTable.protectionEnabled, true),
+      gte(bookingsTable.updatedAt, since),
+    ))
+    .groupBy(sql`TO_CHAR(${bookingsTable.updatedAt}::date, 'YYYY-MM-DD')`);
+
+  // 2. Выплаты по дням (paid claims)
+  const outflowRows = await db
+    .select({
+      day: sql<string>`TO_CHAR(${claimsTable.paidAt}::date, 'YYYY-MM-DD')`,
+      amount: sql<string>`COALESCE(SUM(${claimsTable.approvedAmount}), 0)`,
+    })
+    .from(claimsTable)
+    .where(and(
+      eq(claimsTable.status, "paid"),
+      gte(claimsTable.paidAt, since),
+    ))
+    .groupBy(sql`TO_CHAR(${claimsTable.paidAt}::date, 'YYYY-MM-DD')`);
+
+  // Стартовый баланс (всё что было ДО окна)
+  const [preIn] = await db
+    .select({ s: sql<string>`COALESCE(SUM(${bookingsTable.fundContribution} + ${bookingsTable.renterFundContribution}), 0)` })
+    .from(bookingsTable)
+    .where(and(
+      eq(bookingsTable.status, "completed"),
+      eq(bookingsTable.protectionEnabled, true),
+      sql`${bookingsTable.updatedAt} < ${since}`,
+    ));
+  const [preOut] = await db
+    .select({ s: sql<string>`COALESCE(SUM(${claimsTable.approvedAmount}), 0)` })
+    .from(claimsTable)
+    .where(and(
+      eq(claimsTable.status, "paid"),
+      sql`${claimsTable.paidAt} < ${since}`,
+    ));
+
+  const inflowMap = new Map(inflowRows.map(r => [r.day, num(r.amount)]));
+  const outflowMap = new Map(outflowRows.map(r => [r.day, num(r.amount)]));
+
+  let runningBalance = Math.max(0, num(preIn?.s) - num(preOut?.s));
+  const daily: Array<{ date: string; inflow: number; outflow: number; balance: number }> = [];
+  for (let i = 0; i < days; i++) {
+    const key = new Date(sinceUtcMs + i * 86_400_000).toISOString().slice(0, 10);
+    const inflow = Math.round(inflowMap.get(key) ?? 0);
+    const outflow = Math.round(outflowMap.get(key) ?? 0);
+    runningBalance = Math.max(0, runningBalance + inflow - outflow);
+    daily.push({ date: key, inflow, outflow, balance: runningBalance });
+  }
+
+  // 3. Топ получателей за всё время (только paid)
+  const topRows = await db
+    .select({
+      userId: claimsTable.payoutToUserId,
+      name: usersTable.name,
+      email: usersTable.email,
+      totalRub: sql<string>`COALESCE(SUM(${claimsTable.approvedAmount}), 0)`,
+      claimsCount: sql<number>`COUNT(*)::int`,
+    })
+    .from(claimsTable)
+    .leftJoin(usersTable, eq(usersTable.id, claimsTable.payoutToUserId))
+    .where(eq(claimsTable.status, "paid"))
+    .groupBy(claimsTable.payoutToUserId, usersTable.name, usersTable.email)
+    .orderBy(sql`SUM(${claimsTable.approvedAmount}) DESC NULLS LAST`)
+    .limit(10);
+  const topRecipients = topRows
+    .filter(r => r.userId != null)
+    .map(r => ({
+      userId: r.userId,
+      name: r.name ?? "—",
+      email: r.email ?? "",
+      totalRub: Math.round(num(r.totalRub)),
+      claimsCount: r.claimsCount ?? 0,
+    }));
+
+  // 4. Подозрительные паттерны: пользователи с ≥3 не-rejected claims за последние 90 дней
+  //    либо с уже ≥2 выплатами (на сумму потенциальной убыточной категории).
+  //    Rejected исключаем сразу в WHERE — они не должны идти в счёт.
+  const suspSince = new Date();
+  suspSince.setDate(suspSince.getDate() - 90);
+  const suspRows = await db
+    .select({
+      userId: claimsTable.claimantId,
+      name: usersTable.name,
+      email: usersTable.email,
+      claimsCount: sql<number>`COUNT(*)::int`,
+      totalRequested: sql<string>`COALESCE(SUM(${claimsTable.requestedAmount}), 0)`,
+      paidCount: sql<number>`SUM(CASE WHEN ${claimsTable.status} = 'paid' THEN 1 ELSE 0 END)::int`,
+    })
+    .from(claimsTable)
+    .leftJoin(usersTable, eq(usersTable.id, claimsTable.claimantId))
+    .where(and(
+      gte(claimsTable.createdAt, suspSince),
+      sql`${claimsTable.status} != 'rejected'`,
+    ))
+    .groupBy(claimsTable.claimantId, usersTable.name, usersTable.email)
+    .having(sql`COUNT(*) >= 3 OR SUM(CASE WHEN ${claimsTable.status} = 'paid' THEN 1 ELSE 0 END) >= 2`)
+    .orderBy(sql`COUNT(*) DESC`)
+    .limit(20);
+  const suspicious = suspRows.map(r => {
+    const reasons: string[] = [];
+    if ((r.claimsCount ?? 0) >= 3) reasons.push(`${r.claimsCount} заявок за 90 дней`);
+    if ((r.paidCount ?? 0) >= 2) reasons.push(`${r.paidCount} уже выплачены`);
+    return {
+      userId: r.userId,
+      name: r.name ?? "—",
+      email: r.email ?? "",
+      claimsCount: r.claimsCount ?? 0,
+      paidCount: r.paidCount ?? 0,
+      rejectedCount: r.rejectedCount ?? 0,
+      totalRequested: Math.round(num(r.totalRequested)),
+      reasons,
+    };
+  });
+
+  res.json({ days, daily, topRecipients, suspicious });
+});
+
 // ─── GET /claims/payout-methods/:userId — реквизиты получателя (admin) ───────
 router.get("/payout-methods/:userId", requireAuth, async (req: AuthRequest, res) => {
   if (!(await isAdmin(req.userId!))) {

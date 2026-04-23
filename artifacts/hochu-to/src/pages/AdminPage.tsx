@@ -1471,6 +1471,7 @@ function ClaimsTab() {
   const [approveModal, setApproveModal] = useState<any | null>(null);
   const [paidModal, setPaidModal] = useState<any | null>(null);
   const [rejectModal, setRejectModal] = useState<any | null>(null);
+  const [showAnalytics, setShowAnalytics] = useState(false);
 
   const filtered = (data ?? []).filter((c: any) => {
     if (filter === "all") return true;
@@ -1523,7 +1524,15 @@ function ClaimsTab() {
               filter === f.k ? "bg-primary text-white" : "bg-stone-100 text-stone-700 hover:bg-stone-200"
             }`}>{f.l}</button>
         ))}
+        <button
+          onClick={() => setShowAnalytics(s => !s)}
+          className="ml-auto px-3 py-1.5 rounded-full text-xs font-medium bg-violet-100 text-violet-700 hover:bg-violet-200 transition-colors"
+        >
+          {showAnalytics ? "Скрыть аналитику" : "Показать аналитику фонда"}
+        </button>
       </div>
+
+      {showAnalytics && <FundAnalyticsBlock />}
 
       {loading ? (
         <div className="text-center py-8 text-stone-400">Загрузка…</div>
@@ -1772,6 +1781,133 @@ function ClaimApproveModal({ claim, fundBalance, onClose, onSuccess }: { claim: 
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── Аналитика гарантийного фонда ──────────────────────────────────────────
+type FundAnalytics = {
+  days: number;
+  daily: Array<{ date: string; inflow: number; outflow: number; balance: number }>;
+  topRecipients: Array<{ userId: number; name: string; email: string; totalRub: number; claimsCount: number }>;
+  suspicious: Array<{ userId: number; name: string; email: string; claimsCount: number; paidCount: number; rejectedCount: number; totalRequested: number; reasons: string[] }>;
+};
+
+function FundAnalyticsBlock() {
+  const API = import.meta.env.VITE_API_URL ?? "";
+  const [days, setDays] = useState<7 | 30 | 90>(30);
+  const { data, loading } = useFetch<FundAnalytics>(`${API}/api/claims/analytics?days=${days}`, [days]);
+
+  return (
+    <div className="bg-white rounded-xl border border-violet-200 p-4 space-y-4">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <h3 className="text-base font-semibold text-stone-800 flex items-center gap-2">
+          <BarChart2 className="w-4 h-4 text-violet-600" />
+          Аналитика гарантийного фонда
+        </h3>
+        <div className="flex gap-1">
+          {([7, 30, 90] as const).map(d => (
+            <button key={d} onClick={() => setDays(d)}
+              className={`px-2.5 py-1 rounded-md text-xs font-medium ${
+                days === d ? "bg-violet-600 text-white" : "bg-stone-100 text-stone-600 hover:bg-stone-200"
+              }`}>{d} дн</button>
+          ))}
+        </div>
+      </div>
+
+      {loading || !data ? (
+        <div className="text-center py-8 text-stone-400 text-sm">Загрузка аналитики…</div>
+      ) : (
+        <>
+          {/* График баланса */}
+          <div>
+            <div className="text-xs uppercase font-semibold text-stone-500 mb-2">Баланс фонда по дням</div>
+            <div className="h-56">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={data.daily} margin={{ top: 5, right: 12, left: -10, bottom: 0 }}>
+                  <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={(v: string) => v.slice(5)} />
+                  <YAxis tick={{ fontSize: 10 }} />
+                  <Tooltip
+                    formatter={(v: number) => `${v.toLocaleString("ru")} ₽`}
+                    labelFormatter={(l: string) => `Дата: ${l}`}
+                  />
+                  <Line type="monotone" dataKey="balance" stroke="#7c3aed" strokeWidth={2} dot={false} name="Баланс" />
+                  <Line type="monotone" dataKey="inflow" stroke="#10b981" strokeWidth={1.5} dot={false} name="Поступило" />
+                  <Line type="monotone" dataKey="outflow" stroke="#ef4444" strokeWidth={1.5} dot={false} name="Выплачено" />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Топ получателей */}
+          <div>
+            <div className="text-xs uppercase font-semibold text-stone-500 mb-2">Топ получатели выплат (за всё время)</div>
+            {data.topRecipients.length === 0 ? (
+              <div className="text-sm text-stone-400 py-3">Выплат пока не было</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-xs text-stone-500 border-b border-stone-200">
+                      <th className="py-2 pr-3">#</th>
+                      <th className="py-2 pr-3">Пользователь</th>
+                      <th className="py-2 pr-3 text-right">Сумма</th>
+                      <th className="py-2 pr-3 text-right">Заявок</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.topRecipients.map((r, i) => (
+                      <tr key={r.userId} className="border-b border-stone-100">
+                        <td className="py-2 pr-3 text-stone-400 text-xs">{i + 1}</td>
+                        <td className="py-2 pr-3">
+                          <div className="font-medium text-stone-800">{r.name}</div>
+                          <div className="text-xs text-stone-500">{r.email}</div>
+                        </td>
+                        <td className="py-2 pr-3 text-right font-semibold text-violet-700">{r.totalRub.toLocaleString("ru")} ₽</td>
+                        <td className="py-2 pr-3 text-right text-stone-600">{r.claimsCount}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Подозрительные паттерны */}
+          <div>
+            <div className="text-xs uppercase font-semibold text-stone-500 mb-2">Подозрительные паттерны (за 90 дней)</div>
+            {data.suspicious.length === 0 ? (
+              <div className="text-sm text-emerald-600 py-3 flex items-center gap-2">
+                <Shield className="w-4 h-4" /> Подозрительной активности не обнаружено.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {data.suspicious.map(s => (
+                  <div key={s.userId} className="border border-amber-200 bg-amber-50 rounded-lg p-3 flex items-start justify-between gap-3 flex-wrap">
+                    <div className="min-w-0 flex-1">
+                      <div className="font-medium text-stone-800 truncate">{s.name}</div>
+                      <div className="text-xs text-stone-500 truncate">{s.email}</div>
+                      <div className="flex flex-wrap gap-1 mt-1.5">
+                        {s.reasons.map((r, i) => (
+                          <span key={i} className="text-[11px] px-2 py-0.5 rounded-full bg-amber-200 text-amber-900">{r}</span>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className="text-xs text-stone-500">Запрошено</div>
+                      <div className="font-semibold text-amber-800">{s.totalRequested.toLocaleString("ru")} ₽</div>
+                      <div className="text-[10px] text-stone-500 mt-1">
+                        выплачено: {s.paidCount} · отклонено: {s.rejectedCount}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }
