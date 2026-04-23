@@ -109,6 +109,15 @@ Tables (`lib/db/src/schema/`):
 - `contacts` — Заявки с формы «Контакты»
 - `newsletter` — Подписчики
 
+## Quick Setup (новый Replit-аккаунт)
+
+```bash
+bash scripts/setup-new-replit.sh
+```
+Накатит схему + зальёт снапшот тестовых данных (`scripts/db-snapshots/dev-data.sql`).
+Подробности: `docs/AGENT_INSTRUCTIONS.md` раздел 5a.
+Обязательный секрет: `SESSION_SECRET` (≥32 символов). `DATABASE_URL` — auto.
+
 ## Demo Data
 
 - 3 seeded demo users (password: `Demo1234!` for all):

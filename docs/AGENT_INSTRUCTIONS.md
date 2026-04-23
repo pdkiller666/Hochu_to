@@ -114,6 +114,60 @@ node artifacts/api-server/dist/index.mjs             # запуск сервер
 
 ---
 
+## 5a. Перенос на новый аккаунт Replit (быстрый старт с нуля)
+
+Если открываешь репозиторий с **другого Replit-аккаунта** (или новый Repl), для полного восстановления окружения:
+
+### Шаг 1: Импорт из GitHub
+- New Repl → Import from GitHub → `https://github.com/pdkiller666/Hochu_to`
+- Replit автоматически подхватит `.replit` (модули `nodejs-24` + `postgresql-16`).
+
+### Шаг 2: Установить секреты (Tools → Secrets)
+| Ключ | Назначение | Источник |
+|---|---|---|
+| `SESSION_SECRET` | подпись JWT/сессий — **обязательно** | Сгенерировать любую строку ≥32 символов: `openssl rand -hex 32` |
+| `GITHUB_TOKEN` | для пуша на GitHub (опционально) | Тот же `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` (см. раздел 2) или новый PAT |
+
+`DATABASE_URL`, `PGHOST`, `PGPASSWORD` и т.п. **Replit задаёт автоматически** при наличии модуля `postgresql-16`.
+
+### Шаг 3: Один скрипт делает всё
+```bash
+bash scripts/setup-new-replit.sh
+```
+Скрипт:
+1. Проверит `DATABASE_URL`.
+2. `pnpm install --frozen-lockfile`.
+3. `pnpm --filter @workspace/db push` — накатит схему (22 таблицы).
+4. `psql < scripts/db-snapshots/dev-data.sql` — зальёт **актуальный снапшот**: 7 пользователей, 22 объявления, 7 броней, 4 отзыва, 1 тикет, 1 заявка фонда, балансы и аудит-лог.
+5. Подскажет про `SESSION_SECRET` и `GITHUB_TOKEN`.
+
+### Шаг 4: Run
+Кнопка ▶ Run сверху → workflow `Start application` поднимет API (8080) и фронт (5173).
+
+### Альтернатива: чистая БД без тестовых данных
+```bash
+pnpm --filter @workspace/db push                       # схема
+pnpm --filter @workspace/api-server seed               # только регионы (85 субъектов РФ) + категории + базовый демо-сет
+```
+
+### Что НЕ переносится автоматически и требует внимания:
+- **Старые JWT-сессии разлогинятся** (новый `SESSION_SECRET`) — это нормально, нужно перелогиниться.
+- **Загруженные файлы** (`/uploads/*`) — не в git, на новом Repl папка пустая. У нас пока нет загруженных аватарок, так что не критично.
+- **Amvera-деплой** — независим от Replit, продолжает работать со своим окружением.
+
+### Обновление снапшота тестовых данных
+Если нужно обновить дамп после новых тестов:
+```bash
+PGSSLMODE=require pg_dump "$DATABASE_URL" --data-only --column-inserts --no-owner --no-privileges \
+  -t users -t regions -t categories -t listings -t bookings -t booking_events -t booking_messages \
+  -t reviews -t notifications -t platform_settings -t support_tickets -t support_messages \
+  -t claims -t contact_balances -t contact_purchases -t joint_purchases -t newsletter \
+  -t admin_audit_log -t favorites -t reports \
+  > scripts/db-snapshots/dev-data.sql
+```
+
+---
+
 ## 5. Локальная разработка в Replit
 
 ### Запуск воркфлоу:
@@ -380,6 +434,18 @@ GITHUB_TOKEN=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 bash scripts/github-push.s
 ---
 
 ## 12. Журнал релизов
+
+### 23.04.2026 ночь+4 — Stage 15: Переносимость на новый Replit-аккаунт
+- **Цель:** возможность открыть проект с любого Replit-аккаунта и за 2 команды восстановить полное окружение.
+- **Создан скрипт `scripts/setup-new-replit.sh`** — единая точка входа: проверяет `DATABASE_URL`, ставит deps, накатывает схему через `drizzle-kit push`, заливает снапшот тестовых данных, подсказывает про `SESSION_SECRET`/`GITHUB_TOKEN`.
+- **Создан снапшот `scripts/db-snapshots/dev-data.sql`** (68 КБ, 502 строки) через `pg_dump --data-only --column-inserts` — содержит все 7 пользователей с bcrypt-хешами, 22 объявления, 7 броней, 4 отзыва, 1 тикет, 1 заявку фонда, балансы контактов, аудит-лог, настройки платформы и newsletter. **На новом Repl всё восстановится 1-в-1.**
+- **Добавлен раздел 5a в `docs/AGENT_INSTRUCTIONS.md`** — пошаговая инструкция импорта из GitHub, установки секретов, запуска setup-скрипта, альтернатива «чистая БД через seed», команда обновления снапшота, список того что НЕ переносится автоматом (uploads, JWT-сессии).
+- **Добавлен раздел Quick Setup в `replit.md`** — короткая ссылка для агента, всегда в памяти.
+- **Что НЕ автоматизируется на новом аккаунте (требует ручных действий):**
+  1. `SESSION_SECRET` — обязательно установить в Tools → Secrets (`openssl rand -hex 32`).
+  2. `GITHUB_TOKEN` — для пуша (опционально, токен есть в разделе 2 документации).
+  3. `/uploads/*` — пустая папка (загруженных аватаров пока нет, не критично).
+- **Файлы:** `scripts/setup-new-replit.sh`, `scripts/db-snapshots/dev-data.sql`, `docs/AGENT_INSTRUCTIONS.md` (раздел 5a), `replit.md`.
 
 ### 23.04.2026 ночь+3 — Stage 14: Bug hunt + фиксы валидации
 - **Систематический прогон 19 негативных сценариев** через REST: чужие ресурсы, отрицательные цены, SQL-инъекции, конкурентные брони, weak passwords, длинные тексты — большинство уже корректно отбиваются.
