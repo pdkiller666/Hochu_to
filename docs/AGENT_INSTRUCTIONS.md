@@ -653,6 +653,51 @@ GITHUB_TOKEN=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 bash scripts/github-push.s
 
 ---
 
+## Журнал — Stage 17b-core (Compensation Payouts)
+
+**Дата:** 2026-04-23
+**Цель:** замкнуть цикл гарантийного фонда — заявки на компенсацию реально приводят к выплате получателю.
+
+**Что сделано:**
+1. **Schema (`lib/db/src/schema/claims.ts`)** — добавлены поля:
+   - `payoutToUserId` (int) — кому платить (owner или renter из брони)
+   - `payoutMethodId` (int) — выбранные реквизиты получателя
+   - `methodSnapshot` (jsonb) — PCI-safe снапшот реквизитов на момент approve
+   - `paymentRef` (text), `paidAt` (timestamp) — заполняются при mark-paid
+   - `rejectionReason` (text) — причина отклонения
+2. **Backend (`artifacts/api-server/src/routes/claims.ts`)** — полностью переписан:
+   - `GET /claims/fund-status` — баланс фонда (in/out/balance) для админа.
+   - `GET /claims/payout-methods/:userId` — реквизиты получателя для админа.
+   - `GET /claims/my` — мои заявки.
+   - `POST /claims` — валидация: только Premium-сделка, описание ≥10 симв., requestedAmount ≤ maxProtectionLimit (через JOIN `listings`), нет дубликатов, уведомления второй стороне + админам.
+   - `PATCH /claims/:id` — admin меняет статус pending↔admin_review/adminNote; user правит evidence/description пока pending.
+   - `POST /claims/:id/approve` — admin: указывает payoutToUserId, payoutMethodId, approvedAmount; проверяет, что получатель — участник брони, сумма ≤ maxProtectionLimit и ≤ fund.balance; снимает snapshot реквизитов; уведомляет получателя и заявителя.
+   - `POST /claims/:id/mark-paid` — admin фиксирует paymentRef, paidAt; повторная проверка баланса фонда; уведомляет получателя.
+   - `POST /claims/:id/reject` — обязательная rejectionReason; уведомление заявителю.
+3. **Frontend Dashboard (`Dashboard.tsx`)**:
+   - Кнопка «Подать претензию» в карточках завершённых Premium-броней (history-таб, рядом с «Оценить»).
+   - Модалка `SubmitClaimModal` — выбор типа (повреждение/кража), описание, ссылка на доказательства, запрашиваемая сумма с подсказкой лимита.
+   - Блок `MyClaimsBlock` в `FinanceSection` — список моих заявок со статусами, причиной отклонения, комментарием админа, paymentRef.
+4. **Frontend AdminPage (`AdminPage.tsx`)** — таб «Заявки фонда» переписан:
+   - 3 KPI-карточки фонда (поступления / выплаты / доступный баланс).
+   - Фильтры: активные / на рассмотрении / ожидают выплаты / выплачены / отклонённые / все.
+   - В карточке claim: статус, тип, заявитель, сумма (запрошена/одобрена), бронь, snapshot реквизитов, кнопки.
+   - Модалки `ClaimApproveModal` (выбор владелец/арендатор → подгрузка реквизитов → сумма с проверками лимита и баланса фонда), `ClaimMarkPaidModal` (paymentRef), `ClaimRejectModal` (rejectionReason).
+
+**Что игнорирует/не делает (бэклог Stage 17b-limits):**
+- Резерв фонда (% поступлений неприкосновенный).
+- Лимит claims на пользователя в месяц.
+- Лимит на одно объявление как % от maxProtectionLimit.
+- График баланса фонда по дням, топ-получателей, флаг подозрительных паттернов.
+
+**Миграция:** выполнена через `pnpm --filter @workspace/db push --force` — добавлены 6 новых колонок в `claims`. Существующие записи сохранены (новые поля nullable).
+
+**Проверено:**
+- `tsc --noEmit` — новых ошибок в claims.ts нет (старые в admin.ts/contacts.ts не моя зона).
+- API живой (200 OK на /api/health), Dashboard и AdminPage компилируются (vite 200 OK).
+
+---
+
 ## 13. Команда для пуша после каждой итерации
 
 ```bash

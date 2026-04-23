@@ -24,7 +24,7 @@ import {
   Wallet, Infinity as InfinityIcon, Gift,
   Coins, ArrowDownToLine, ArrowUpFromLine, ShieldCheck, Banknote,
   Shield, KeyRound, ScrollText, Activity, ExternalLink, BarChart2, ChevronRight,
-  CreditCard, Smartphone, X, Star as StarIcon,
+  CreditCard, Smartphone, X, Star as StarIcon, ShieldAlert, AlertTriangle, FileText,
 } from "lucide-react";
 import { formatPrice } from "@/lib/utils";
 import { format } from "date-fns";
@@ -179,6 +179,8 @@ export default function Dashboard() {
   // Review state (history tab)
   const DASHBOARD_API = import.meta.env.VITE_API_URL ?? "";
   const [reviewingBooking, setReviewingBooking] = useState<{ id: number; role: "renter" | "owner"; number?: string; listingId?: number; partnerId?: number } | null>(null);
+  const [submitClaimBooking, setSubmitClaimBooking] = useState<{ id: number; bookingNumber?: string | null; listingTitle?: string | null; maxProtectionLimit?: number | null } | null>(null);
+  const [claimRefreshNonce, setClaimRefreshNonce] = useState(0);
   const [reviewedIds, setReviewedIds] = useState<Set<number>>(new Set());
   const [reviewRating, setReviewRating] = useState(0);
   const [reviewHover, setReviewHover] = useState(0);
@@ -1997,6 +1999,23 @@ export default function Dashboard() {
                                     <CheckCircle2 className="w-3.5 h-3.5" /> Отзыв оставлен
                                   </div>
                                 )}
+
+                                {/* Кнопка «Подать претензию» — только для Premium-сделок */}
+                                {(b as any).protectionEnabled !== false && (
+                                  <div className="mt-2">
+                                    <button
+                                      onClick={() => setSubmitClaimBooking({
+                                        id: b.id,
+                                        bookingNumber: b.bookingNumber,
+                                        listingTitle: b.listingTitle,
+                                        maxProtectionLimit: (b as any).maxProtectionLimit,
+                                      })}
+                                      className="flex items-center gap-1.5 text-xs text-rose-700 bg-rose-50 border border-rose-200 hover:bg-rose-100 transition-colors px-3 py-1.5 rounded-lg font-medium"
+                                    >
+                                      <ShieldAlert className="w-3.5 h-3.5" /> Подать претензию
+                                    </button>
+                                  </div>
+                                )}
                               </div>
                             </div>
                           </div>
@@ -2129,7 +2148,7 @@ export default function Dashboard() {
 
             {/* ── FINANCE ── */}
             {activeTab === "finance" && (
-              <FinanceSection token={token!} />
+              <FinanceSection token={token!} claimRefreshNonce={claimRefreshNonce} />
             )}
 
             {/* ── SUPPORT ── */}
@@ -2762,6 +2781,18 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+
+      {submitClaimBooking && (
+        <SubmitClaimModal
+          token={token}
+          booking={submitClaimBooking}
+          onClose={() => setSubmitClaimBooking(null)}
+          onSuccess={() => {
+            setSubmitClaimBooking(null);
+            setClaimRefreshNonce(n => n + 1);
+          }}
+        />
+      )}
     </Layout>
   );
 }
@@ -2890,7 +2921,7 @@ const STATUS_LABELS: Record<FinanceEntry["status"], { label: string; cls: string
   off_platform: { label: "Вне платформы", cls: "bg-stone-100 text-stone-700" },
 };
 
-function FinanceSection({ token }: { token: string }) {
+function FinanceSection({ token, claimRefreshNonce }: { token: string; claimRefreshNonce?: number }) {
   const API_BASE = import.meta.env.VITE_API_URL ?? "";
   const [data, setData] = useState<FinanceData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -2976,6 +3007,9 @@ function FinanceSection({ token }: { token: string }) {
 
       {/* Payouts block (для владельцев — выводы средств) */}
       <PayoutsBlock token={token} reloadCounter={reloadCounter} onChange={onPayoutChange} />
+
+      {/* My claims (компенсации из гарантийного фонда) */}
+      <MyClaimsBlock token={token} reloadCounter={(claimRefreshNonce ?? 0) + reloadCounter} />
 
       {/* Filter */}
       <div className="flex flex-wrap gap-2 mb-3">
@@ -4154,6 +4188,316 @@ function AdminAccountPanel({
           className="inline-flex items-center gap-2 text-xs font-semibold text-[#C65D3B] hover:text-[#A04A2D] transition">
           Открыть полную админ-панель <ExternalLink className="w-3 h-3" />
         </button>
+      </div>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════
+// MyClaimsBlock — мои заявки в гарантийный фонд
+// ════════════════════════════════════════════════════════════════════
+type ClaimItem = {
+  id: number;
+  bookingId: number;
+  type: "damage" | "theft";
+  status: "pending" | "admin_review" | "approved" | "paid" | "rejected";
+  description: string;
+  evidenceUrl: string | null;
+  adminNote: string | null;
+  requestedAmount: string | null;
+  approvedAmount: string | null;
+  payoutToUserId: number | null;
+  paymentRef: string | null;
+  paidAt: string | null;
+  rejectionReason: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+const CLAIM_STATUS_LABELS: Record<ClaimItem["status"], { label: string; cls: string }> = {
+  pending: { label: "На рассмотрении", cls: "bg-amber-100 text-amber-800" },
+  admin_review: { label: "Изучается админом", cls: "bg-amber-100 text-amber-800" },
+  approved: { label: "Одобрена · ожидает выплаты", cls: "bg-blue-100 text-blue-800" },
+  paid: { label: "Компенсация выплачена", cls: "bg-green-100 text-green-800" },
+  rejected: { label: "Отклонена", cls: "bg-rose-100 text-rose-800" },
+};
+
+const CLAIM_TYPE_LABELS: Record<ClaimItem["type"], string> = {
+  damage: "Повреждение",
+  theft: "Кража / невозврат",
+};
+
+function MyClaimsBlock({ token, reloadCounter }: { token: string; reloadCounter: number }) {
+  const API_BASE = import.meta.env.VITE_API_URL ?? "";
+  const [claims, setClaims] = useState<ClaimItem[] | null>(null);
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`${API_BASE}/api/claims/my`, { headers: { Authorization: `Bearer ${token}` } });
+        if (!r.ok) throw new Error("fail");
+        const j = await r.json();
+        if (!cancelled) setClaims(j);
+      } catch {
+        if (!cancelled) setClaims([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [token, API_BASE, reloadCounter]);
+
+  if (!claims || claims.length === 0) return null;
+
+  const active = claims.filter(c => c.status !== "rejected" && c.status !== "paid").length;
+  const visible = expanded ? claims : claims.slice(0, 3);
+
+  return (
+    <div className="bg-gradient-to-br from-rose-50 to-pink-50 border border-rose-200 rounded-2xl p-5 mb-6">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <ShieldAlert className="w-5 h-5 text-rose-600" />
+          <h3 className="font-bold text-rose-900">Мои заявки в фонд</h3>
+          {active > 0 && (
+            <span className="text-[10px] font-bold uppercase bg-amber-200 text-amber-900 px-2 py-0.5 rounded-full">
+              {active} активных
+            </span>
+          )}
+        </div>
+        {claims.length > 3 && (
+          <button onClick={() => setExpanded(!expanded)} className="text-xs text-rose-700 hover:underline font-medium">
+            {expanded ? "Свернуть" : `Показать все (${claims.length})`}
+          </button>
+        )}
+      </div>
+      <ul className="space-y-2">
+        {visible.map(c => {
+          const st = CLAIM_STATUS_LABELS[c.status];
+          return (
+            <li key={c.id} className="bg-white border border-rose-100 rounded-xl p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="font-semibold text-sm">
+                    {CLAIM_TYPE_LABELS[c.type]}
+                    <span className="text-muted-foreground font-normal"> · #{c.id}</span>
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{c.description}</p>
+                </div>
+                <div className="text-right shrink-0">
+                  {c.approvedAmount && (
+                    <p className="font-bold text-sm text-green-700">+{formatPrice(parseFloat(c.approvedAmount))}</p>
+                  )}
+                  {!c.approvedAmount && c.requestedAmount && (
+                    <p className="text-sm text-muted-foreground">~{formatPrice(parseFloat(c.requestedAmount))}</p>
+                  )}
+                  <p className="text-[10px] text-muted-foreground mt-0.5">{format(new Date(c.createdAt), "dd.MM.yy")}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 mt-2 flex-wrap">
+                <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full ${st.cls}`}>{st.label}</span>
+                {c.paymentRef && <span className="text-[10px] text-muted-foreground">Ref: <span className="font-mono">{c.paymentRef}</span></span>}
+              </div>
+              {c.rejectionReason && (
+                <p className="text-xs text-rose-700 mt-2 bg-rose-50 border border-rose-200 rounded-lg p-2">
+                  <b>Причина отклонения:</b> {c.rejectionReason}
+                </p>
+              )}
+              {c.adminNote && c.status !== "rejected" && (
+                <p className="text-xs text-blue-700 mt-2 bg-blue-50 border border-blue-200 rounded-lg p-2">
+                  <b>Комментарий администратора:</b> {c.adminNote}
+                </p>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════
+// SubmitClaimModal — модалка подачи заявки в фонд
+// ════════════════════════════════════════════════════════════════════
+function SubmitClaimModal({
+  token,
+  booking,
+  onClose,
+  onSuccess,
+}: {
+  token: string;
+  booking: { id: number; bookingNumber?: string | null; listingTitle?: string | null; maxProtectionLimit?: number | null };
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const API_BASE = import.meta.env.VITE_API_URL ?? "";
+  const [type, setType] = useState<"damage" | "theft">("damage");
+  const [description, setDescription] = useState("");
+  const [evidenceUrl, setEvidenceUrl] = useState("");
+  const [requestedAmount, setRequestedAmount] = useState<string>("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const maxLimit = booking.maxProtectionLimit ? Number(booking.maxProtectionLimit) : 0;
+
+  const handleSubmit = async () => {
+    setError(null);
+    if (description.trim().length < 10) {
+      setError("Опишите ситуацию подробнее (не менее 10 символов).");
+      return;
+    }
+    const amountNum = requestedAmount ? Number(requestedAmount.replace(/[^\d.]/g, "")) : null;
+    if (amountNum != null && (!Number.isFinite(amountNum) || amountNum <= 0)) {
+      setError("Сумма должна быть положительным числом.");
+      return;
+    }
+    if (amountNum != null && maxLimit > 0 && amountNum > maxLimit) {
+      setError(`Максимальная защита по объявлению — ${formatPrice(maxLimit)}.`);
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const r = await fetch(`${API_BASE}/api/claims`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          bookingId: booking.id,
+          type,
+          description: description.trim(),
+          evidenceUrl: evidenceUrl.trim() || null,
+          requestedAmount: amountNum,
+        }),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error(j.message || "Не удалось подать заявку");
+      }
+      onSuccess();
+    } catch (e: any) {
+      setError(e.message || "Ошибка");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm px-4" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl max-h-[92vh] overflow-y-auto">
+        <div className="p-6 border-b border-border flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-bold flex items-center gap-2">
+              <ShieldAlert className="w-5 h-5 text-rose-600" /> Подать претензию
+            </h3>
+            <p className="text-xs text-muted-foreground mt-1">
+              {booking.bookingNumber ? `Бронирование № ${booking.bookingNumber}` : `Бронирование #${booking.id}`}
+              {booking.listingTitle && ` · ${booking.listingTitle}`}
+            </p>
+            {maxLimit > 0 && (
+              <p className="text-xs text-muted-foreground mt-1">
+                Лимит защиты: <b>{formatPrice(maxLimit)}</b>
+              </p>
+            )}
+          </div>
+          <button onClick={onClose} className="p-1 hover:bg-stone-100 rounded-lg">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="p-6 space-y-4">
+          <div>
+            <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-2 block">Тип проблемы</label>
+            <div className="grid grid-cols-2 gap-2">
+              {(["damage", "theft"] as const).map(t => (
+                <button
+                  key={t}
+                  onClick={() => setType(t)}
+                  className={`px-3 py-2 rounded-xl text-sm font-medium border-2 transition-colors ${
+                    type === t ? "border-rose-500 bg-rose-50 text-rose-700" : "border-border hover:border-rose-300"
+                  }`}
+                >
+                  {CLAIM_TYPE_LABELS[t]}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-2 block">
+              Что произошло <span className="text-rose-600">*</span>
+            </label>
+            <textarea
+              value={description}
+              onChange={e => setDescription(e.target.value)}
+              rows={4}
+              placeholder="Опишите ситуацию максимально подробно: когда обнаружили, какие повреждения / что пропало, контакт с другой стороной…"
+              className="w-full px-3 py-2 border border-border rounded-xl text-sm resize-none focus:outline-none focus:ring-2 focus:ring-rose-300"
+            />
+            <p className="text-[10px] text-muted-foreground mt-1">{description.length} / 10+ символов</p>
+          </div>
+
+          <div>
+            <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-2 block">
+              Ссылка на доказательства <span className="text-muted-foreground">(фото / видео / переписка)</span>
+            </label>
+            <input
+              type="url"
+              value={evidenceUrl}
+              onChange={e => setEvidenceUrl(e.target.value)}
+              placeholder="https://…"
+              className="w-full px-3 py-2 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-rose-300"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-2 block">
+              Запрашиваемая сумма, ₽ <span className="text-muted-foreground">(необязательно)</span>
+            </label>
+            <input
+              type="number"
+              min="1"
+              max={maxLimit > 0 ? maxLimit : undefined}
+              value={requestedAmount}
+              onChange={e => setRequestedAmount(e.target.value)}
+              placeholder={maxLimit > 0 ? `до ${maxLimit}` : "0"}
+              className="w-full px-3 py-2 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-rose-300"
+            />
+            <p className="text-[10px] text-muted-foreground mt-1">
+              Окончательную сумму определит администратор после рассмотрения.
+            </p>
+          </div>
+
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-900 flex gap-2">
+            <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+            <div>
+              Заявка попадёт к администратору. Он свяжется с обеими сторонами и примет решение о выплате компенсации
+              из гарантийного фонда. Будьте готовы предоставить дополнительные материалы.
+            </div>
+          </div>
+
+          {error && (
+            <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 text-sm text-rose-700">
+              {error}
+            </div>
+          )}
+        </div>
+
+        <div className="p-4 border-t border-border flex gap-3">
+          <button
+            onClick={onClose}
+            disabled={submitting}
+            className="flex-1 py-2.5 bg-stone-100 hover:bg-stone-200 rounded-xl text-sm font-bold transition-colors disabled:opacity-50"
+          >
+            Отмена
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={submitting || description.trim().length < 10}
+            className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-sm font-bold transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+            Отправить заявку
+          </button>
+        </div>
       </div>
     </div>
   );

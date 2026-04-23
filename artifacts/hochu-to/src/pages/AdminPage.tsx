@@ -1452,79 +1452,122 @@ function AuditLogTab() {
 function ClaimsTab() {
   const API = import.meta.env.VITE_API_URL ?? "";
   const { data, loading, refresh } = useFetch<any[]>(`${API}/api/claims`, []);
+  const { data: fund, refresh: refreshFund } = useFetch<{ inSum: number; outSum: number; balance: number }>(`${API}/api/claims/fund-status`, []);
 
   const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
-    pending:     { label: "На рассмотрении", color: "bg-amber-100 text-amber-700" },
-    reviewing:   { label: "Проверяется",     color: "bg-blue-100 text-blue-700" },
-    approved:    { label: "Одобрена",         color: "bg-green-100 text-green-700" },
-    paid:        { label: "Выплачено",        color: "bg-green-200 text-green-800" },
-    rejected:    { label: "Отклонена",        color: "bg-red-100 text-red-700" },
+    pending:      { label: "На рассмотрении",          color: "bg-amber-100 text-amber-700" },
+    admin_review: { label: "Изучается",                 color: "bg-blue-100 text-blue-700" },
+    approved:     { label: "Одобрена · ожидает выплаты", color: "bg-blue-100 text-blue-800" },
+    paid:         { label: "Выплачено",                 color: "bg-green-200 text-green-800" },
+    rejected:     { label: "Отклонена",                 color: "bg-red-100 text-red-700" },
   };
 
   const TYPE_LABEL: Record<string, string> = {
     damage: "Повреждение",
-    theft:  "Кража",
+    theft:  "Кража / невозврат",
   };
 
-  const [processing, setProcessing] = useState<number | null>(null);
+  const [filter, setFilter] = useState<"active" | "all" | "pending" | "approved" | "paid" | "rejected">("active");
+  const [approveModal, setApproveModal] = useState<any | null>(null);
+  const [paidModal, setPaidModal] = useState<any | null>(null);
+  const [rejectModal, setRejectModal] = useState<any | null>(null);
 
-  async function handleAction(id: number, status: "approved" | "rejected", adminNote?: string) {
-    setProcessing(id);
-    try {
-      const token = localStorage.getItem("token");
-      await fetch(`${API}/api/claims/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ status, adminNote }),
-      });
-      refresh?.();
-    } finally {
-      setProcessing(null);
-    }
-  }
+  const filtered = (data ?? []).filter((c: any) => {
+    if (filter === "all") return true;
+    if (filter === "active") return ["pending", "admin_review", "approved"].includes(c.status);
+    return c.status === filter;
+  });
+
+  const onSuccess = () => { refresh?.(); refreshFund?.(); };
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-stone-500">Управление заявками Гарантийного фонда — возмещение ущерба арендодателям</p>
+      <p className="text-sm text-stone-500">Заявки в гарантийный фонд — выплаты компенсаций пострадавшим</p>
+
+      {fund && (
+        <div className="grid grid-cols-3 gap-3">
+          <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3">
+            <div className="text-[10px] uppercase font-bold text-emerald-700 mb-1">Поступило в фонд</div>
+            <div className="text-xl font-bold text-emerald-800">{fund.inSum.toLocaleString("ru")} ₽</div>
+          </div>
+          <div className="bg-rose-50 border border-rose-200 rounded-xl p-3">
+            <div className="text-[10px] uppercase font-bold text-rose-700 mb-1">Выплачено по claims</div>
+            <div className="text-xl font-bold text-rose-800">{fund.outSum.toLocaleString("ru")} ₽</div>
+          </div>
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-3">
+            <div className="text-[10px] uppercase font-bold text-blue-700 mb-1">Доступный баланс</div>
+            <div className="text-xl font-bold text-blue-800">{fund.balance.toLocaleString("ru")} ₽</div>
+          </div>
+        </div>
+      )}
+
+      <div className="flex gap-2 flex-wrap">
+        {([
+          { k: "active", l: "Активные" },
+          { k: "pending", l: "На рассмотрении" },
+          { k: "approved", l: "Ожидают выплаты" },
+          { k: "paid", l: "Выплачены" },
+          { k: "rejected", l: "Отклонённые" },
+          { k: "all", l: "Все" },
+        ] as const).map(f => (
+          <button key={f.k} onClick={() => setFilter(f.k)}
+            className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+              filter === f.k ? "bg-primary text-white" : "bg-stone-100 text-stone-700 hover:bg-stone-200"
+            }`}>{f.l}</button>
+        ))}
+      </div>
+
       {loading ? (
         <div className="text-center py-8 text-stone-400">Загрузка…</div>
-      ) : !data?.length ? (
+      ) : !filtered.length ? (
         <div className="text-center py-12 text-stone-400">
           <Shield className="w-10 h-10 mx-auto mb-2 opacity-30" />
-          Заявок пока нет
+          Заявок в этой категории нет
         </div>
       ) : (
         <div className="space-y-3">
-          {data.map((claim: any) => {
+          {filtered.map((claim: any) => {
             const cfg = STATUS_CONFIG[claim.status] ?? { label: claim.status, color: "bg-stone-100 text-stone-600" };
             return (
               <div key={claim.id} className="bg-white rounded-xl border border-stone-200 p-4 space-y-3">
                 <div className="flex items-start justify-between gap-3 flex-wrap">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
+                  <div className="space-y-1 min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${cfg.color}`}>{cfg.label}</span>
                       <span className="text-xs text-stone-400">#{claim.id}</span>
                       <span className="text-xs font-medium text-stone-600">{TYPE_LABEL[claim.type] ?? claim.type}</span>
                     </div>
                     <p className="text-sm text-stone-700">{claim.description}</p>
-                    {claim.requestedAmount && (
-                      <p className="text-xs text-stone-500">
-                        Запрошено: <strong className="text-stone-800">{Number(claim.requestedAmount).toLocaleString("ru")} ₽</strong>
-                      </p>
-                    )}
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-stone-500">
+                      {claim.requestedAmount && (
+                        <span>Запрошено: <strong className="text-stone-800">{Number(claim.requestedAmount).toLocaleString("ru")} ₽</strong></span>
+                      )}
+                      {claim.approvedAmount && (
+                        <span>Одобрено: <strong className="text-green-700">{Number(claim.approvedAmount).toLocaleString("ru")} ₽</strong></span>
+                      )}
+                      {claim.maxProtectionLimit && (
+                        <span>Лимит брони: {Number(claim.maxProtectionLimit).toLocaleString("ru")} ₽</span>
+                      )}
+                      {claim.payoutToName && (
+                        <span>Получатель: <strong>{claim.payoutToName}</strong></span>
+                      )}
+                      {claim.paymentRef && (
+                        <span>Ref: <span className="font-mono">{claim.paymentRef}</span></span>
+                      )}
+                    </div>
                   </div>
-                  <div className="text-xs text-stone-400 shrink-0">
+                  <div className="text-xs text-stone-400 shrink-0 text-right">
                     {format(new Date(claim.createdAt), "dd.MM.yyyy HH:mm")}
                     <br />
-                    <span className="text-stone-500">Бронирование #{claim.bookingId}</span>
+                    <span className="text-stone-500">{claim.bookingNumber ?? `Бронь #${claim.bookingId}`}</span>
+                    <br />
+                    <span className="text-stone-500">Заявитель: {claim.claimantName ?? `#${claim.claimantId}`}</span>
                   </div>
                 </div>
 
                 {claim.evidenceUrl && (
                   <a href={claim.evidenceUrl} target="_blank" rel="noopener noreferrer"
-                     className="text-xs text-primary underline break-all">
-                    📎 Доказательство
-                  </a>
+                     className="text-xs text-primary underline break-all">📎 Доказательство</a>
                 )}
 
                 {claim.adminNote && (
@@ -1532,33 +1575,319 @@ function ClaimsTab() {
                     Заметка: {claim.adminNote}
                   </div>
                 )}
-
-                {claim.status === "pending" && (
-                  <div className="flex gap-2 flex-wrap">
-                    <button
-                      onClick={() => handleAction(claim.id, "approved")}
-                      disabled={processing === claim.id}
-                      className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-medium rounded-lg transition-colors disabled:opacity-50"
-                    >
-                      ✓ Одобрить
-                    </button>
-                    <button
-                      onClick={() => {
-                        const note = prompt("Причина отклонения (необязательно):");
-                        handleAction(claim.id, "rejected", note ?? undefined);
-                      }}
-                      disabled={processing === claim.id}
-                      className="px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white text-xs font-medium rounded-lg transition-colors disabled:opacity-50"
-                    >
-                      ✕ Отклонить
-                    </button>
+                {claim.rejectionReason && (
+                  <div className="bg-rose-50 border border-rose-200 rounded-lg p-2 text-xs text-rose-700">
+                    Отклонено: {claim.rejectionReason}
                   </div>
                 )}
+                {claim.methodSnapshot && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-2 text-xs text-blue-900">
+                    💳 {claim.methodSnapshot.type === "card"
+                      ? `Карта •••• ${claim.methodSnapshot.cardLast4 ?? "????"} · ${claim.methodSnapshot.cardHolderName ?? ""} · ${claim.methodSnapshot.bankName ?? ""}`
+                      : `СБП ${claim.methodSnapshot.sbpPhone ?? ""} · ${claim.methodSnapshot.sbpBank ?? ""}`}
+                  </div>
+                )}
+
+                <div className="flex gap-2 flex-wrap">
+                  {(claim.status === "pending" || claim.status === "admin_review") && (
+                    <>
+                      <button onClick={() => setApproveModal(claim)}
+                        className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-medium rounded-lg">
+                        ✓ Одобрить и назначить выплату
+                      </button>
+                      <button onClick={() => setRejectModal(claim)}
+                        className="px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white text-xs font-medium rounded-lg">
+                        ✕ Отклонить
+                      </button>
+                    </>
+                  )}
+                  {claim.status === "approved" && (
+                    <>
+                      <button onClick={() => setPaidModal(claim)}
+                        className="px-3 py-1.5 bg-green-700 hover:bg-green-800 text-white text-xs font-medium rounded-lg">
+                        💸 Отметить выплаченной
+                      </button>
+                      <button onClick={() => setRejectModal(claim)}
+                        className="px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white text-xs font-medium rounded-lg">
+                        ✕ Отменить решение
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
             );
           })}
         </div>
       )}
+
+      {approveModal && (
+        <ClaimApproveModal claim={approveModal} fundBalance={fund?.balance ?? 0} onClose={() => setApproveModal(null)} onSuccess={() => { setApproveModal(null); onSuccess(); }} />
+      )}
+      {paidModal && (
+        <ClaimMarkPaidModal claim={paidModal} onClose={() => setPaidModal(null)} onSuccess={() => { setPaidModal(null); onSuccess(); }} />
+      )}
+      {rejectModal && (
+        <ClaimRejectModal claim={rejectModal} onClose={() => setRejectModal(null)} onSuccess={() => { setRejectModal(null); onSuccess(); }} />
+      )}
+    </div>
+  );
+}
+
+// ─── Claim modals ────────────────────────────────────────────────────────────
+
+function ClaimApproveModal({ claim, fundBalance, onClose, onSuccess }: { claim: any; fundBalance: number; onClose: () => void; onSuccess: () => void }) {
+  const API = import.meta.env.VITE_API_URL ?? "";
+  const [payoutToUserId, setPayoutToUserId] = useState<number | null>(null);
+  const [methods, setMethods] = useState<any[]>([]);
+  const [methodId, setMethodId] = useState<number | null>(null);
+  const [amount, setAmount] = useState<string>(claim.requestedAmount ?? "");
+  const [adminNote, setAdminNote] = useState<string>(claim.adminNote ?? "");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [loadingMethods, setLoadingMethods] = useState(false);
+
+  useEffect(() => {
+    if (!payoutToUserId) { setMethods([]); setMethodId(null); return; }
+    setLoadingMethods(true);
+    const token = localStorage.getItem("token");
+    fetch(`${API}/api/claims/payout-methods/${payoutToUserId}`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then((m: any[]) => {
+        setMethods(m);
+        const def = m.find(x => x.isDefault) ?? m[0];
+        setMethodId(def?.id ?? null);
+      })
+      .catch(() => setMethods([]))
+      .finally(() => setLoadingMethods(false));
+  }, [payoutToUserId, API]);
+
+  const maxLimit = claim.maxProtectionLimit ? Number(claim.maxProtectionLimit) : 0;
+  const amountNum = Number(amount);
+
+  const handleSubmit = async () => {
+    setError(null);
+    if (!payoutToUserId) return setError("Выберите получателя");
+    if (!methodId) return setError("Выберите реквизиты");
+    if (!Number.isFinite(amountNum) || amountNum <= 0) return setError("Сумма должна быть положительной");
+    if (maxLimit > 0 && amountNum > maxLimit) return setError(`Лимит брони — ${maxLimit} ₽`);
+    if (amountNum > fundBalance) return setError(`Баланс фонда — ${fundBalance} ₽`);
+
+    setSubmitting(true);
+    try {
+      const token = localStorage.getItem("token");
+      const r = await fetch(`${API}/api/claims/${claim.id}/approve`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ payoutToUserId, payoutMethodId: methodId, approvedAmount: amountNum, adminNote: adminNote || undefined }),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error(j.message || "Ошибка");
+      }
+      onSuccess();
+    } catch (e: any) {
+      setError(e.message || "Ошибка");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto">
+        <div className="p-5 border-b border-stone-200 flex items-center justify-between">
+          <h3 className="text-lg font-bold">Одобрить заявку #{claim.id}</h3>
+          <button onClick={onClose} className="p-1 hover:bg-stone-100 rounded">✕</button>
+        </div>
+        <div className="p-5 space-y-4">
+          <div>
+            <label className="text-xs font-bold uppercase text-stone-500 mb-2 block">Получатель компенсации</label>
+            <div className="grid grid-cols-2 gap-2">
+              <button onClick={() => setPayoutToUserId(claim.ownerId)}
+                className={`px-3 py-2 rounded-xl text-sm border-2 ${payoutToUserId === claim.ownerId ? "border-primary bg-primary/10" : "border-stone-200"}`}>
+                Владелец<br /><span className="text-xs text-stone-500">ID {claim.ownerId}</span>
+              </button>
+              <button onClick={() => setPayoutToUserId(claim.renterId)}
+                className={`px-3 py-2 rounded-xl text-sm border-2 ${payoutToUserId === claim.renterId ? "border-primary bg-primary/10" : "border-stone-200"}`}>
+                Арендатор<br /><span className="text-xs text-stone-500">ID {claim.renterId}</span>
+              </button>
+            </div>
+          </div>
+
+          {payoutToUserId && (
+            <div>
+              <label className="text-xs font-bold uppercase text-stone-500 mb-2 block">Реквизиты</label>
+              {loadingMethods ? (
+                <div className="text-xs text-stone-400">Загрузка…</div>
+              ) : methods.length === 0 ? (
+                <div className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg p-2">
+                  У получателя нет сохранённых реквизитов. Попросите его добавить карту/СБП в разделе «Финансы».
+                </div>
+              ) : (
+                <select value={methodId ?? ""} onChange={e => setMethodId(Number(e.target.value))}
+                  className="w-full px-3 py-2 border border-stone-300 rounded-xl text-sm">
+                  {methods.map(m => (
+                    <option key={m.id} value={m.id}>
+                      {m.type === "card"
+                        ? `Карта •••• ${m.cardLast4 ?? "?"} · ${m.cardHolderName ?? ""} (${m.bankName ?? ""})`
+                        : `СБП ${m.sbpPhone ?? ""} (${m.sbpBank ?? ""})`}
+                      {m.isDefault ? " · по умолчанию" : ""}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          )}
+
+          <div>
+            <label className="text-xs font-bold uppercase text-stone-500 mb-2 block">Сумма выплаты, ₽</label>
+            <input type="number" value={amount} onChange={e => setAmount(e.target.value)}
+              className="w-full px-3 py-2 border border-stone-300 rounded-xl text-sm" />
+            <p className="text-[10px] text-stone-500 mt-1">
+              Лимит брони: {maxLimit > 0 ? `${maxLimit} ₽` : "не задан"} · Баланс фонда: <b>{fundBalance} ₽</b>
+            </p>
+          </div>
+
+          <div>
+            <label className="text-xs font-bold uppercase text-stone-500 mb-2 block">Комментарий (опционально)</label>
+            <textarea value={adminNote} onChange={e => setAdminNote(e.target.value)} rows={2}
+              className="w-full px-3 py-2 border border-stone-300 rounded-xl text-sm resize-none" />
+          </div>
+
+          {error && <div className="bg-rose-50 border border-rose-200 rounded-lg p-2 text-sm text-rose-700">{error}</div>}
+        </div>
+        <div className="p-4 border-t border-stone-200 flex gap-2">
+          <button onClick={onClose} className="flex-1 py-2 bg-stone-100 hover:bg-stone-200 rounded-xl text-sm font-bold">Отмена</button>
+          <button onClick={handleSubmit} disabled={submitting}
+            className="flex-1 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl text-sm font-bold disabled:opacity-50">
+            {submitting ? "..." : "Одобрить"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ClaimMarkPaidModal({ claim, onClose, onSuccess }: { claim: any; onClose: () => void; onSuccess: () => void }) {
+  const API = import.meta.env.VITE_API_URL ?? "";
+  const [paymentRef, setPaymentRef] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async () => {
+    setError(null);
+    if (paymentRef.trim().length < 2) return setError("Укажите референс перевода");
+    setSubmitting(true);
+    try {
+      const token = localStorage.getItem("token");
+      const r = await fetch(`${API}/api/claims/${claim.id}/mark-paid`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ paymentRef: paymentRef.trim() }),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error(j.message || "Ошибка");
+      }
+      onSuccess();
+    } catch (e: any) {
+      setError(e.message || "Ошибка");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl">
+        <div className="p-5 border-b border-stone-200 flex items-center justify-between">
+          <h3 className="text-lg font-bold">Отметить выплаченной</h3>
+          <button onClick={onClose} className="p-1 hover:bg-stone-100 rounded">✕</button>
+        </div>
+        <div className="p-5 space-y-3">
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-900">
+            Сумма к выплате: <b>{Number(claim.approvedAmount ?? 0).toLocaleString("ru")} ₽</b>
+            {claim.methodSnapshot && (
+              <div className="mt-1">
+                Реквизиты: {claim.methodSnapshot.type === "card"
+                  ? `Карта •••• ${claim.methodSnapshot.cardLast4 ?? "?"} · ${claim.methodSnapshot.cardHolderName ?? ""}`
+                  : `СБП ${claim.methodSnapshot.sbpPhone ?? ""}`}
+              </div>
+            )}
+          </div>
+          <div>
+            <label className="text-xs font-bold uppercase text-stone-500 mb-2 block">Референс / номер перевода *</label>
+            <input value={paymentRef} onChange={e => setPaymentRef(e.target.value)}
+              placeholder="Напр. SBER-20260423-12345"
+              className="w-full px-3 py-2 border border-stone-300 rounded-xl text-sm" />
+          </div>
+          {error && <div className="bg-rose-50 border border-rose-200 rounded-lg p-2 text-sm text-rose-700">{error}</div>}
+        </div>
+        <div className="p-4 border-t border-stone-200 flex gap-2">
+          <button onClick={onClose} className="flex-1 py-2 bg-stone-100 hover:bg-stone-200 rounded-xl text-sm font-bold">Отмена</button>
+          <button onClick={handleSubmit} disabled={submitting}
+            className="flex-1 py-2 bg-green-700 hover:bg-green-800 text-white rounded-xl text-sm font-bold disabled:opacity-50">
+            {submitting ? "..." : "Подтвердить выплату"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ClaimRejectModal({ claim, onClose, onSuccess }: { claim: any; onClose: () => void; onSuccess: () => void }) {
+  const API = import.meta.env.VITE_API_URL ?? "";
+  const [reason, setReason] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async () => {
+    setError(null);
+    if (reason.trim().length < 2) return setError("Укажите причину");
+    setSubmitting(true);
+    try {
+      const token = localStorage.getItem("token");
+      const r = await fetch(`${API}/api/claims/${claim.id}/reject`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ rejectionReason: reason.trim() }),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error(j.message || "Ошибка");
+      }
+      onSuccess();
+    } catch (e: any) {
+      setError(e.message || "Ошибка");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl">
+        <div className="p-5 border-b border-stone-200 flex items-center justify-between">
+          <h3 className="text-lg font-bold">Отклонить заявку #{claim.id}</h3>
+          <button onClick={onClose} className="p-1 hover:bg-stone-100 rounded">✕</button>
+        </div>
+        <div className="p-5 space-y-3">
+          <div>
+            <label className="text-xs font-bold uppercase text-stone-500 mb-2 block">Причина отклонения *</label>
+            <textarea value={reason} onChange={e => setReason(e.target.value)} rows={4}
+              placeholder="Будет видна заявителю в уведомлении"
+              className="w-full px-3 py-2 border border-stone-300 rounded-xl text-sm resize-none" />
+          </div>
+          {error && <div className="bg-rose-50 border border-rose-200 rounded-lg p-2 text-sm text-rose-700">{error}</div>}
+        </div>
+        <div className="p-4 border-t border-stone-200 flex gap-2">
+          <button onClick={onClose} className="flex-1 py-2 bg-stone-100 hover:bg-stone-200 rounded-xl text-sm font-bold">Отмена</button>
+          <button onClick={handleSubmit} disabled={submitting}
+            className="flex-1 py-2 bg-red-500 hover:bg-red-600 text-white rounded-xl text-sm font-bold disabled:opacity-50">
+            {submitting ? "..." : "Отклонить"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
