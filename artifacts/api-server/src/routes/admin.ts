@@ -8,10 +8,26 @@ import {
   notificationsTable, supportTicketsTable, supportMessagesTable,
   reviewsTable, regionsTable, categoriesTable,
 } from "@workspace/db";
-import { eq, desc, ilike, or, sql, and, lt, gte } from "drizzle-orm";
+import { eq, desc, or, sql, and, lt, gte } from "drizzle-orm";
 import { requireAuth, AuthRequest } from "../middleware/auth.js";
 import bcrypt from "bcryptjs";
 import { getPlatformSettings, updatePlatformSettings } from "../lib/platform-settings.js";
+
+/**
+ * Кириллично-безопасный поиск: PostgreSQL с locale=C игнорирует регистр кириллицы в ILIKE.
+ * Обходим это, генерируя LIKE-варианты с разным регистром на стороне Node.js.
+ */
+function cyrillicLike(column: any, q: string): ReturnType<typeof or> {
+  const lower = q.toLowerCase();
+  const upper = q.toUpperCase();
+  const cap = lower.charAt(0).toUpperCase() + lower.slice(1);
+  const variants = Array.from(new Set([q, lower, upper, cap]));
+  const conds: any[] = [];
+  for (const v of variants) {
+    conds.push(sql`${column} LIKE ${"%" + v + "%"}`);
+  }
+  return or(...conds);
+}
 
 const router = Router();
 
@@ -391,7 +407,7 @@ router.get("/users", requireAuth, requireAdmin, async (req: AuthRequest, res) =>
   const offset = (page - 1) * limit;
 
   const conditions = [];
-  if (q) conditions.push(or(ilike(usersTable.name, `%${q}%`), ilike(usersTable.email, `%${q}%`)));
+  if (q) conditions.push(or(cyrillicLike(usersTable.name, q), sql`${usersTable.email} LIKE ${"%" + q.toLowerCase() + "%"}`));
   if (role) conditions.push(sql`${usersTable.role}::text = ${role}`);
   if (banned === "true") conditions.push(eq(usersTable.isBanned, true));
   if (banned === "false") conditions.push(eq(usersTable.isBanned, false));
@@ -562,7 +578,7 @@ router.get("/listings", requireAuth, requireAdmin, async (req: AuthRequest, res)
   const offset = (page - 1) * limit;
 
   const conditions = [];
-  if (q) conditions.push(ilike(listingsTable.title, `%${q}%`));
+  if (q) conditions.push(cyrillicLike(listingsTable.title, q));
   if (available === "true") conditions.push(eq(listingsTable.isAvailable, true));
   if (available === "false") conditions.push(eq(listingsTable.isAvailable, false));
 
@@ -677,7 +693,7 @@ router.get("/bookings", requireAuth, requireAdmin, async (req: AuthRequest, res)
   const offset = (page - 1) * limit;
 
   const conditions = [];
-  if (q) conditions.push(or(ilike(bookingsTable.bookingNumber, `%${q}%`), sql`${bookingsTable.id}::text ILIKE ${`%${q}%`}`));
+  if (q) conditions.push(or(cyrillicLike(bookingsTable.bookingNumber, q), sql`${bookingsTable.id}::text LIKE ${`%${q}%`}`));
   if (status) conditions.push(sql`${bookingsTable.status}::text = ${status}`);
 
   const rows = await db.select({
@@ -824,7 +840,7 @@ router.get("/tickets", requireAuth, requireAdmin, async (req: AuthRequest, res) 
   const conditions = [];
   if (status) conditions.push(sql`${supportTicketsTable.status}::text = ${status}`);
   if (priority) conditions.push(sql`${supportTicketsTable.priority}::text = ${priority}`);
-  if (q) conditions.push(ilike(supportTicketsTable.subject, `%${q}%`));
+  if (q) conditions.push(cyrillicLike(supportTicketsTable.subject, q));
 
   const tickets = await db.select({
     id: supportTicketsTable.id, ticketNumber: supportTicketsTable.ticketNumber,

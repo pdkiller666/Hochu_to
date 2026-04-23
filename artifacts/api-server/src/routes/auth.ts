@@ -235,6 +235,14 @@ router.get("/me", async (req, res) => {
       return;
     }
 
+    if (user.isBanned) {
+      res.status(403).json({
+        error: "banned",
+        message: `Ваш аккаунт заблокирован${user.banReason ? `: ${user.banReason}` : ". Обратитесь в поддержку."}`,
+      });
+      return;
+    }
+
     let regionName: string | undefined;
     if (user.regionId) {
       const [region] = await db.select().from(regionsTable).where(eq(regionsTable.id, user.regionId)).limit(1);

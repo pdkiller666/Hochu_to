@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db, bookingsTable, listingsTable, usersTable, bookingEventsTable, bookingMessagesTable } from "@workspace/db";
-import { eq, or, and, sql, ne, asc } from "drizzle-orm";
+import { eq, or, and, sql, ne, asc, desc } from "drizzle-orm";
 import { requireAuth, AuthRequest } from "../middleware/auth.js";
 import { CreateBookingBody } from "@workspace/api-zod";
 import { createNotification } from "../lib/notifications.js";
@@ -103,7 +103,7 @@ router.get("/", requireAuth, async (req: AuthRequest, res) => {
     .leftJoin(sql`${usersTable} AS renter`, sql`renter.id = ${bookingsTable.renterId}`)
     .leftJoin(sql`${usersTable} AS owner`, sql`owner.id = ${bookingsTable.ownerId}`)
     .where(or(eq(bookingsTable.renterId, req.userId!), eq(bookingsTable.ownerId, req.userId!)))
-    .orderBy(bookingsTable.createdAt);
+    .orderBy(desc(bookingsTable.createdAt));
 
   const showContacts = (status: string) => SHOW_CONTACTS_STATUSES.includes(status);
 
@@ -545,11 +545,14 @@ router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
       listingTitle: title,
     });
   } else if (status === "cancelled") {
+    // Уведомляем ДРУГУЮ сторону (не того, кто отменил)
+    const notifyUserId = actorRole === "renter" ? updated.ownerId : updated.renterId;
+    const cancellerWord = actorRole === "renter" ? "Арендатор" : "Владелец";
     await createNotification({
-      userId: updated.ownerId,
+      userId: notifyUserId,
       type: "booking_cancelled",
       title: `🚫 Аренда отменена — «${title}»`,
-      message: `Арендатор отменил заявку ${bookingNumber}.`,
+      message: `${cancellerWord} отменил(а) заявку ${bookingNumber}.`,
       bookingId: updated.id,
       listingTitle: title,
     });
@@ -599,10 +602,29 @@ router.patch("/:id/reschedule", requireAuth, async (req: AuthRequest, res) => {
   const [listing] = await db.select().from(listingsTable).where(eq(listingsTable.id, booking.listingId)).limit(1);
   const days = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / 86_400_000));
   const pricePerDay = Number(listing?.pricePerDay ?? 0);
-  const totalPrice  = days * pricePerDay;
+  const rent = parseFloat((days * pricePerDay).toFixed(2));
+
+  // Для защищённых сделок пересчитываем с Shield Fee
+  let totalPrice = rent;
+  let shieldFeeNew = 0;
+  if (booking.protectionEnabled) {
+    const settings = await getPlatformSettings();
+    shieldFeeNew = Math.max(
+      parseFloat((rent * num(settings.shieldFeePercent) / 100).toFixed(2)),
+      settings.shieldFeeMin,
+    );
+    totalPrice = parseFloat((rent + shieldFeeNew).toFixed(2));
+  }
 
   const [updated] = await db.update(bookingsTable)
-    .set({ startDate, endDate, totalPrice: String(totalPrice) })
+    .set({
+      startDate,
+      endDate,
+      totalDays: days,
+      totalPrice: String(totalPrice),
+      rentAmount: String(rent),
+      ...(booking.protectionEnabled && { renterFundContribution: String(shieldFeeNew) }),
+    })
     .where(eq(bookingsTable.id, id))
     .returning();
 

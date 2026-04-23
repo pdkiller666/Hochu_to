@@ -274,14 +274,35 @@ router.get("/:id/listings", async (req, res) => {
     .where(eq(listingsTable.ownerId, id))
     .orderBy(listingsTable.createdAt);
 
-  const listingsWithRating = listings.map(l => ({
-    ...l,
-    pricePerDay: parseFloat(l.pricePerDay as unknown as string),
-    deposit: l.deposit ? parseFloat(l.deposit as unknown as string) : undefined,
-    createdAt: l.createdAt.toISOString(),
-    rating: 0,
-    reviewCount: 0,
-  }));
+  // Загружаем рейтинги одним запросом (один запрос на всех, а не N+1)
+  const listingIds = listings.map(l => l.id);
+  const ratingsMap = new Map<number, { avg: number; count: number }>();
+  if (listingIds.length > 0) {
+    const ratingsRows = await db
+      .select({
+        listingId: reviewsTable.listingId,
+        avg: sql<number>`COALESCE(AVG(${reviewsTable.rating}), 0)::float`,
+        count: sql<number>`COUNT(*)::int`,
+      })
+      .from(reviewsTable)
+      .where(sql`${reviewsTable.listingId} = ANY(ARRAY[${sql.raw(listingIds.join(","))}]::int[])`)
+      .groupBy(reviewsTable.listingId);
+    for (const row of ratingsRows) {
+      if (row.listingId != null) ratingsMap.set(row.listingId, { avg: row.avg, count: row.count });
+    }
+  }
+
+  const listingsWithRating = listings.map(l => {
+    const r = ratingsMap.get(l.id) ?? { avg: 0, count: 0 };
+    return {
+      ...l,
+      pricePerDay: parseFloat(l.pricePerDay as unknown as string),
+      deposit: l.deposit ? parseFloat(l.deposit as unknown as string) : undefined,
+      createdAt: l.createdAt.toISOString(),
+      rating: Math.round(r.avg * 10) / 10,
+      reviewCount: r.count,
+    };
+  });
 
   res.json(listingsWithRating);
 });
