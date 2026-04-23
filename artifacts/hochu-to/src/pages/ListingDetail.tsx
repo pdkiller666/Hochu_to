@@ -550,9 +550,16 @@ export default function ListingDetail() {
                   const ownerProt = (listing as any).ownerProtectionEnabled !== false;
                   const { ownerPayout } = calculateTotalPrice(listing.pricePerDay, cat, 1, ownerProt, false);
                   return (
-                    <p className="text-xs text-muted-foreground mb-2">
-                      Вы получите ≈ <strong className="text-foreground">{formatPrice(ownerPayout)}</strong> с суток (после комиссий)
-                    </p>
+                    <div className="bg-green-50 border border-green-200 rounded-xl p-2.5 mb-2 text-xs">
+                      <p className="text-green-800">
+                        На карту: <strong className="text-green-900 text-sm">{formatPrice(ownerPayout)}</strong> с суток <span className="text-green-700">— чистыми</span>
+                      </p>
+                      <p className="text-[10.5px] text-green-700 leading-snug mt-1">
+                        {ownerProt
+                          ? "Эквайринг, чек, эскроу и поддержку при споре платформа берёт на себя — вы получаете готовую сумму без хлопот."
+                          : "Эквайринг и чек при оплате через платформу — на нас. Сумма указана после комиссий."}
+                      </p>
+                    </div>
                   );
                 })()}
                 {(() => {
@@ -615,9 +622,11 @@ export default function ListingDetail() {
                             )}
                           </div>
                         </div>
-                        <p className="text-xs text-green-700 leading-relaxed">
-                          Объявление отмечено значком защиты — арендаторы видят, что сделка безопасна. Это повышает конверсию.
-                        </p>
+                        <div className="space-y-1.5 text-xs text-green-700">
+                          <p className="flex items-start gap-1.5"><span className="text-green-500 font-bold mt-0.5">•</span> Если арендатор повредит или не вернёт вещь — фонд возместит до <strong>{maxProt && maxProt > 0 ? `${maxProt.toLocaleString("ru")} ₽` : "лимита фонда"}</strong> по решению арбитража</p>
+                          <p className="flex items-start gap-1.5"><span className="text-green-500 font-bold mt-0.5">•</span> Объявления с фондом просматривают <strong>2× чаще</strong></p>
+                          <p className="flex items-start gap-1.5"><span className="text-green-500 font-bold mt-0.5">•</span> Все споры решает арбитраж — вам не нужно разбираться самому</p>
+                        </div>
                       </div>
                     ) : (
                       <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-4 space-y-3">
@@ -998,22 +1007,32 @@ export default function ListingDetail() {
                           )}
 
                           {showFeeDetails && platformFees > 0 && (
-                            <div className="bg-white/70 border border-primary/10 rounded-lg p-2.5 text-[11px] text-muted-foreground space-y-1">
+                            <div className="bg-white/70 border border-primary/10 rounded-lg p-2.5 text-[11px] text-muted-foreground space-y-2">
                               {isFreeUpgrade && serviceFee + taxFee > 0 && (
-                                <div className="flex justify-between">
-                                  <span>Сервис платформы (эскроу + эквайринг)</span>
-                                  <span>{formatPrice(serviceFee + taxFee)}</span>
+                                <div>
+                                  <div className="flex justify-between text-foreground">
+                                    <span className="font-medium">Безопасная сделка через эскроу</span>
+                                    <span>{formatPrice(serviceFee + taxFee)}</span>
+                                  </div>
+                                  <p className="text-[10.5px] leading-snug text-muted-foreground mt-0.5">
+                                    Деньги попадают владельцу <b>только после</b> того, как вы получили вещь. Чек, поддержка и проведение возврата — на нас.
+                                  </p>
                                 </div>
                               )}
                               {renterFundContrib > 0 && (
-                                <div className="flex justify-between">
-                                  <span>Гарантийный фонд</span>
-                                  <span>{formatPrice(renterFundContrib)}</span>
+                                <div>
+                                  <div className="flex justify-between text-foreground">
+                                    <span className="font-medium">Защита Гарантийным фондом</span>
+                                    <span>{formatPrice(renterFundContrib)}</span>
+                                  </div>
+                                  <p className="text-[10.5px] leading-snug text-muted-foreground mt-0.5">
+                                    Если случится поломка, утеря или спор — фонд компенсирует ущерб <b>по решению арбитража</b> (в пределах лимита). Вы не остаётесь один на один с владельцем.
+                                  </p>
                                 </div>
                               )}
                               {isFreeUpgrade && (
-                                <p className="pt-1 text-amber-700 leading-snug">
-                                  Владелец на тарифе <b>Free</b> — получает 100% аренды. Комиссии платформы оплачиваете вы.
+                                <p className="pt-1 text-green-700 leading-snug border-t border-primary/10">
+                                  Сравните: личная встреча с незнакомцем, наличные, риск залогом. Здесь — карта, защита и поддержка за {formatPrice(platformFees)} на всю сделку.
                                 </p>
                               )}
                             </div>
