@@ -1709,10 +1709,13 @@ function EconomyTab() {
   return (
     <div className="space-y-6">
       <div className="bg-white rounded-xl border border-stone-200 p-6">
-        <h2 className="text-lg font-semibold text-stone-800 mb-1">Комиссии и налоги</h2>
-        <p className="text-sm text-stone-500 mb-4">Скрытая комиссия и налог удерживаются с владельца из суммы аренды</p>
+        <h2 className="text-lg font-semibold text-stone-800 mb-1">Комиссии платформы</h2>
+        <p className="text-sm text-stone-500 mb-4">
+          На <b>Premium</b>-объявлениях удерживаются с выплаты владельцу. На <b>Free</b>-объявлениях с апгрейдом
+          (арендатор сам выбрал защиту) — оплачиваются арендатором поверх аренды, владелец получает 100%.
+        </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <SettingsField label="Сервисный сбор" hint="С владельца, % от аренды">
+          <SettingsField label="Сервисный сбор" hint="Эскроу + эквайринг + поддержка, % от аренды">
             <NumInput step="0.1" suffix="%" value={data.serviceFeePercent} onChange={v => set("serviceFeePercent", v)} />
           </SettingsField>
           <SettingsField label="Налоговая удержка" hint="Самозанятость 6% / ИП 4% / ООО — настраивается">
@@ -1722,22 +1725,33 @@ function EconomyTab() {
       </div>
 
       <div className="bg-white rounded-xl border border-stone-200 p-6">
-        <h2 className="text-lg font-semibold text-stone-800 mb-1">Безопасная сделка (Shield)</h2>
-        <p className="text-sm text-stone-500 mb-4">Shield Fee платит арендатор сверху; Risk Coverage удерживается с владельца</p>
+        <h2 className="text-lg font-semibold text-stone-800 mb-1">Гарантийный фонд (Модель А)</h2>
+        <p className="text-sm text-stone-500 mb-4">
+          Один общий фонд возмещения ущерба. Доля рассчитывается как <code>max(аренда × %, минимум)</code> и
+          одинакова для обеих сторон. Владелец и арендатор <b>независимо</b> опт-инятся: на Premium-объявлении
+          оба обычно участвуют, на Free — только арендатор (если апгрейдил защиту).
+        </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <SettingsField label="Shield Fee, %" hint="Сверху к оплате арендатора">
-            <NumInput step="0.1" suffix="%" value={data.shieldFeePercent} onChange={v => set("shieldFeePercent", v)} />
+          <SettingsField label="Доля фонда, %" hint="От суммы аренды (одинаково для арендатора и владельца)">
+            <NumInput
+              step="0.1"
+              suffix="%"
+              value={data.shieldFeePercent}
+              onChange={v => { set("shieldFeePercent", v); set("riskCoveragePercent", v); }}
+            />
           </SettingsField>
-          <SettingsField label="Shield Fee, минимум ₽">
-            <NumInput suffix="₽" value={data.shieldFeeMin} onChange={v => set("shieldFeeMin", v)} />
-          </SettingsField>
-          <SettingsField label="Risk Coverage, %" hint="С выплаты владельца">
-            <NumInput step="0.1" suffix="%" value={data.riskCoveragePercent} onChange={v => set("riskCoveragePercent", v)} />
-          </SettingsField>
-          <SettingsField label="Risk Coverage, минимум ₽">
-            <NumInput suffix="₽" value={data.riskCoverageMin} onChange={v => set("riskCoverageMin", v)} />
+          <SettingsField label="Минимальный взнос, ₽" hint="Ниже этой суммы не опускаемся">
+            <NumInput
+              suffix="₽"
+              value={data.shieldFeeMin}
+              onChange={v => { set("shieldFeeMin", v); set("riskCoverageMin", v); }}
+            />
           </SettingsField>
         </div>
+        <p className="text-xs text-stone-400 mt-3 italic">
+          Поля <code>riskCoverage*</code> в БД синхронизируются автоматически — они оставлены для совместимости
+          со старыми отчётами и legacy-импортами.
+        </p>
       </div>
 
       <div className="bg-white rounded-xl border border-stone-200 p-6">

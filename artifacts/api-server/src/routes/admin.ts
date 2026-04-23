@@ -1290,6 +1290,20 @@ router.put("/settings", requireAuth, requireAdmin, async (req: AuthRequest, res)
     return res.status(400).json({ error: "invalid_value", field: "riskCoverageMin", message: "Слишком большое значение" });
   }
 
+  // ── Модель А: Гарантийный фонд — одна доля для обеих сторон.
+  // Зеркалируем shieldFee↔riskCoverage, чтобы устаревшие потребители (publicSettings,
+  // legacy-импорты) не показывали расходящиеся цифры с реальной формулой расчёта.
+  if ("shieldFeePercent" in patch && !("riskCoveragePercent" in patch)) {
+    patch.riskCoveragePercent = patch.shieldFeePercent;
+  } else if ("riskCoveragePercent" in patch && !("shieldFeePercent" in patch)) {
+    patch.shieldFeePercent = patch.riskCoveragePercent;
+  }
+  if ("shieldFeeMin" in patch && !("riskCoverageMin" in patch)) {
+    patch.riskCoverageMin = patch.shieldFeeMin;
+  } else if ("riskCoverageMin" in patch && !("shieldFeeMin" in patch)) {
+    patch.shieldFeeMin = patch.riskCoverageMin;
+  }
+
   const updated = await updatePlatformSettings(patch, req.userId);
   if (req.userId) {
     await audit(req.userId, "platform_settings", updated.id, "update", JSON.stringify(Object.keys(patch)));
