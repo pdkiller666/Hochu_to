@@ -183,6 +183,19 @@ paths:
           in: query
           schema:
             type: string
+        - name: sort
+          in: query
+          description: Sort order (new, popular, rating, price_asc, price_desc)
+          schema:
+            type: string
+            enum: [new, popular, rating, price_asc, price_desc]
+            default: new
+        - name: safeOnly
+          in: query
+          description: Если "true" — только объявления с включённой защитой сделки
+          schema:
+            type: string
+            enum: ["true", "false"]
         - name: page
           in: query
           schema:

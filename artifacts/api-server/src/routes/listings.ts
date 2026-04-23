@@ -76,7 +76,7 @@ function calcMaxProtection(pricePerDay: number, itemCategory: string | null, com
 }
 
 router.get("/", async (req, res) => {
-  const { category, region, minPrice, maxPrice, search, page = "1", limit = "12", sort = "new" } = req.query as Record<string, string>;
+  const { category, region, minPrice, maxPrice, search, safeOnly, page = "1", limit = "12", sort = "new" } = req.query as Record<string, string>;
   const pageNum = Math.max(1, parseInt(page));
   const limitNum = Math.min(50, Math.max(1, parseInt(limit)));
   const offset = (pageNum - 1) * limitNum;
@@ -91,6 +91,9 @@ router.get("/", async (req, res) => {
 
   if (minPrice) baseConditions.push(gte(listingsTable.pricePerDay, minPrice));
   if (maxPrice) baseConditions.push(lte(listingsTable.pricePerDay, maxPrice));
+  if (safeOnly === "true" || safeOnly === "1") {
+    baseConditions.push(eq(listingsTable.ownerProtectionEnabled, true));
+  }
   if (search) {
     // ВАЖНО: на некоторых хостингах (включая Amvera) PostgreSQL запущен с locale=C,
     // где ILIKE и LOWER()/UPPER() корректно обрабатывают только ASCII, а кириллицу

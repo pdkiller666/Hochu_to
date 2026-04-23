@@ -3,7 +3,7 @@ import { useGetListings, useGetCategories, useGetRegions, useGetCurrentUser } fr
 import { ListingCard } from "@/components/ui/ListingCard";
 import { useLocation, useSearch } from "wouter";
 import { useState, useEffect, useRef } from "react";
-import { Search, X, SlidersHorizontal, MapPin, Loader2, ChevronDown, ChevronUp, ArrowUpDown } from "lucide-react";
+import { Search, X, SlidersHorizontal, MapPin, Loader2, ChevronDown, ChevronUp, ArrowUpDown, ShieldCheck } from "lucide-react";
 import { getToken, getAuthHeaders } from "@/lib/auth";
 import { getCachedGeoRegion, setCachedGeoRegion, detectRegionByServerGeoIP } from "@/lib/region-context";
 import { readPersistedState, clearPersistedState } from "@/lib/use-persisted-state";
@@ -27,6 +27,7 @@ interface SavedFilters {
   maxPrice?: string;
   sort?: string;
   showPriceFilter?: boolean;
+  safeOnly?: boolean;
 }
 
 function matchRegion(stateName: string, regions: { name: string; slug: string }[]): string | null {
@@ -79,6 +80,7 @@ export default function Catalog() {
   const urlCategory = searchParams.get("category") || "";
   const urlSearch = searchParams.get("search") || "";
   const urlSort = searchParams.get("sort") || "";
+  const urlSafeOnly = searchParams.get("safeOnly") === "1" || searchParams.get("safeOnly") === "true";
 
   // Восстанавливаем сохранённые фильтры (если нет URL-параметров)
   const saved = readPersistedState<SavedFilters>(STORAGE_KEY, {});
@@ -90,6 +92,7 @@ export default function Catalog() {
   const [maxPrice, setMaxPrice] = useState(saved.maxPrice || "");
   const [sort, setSort] = useState<SortOption>((urlSort || saved.sort || "new") as SortOption);
   const [showPriceFilter, setShowPriceFilter] = useState(saved.showPriceFilter ?? false);
+  const [safeOnly, setSafeOnly] = useState<boolean>(urlSafeOnly || saved.safeOnly || false);
   const [showFilters, setShowFilters] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
   const regionInitialized = useRef(!!(urlRegion || getCachedGeoRegion()));
@@ -105,10 +108,10 @@ export default function Catalog() {
   // Сохраняем фильтры в sessionStorage при каждом изменении
   useEffect(() => {
     try {
-      const toSave: SavedFilters = { category, search, minPrice, maxPrice, sort, showPriceFilter };
+      const toSave: SavedFilters = { category, search, minPrice, maxPrice, sort, showPriceFilter, safeOnly };
       sessionStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
     } catch {}
-  }, [category, search, minPrice, maxPrice, sort, showPriceFilter]);
+  }, [category, search, minPrice, maxPrice, sort, showPriceFilter, safeOnly]);
 
   useEffect(() => {
     const onScroll = () => setIsScrolled(window.scrollY > 10);
@@ -157,6 +160,7 @@ export default function Catalog() {
     minPrice: minPrice ? Number(minPrice) : undefined,
     maxPrice: maxPrice ? Number(maxPrice) : undefined,
     sort: sort || undefined,
+    safeOnly: safeOnly ? "true" : undefined,
     limit: 24,
   } as Parameters<typeof useGetListings>[0]);
 
@@ -167,10 +171,11 @@ export default function Catalog() {
     setMaxPrice("");
     setSort("new");
     setRegion("");
+    setSafeOnly(false);
     clearPersistedState(STORAGE_KEY);
   };
 
-  const hasActiveFilters = !!(category || search || minPrice || maxPrice || (sort && sort !== "new"));
+  const hasActiveFilters = !!(category || search || minPrice || maxPrice || (sort && sort !== "new") || safeOnly);
   const selectedRegionName = regions?.find(r => r.slug === region)?.name ?? "";
   const selectedCategoryName = categories?.find(c => c.slug === category)?.name ?? "";
   const selectedSortLabel = SORT_OPTIONS.find(o => o.value === sort)?.label ?? "";
@@ -179,6 +184,7 @@ export default function Catalog() {
     category,
     minPrice || maxPrice ? "price" : "",
     sort && sort !== "new" ? sort : "",
+    safeOnly ? "safe" : "",
   ].filter(Boolean).length;
 
   return (
@@ -250,6 +256,15 @@ export default function Catalog() {
                     <ArrowUpDown className="w-3 h-3" /> {selectedSortLabel} <X className="w-3 h-3" />
                   </button>
                 )}
+                {safeOnly && (
+                  <button
+                    onClick={() => setSafeOnly(false)}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 bg-green-100 text-green-700 rounded-full text-xs font-semibold hover:bg-green-200"
+                    title="Убрать фильтр"
+                  >
+                    <ShieldCheck className="w-3 h-3" /> Безопасные <X className="w-3 h-3" />
+                  </button>
+                )}
               </>
             )}
 
@@ -299,6 +314,22 @@ export default function Catalog() {
                   ))}
                 </select>
               </div>
+
+              {/* Safe-deals toggle */}
+              <button
+                onClick={() => setSafeOnly(v => !v)}
+                aria-pressed={safeOnly}
+                className={`flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-sm font-semibold border transition-all flex-shrink-0 ${
+                  safeOnly
+                    ? "bg-green-50 border-green-500 text-green-700"
+                    : "bg-white border-border text-foreground hover:border-green-500 hover:text-green-700"
+                }`}
+                title="Показать только объявления с защитой сделки"
+              >
+                <ShieldCheck className="w-4 h-4" />
+                <span className="hidden sm:inline">Безопасные сделки</span>
+                <span className="sm:hidden">Безопасные</span>
+              </button>
 
               {/* Price button */}
               <button

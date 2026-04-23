@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { MapPin, Star, Heart, Info, ShieldCheck, Sparkles, Award, Flame, Crown, Zap } from "lucide-react";
+import { MapPin, Star, Heart, Info, ShieldCheck, Sparkles, Award, Flame, Crown, Zap, Tag } from "lucide-react";
 import { Listing } from "@workspace/api-client-react";
 import { formatPrice, calculateTotalPrice, calcDeposit, type ItemCategory } from "@/lib/utils";
 import { useState } from "react";
@@ -39,9 +39,11 @@ function getListingBadges(listing: Listing): Badge[] {
     out.push({ key: "urgent", icon: Zap, label: "Срочно", className: "bg-red-100 text-red-700 border-red-300", tier: "paid" });
   }
 
-  // ── Бесплатные (заработанные) ─────────────────────────────────
+  // ── Тип сделки ────────────────────────────────────────────────
   if (l.ownerProtectionEnabled !== false) {
     out.push({ key: "safe", icon: ShieldCheck, label: "Безопасная сделка", className: "bg-green-50 text-green-700 border-green-200", tier: "default" });
+  } else {
+    out.push({ key: "free", icon: Tag, label: "Бесплатно", className: "bg-slate-50 text-slate-700 border-slate-200", tier: "default" });
   }
   const rating = typeof l.rating === "number" ? l.rating : 0;
   const reviewCount = typeof l.reviewCount === "number" ? l.reviewCount : 0;

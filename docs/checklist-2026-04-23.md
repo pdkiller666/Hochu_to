@@ -124,10 +124,12 @@
 
 ## ❌ НЕ РЕАЛИЗОВАНО (следующие этапы)
 
-### 🚧 Этап 3 — Каталог: новые бейджи и фильтр Free/Premium
-- [ ] Бейдж «🪧 Бесплатно» / «🛡 Защищённая» на карточке `ListingCard`
-- [ ] Фильтр «только Защищённые сделки» в каталоге
-- [ ] Сортировка: значения по умолчанию из platform_settings
+### ✅ Этап 3 — Каталог: новые бейджи и фильтр Free/Premium
+- [x] Бейдж «🪧 Бесплатно» (Tag, slate) / «🛡 Безопасная сделка» (ShieldCheck, green) на `ListingCard`
+- [x] API: query-параметр `safeOnly=true` в `GET /api/listings` (фильтр по `ownerProtectionEnabled = true`)
+- [x] UI: тумблер «Безопасные сделки» в панели фильтров каталога + чип в строке активных фильтров + URL-sync (`?safeOnly=1`) + sessionStorage
+- [x] OpenAPI spec обновлена (добавлены `sort` и `safeOnly`)
+- [ ] Сортировка: значения по умолчанию из platform_settings *(перенесено в Этап 7)*
 
 ### 🚧 Этап 4 — Платные контакты: БД + API
 - [ ] Таблица `contact_purchases` (renter_id, listing_id, price, paid_at)
