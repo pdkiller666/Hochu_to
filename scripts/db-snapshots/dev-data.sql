@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict tdo8KHOocdLlt8xZ1npWRx8o4222pTBZAhU21cg4gGUohKGbLIculW2FYdiJkCZ
+\restrict VUoASmJnIIPcS5H11HRGITM1wLahEbTr2tRZiyah7gFXR1VXO1BxzBk7roaZZDH
 
 -- Dumped from database version 16.10
 -- Dumped by pg_dump version 16.10
@@ -41,6 +41,43 @@ INSERT INTO public.admin_audit_log (id, admin_id, entity_type, entity_id, action
 INSERT INTO public.admin_audit_log (id, admin_id, entity_type, entity_id, action, detail, created_at) VALUES (4, 7, 'listing', 15, 'edit_listing', 'Changed: isAvailable', '2026-04-23 17:19:21.311743');
 INSERT INTO public.admin_audit_log (id, admin_id, entity_type, entity_id, action, detail, created_at) VALUES (5, 7, 'listing', 15, 'edit_listing', 'Changed: isAvailable', '2026-04-23 17:19:21.435216');
 INSERT INTO public.admin_audit_log (id, admin_id, entity_type, entity_id, action, detail, created_at) VALUES (6, 7, 'platform_settings', 1, 'update', '["serviceFeePercent","taxFeePercent","contactPriceSingle"]', '2026-04-23 18:54:24.231548');
+
+
+--
+-- Data for Name: auth_sessions; Type: TABLE DATA; Schema: public; Owner: -
+--
+
+INSERT INTO public.auth_sessions (id, user_id, token_hash, expires_at, revoked_at, created_at) VALUES (1, 2, 'be74c553806600e1c7c7d494aeb00bd49f371896f56f86b0452dda51a3bc2f97', '2026-05-23 17:05:58.678', NULL, '2026-04-23 17:05:58.67889');
+INSERT INTO public.auth_sessions (id, user_id, token_hash, expires_at, revoked_at, created_at) VALUES (2, 1, 'f3d02dfec7c54ed496dac300db8424a571fe1527d40dc05cb74bcb359cb960bd', '2026-05-23 17:05:59.393', NULL, '2026-04-23 17:05:59.393953');
+INSERT INTO public.auth_sessions (id, user_id, token_hash, expires_at, revoked_at, created_at) VALUES (3, 7, 'e9614952b3a8c3b1ae055c71ab0f9310d017fbc8258bb59dd9ebef1e70a52bf7', '2026-05-23 17:05:59.518', NULL, '2026-04-23 17:05:59.519214');
+INSERT INTO public.auth_sessions (id, user_id, token_hash, expires_at, revoked_at, created_at) VALUES (4, 2, 'e4bf103ea65dabbd697d60dee4120c9045f993495fce7b041f47e862ad5da656', '2026-05-23 17:06:09.389', NULL, '2026-04-23 17:06:09.390194');
+INSERT INTO public.auth_sessions (id, user_id, token_hash, expires_at, revoked_at, created_at) VALUES (5, 1, '680b40b61b464dd658dfaa7bffc2b6063713facac6a4a4454107898dcd9f17f9', '2026-05-23 17:06:09.534', NULL, '2026-04-23 17:06:09.534915');
+INSERT INTO public.auth_sessions (id, user_id, token_hash, expires_at, revoked_at, created_at) VALUES (6, 7, '75a99b7126815751e991c7d4aefabc079ac5b6514d60de782d7120d12ac0b3aa', '2026-05-23 17:06:09.684', NULL, '2026-04-23 17:06:09.684312');
+INSERT INTO public.auth_sessions (id, user_id, token_hash, expires_at, revoked_at, created_at) VALUES (7, 1, 'b9d7cd8a84517e19fbba46afb7f1b77b262de6a2efc478c62c0a3c31d66c82d4', '2026-05-23 17:38:43.731', NULL, '2026-04-23 17:38:43.732337');
+INSERT INTO public.auth_sessions (id, user_id, token_hash, expires_at, revoked_at, created_at) VALUES (8, 1, '63e321eba78c128ebb35671a28b90bb0806c3999d996c2624dd871c015499980', '2026-05-23 17:38:50.325', NULL, '2026-04-23 17:38:50.326368');
+INSERT INTO public.auth_sessions (id, user_id, token_hash, expires_at, revoked_at, created_at) VALUES (9, 1, '196747f2ef25fe7b46f8cf24a43a65735c5496e2e4bc1de95c0cda5b6a07fb58', '2026-05-23 18:27:33.919', NULL, '2026-04-23 18:27:33.920859');
+INSERT INTO public.auth_sessions (id, user_id, token_hash, expires_at, revoked_at, created_at) VALUES (10, 7, 'bf174fd6d757f358a3454e7848824afcaa51cf109fc65f1d8c946ff10b0c1f64', '2026-05-23 18:27:35.516', NULL, '2026-04-23 18:27:35.517279');
+INSERT INTO public.auth_sessions (id, user_id, token_hash, expires_at, revoked_at, created_at) VALUES (11, 1, 'c8c8bf6ffefc80190def9752f87ac15b09881ffd5911c61a275b76b82dac08d7', '2026-05-23 18:27:43.523', NULL, '2026-04-23 18:27:43.524423');
+INSERT INTO public.auth_sessions (id, user_id, token_hash, expires_at, revoked_at, created_at) VALUES (12, 7, '9f932f565b976391e37cf51d35aeba8f57ed93b80ece471880254872009e6e15', '2026-05-23 18:27:45.752', NULL, '2026-04-23 18:27:45.753045');
+INSERT INTO public.auth_sessions (id, user_id, token_hash, expires_at, revoked_at, created_at) VALUES (13, 7, '367578bb4346836d7cffc521b0a38cdc8bf7fd7bc8e38ce1f37de922a797d7ff', '2026-05-23 18:31:54.751', NULL, '2026-04-23 18:31:54.752203');
+INSERT INTO public.auth_sessions (id, user_id, token_hash, expires_at, revoked_at, created_at) VALUES (14, 7, '3221f1b8335b2dc3e3d91a47ea8686894f0a504c79a9dcd942c0f1cf66a2b658', '2026-05-23 18:34:12.689', NULL, '2026-04-23 18:34:12.689979');
+INSERT INTO public.auth_sessions (id, user_id, token_hash, expires_at, revoked_at, created_at) VALUES (15, 7, '78e4a8e386c36e433f560582edf4e37e5be5799fc016093b8a90de3d608fab3a', '2026-05-23 18:36:37.58', NULL, '2026-04-23 18:36:37.581524');
+INSERT INTO public.auth_sessions (id, user_id, token_hash, expires_at, revoked_at, created_at) VALUES (16, 7, '97945515507fdbe31d187ec005af4027419129c6bca103b17b1bd90840aa18b0', '2026-05-23 18:49:05.095', NULL, '2026-04-23 18:49:05.096002');
+INSERT INTO public.auth_sessions (id, user_id, token_hash, expires_at, revoked_at, created_at) VALUES (17, 1, '394d063ec123a184730f03eb25b6c3f341d254533691e24727c36900f49670f9', '2026-05-23 18:49:05.265', NULL, '2026-04-23 18:49:05.265418');
+INSERT INTO public.auth_sessions (id, user_id, token_hash, expires_at, revoked_at, created_at) VALUES (18, 2, '885044893ac261f1bb8a3f57af3ca03fc5e59a2970a0edd4ae5b7de1c70f4f49', '2026-05-23 18:49:05.412', NULL, '2026-04-23 18:49:05.412625');
+INSERT INTO public.auth_sessions (id, user_id, token_hash, expires_at, revoked_at, created_at) VALUES (19, 7, '48728258b660e52586562ace9fe34180e4106af56dc9054f164aafce81bbec32', '2026-05-23 18:49:18.416', NULL, '2026-04-23 18:49:18.416543');
+INSERT INTO public.auth_sessions (id, user_id, token_hash, expires_at, revoked_at, created_at) VALUES (20, 1, '1293e222f5e46f5a70fe9b8d955e6385af243257b600eeb06d74690b121581d4', '2026-05-23 18:49:18.558', NULL, '2026-04-23 18:49:18.558913');
+INSERT INTO public.auth_sessions (id, user_id, token_hash, expires_at, revoked_at, created_at) VALUES (21, 2, '7221ee7cee74d58ecbfccb7032cd75e68fec44f189cb8516d7324241fc281d5a', '2026-05-23 18:49:18.701', NULL, '2026-04-23 18:49:18.702126');
+INSERT INTO public.auth_sessions (id, user_id, token_hash, expires_at, revoked_at, created_at) VALUES (22, 7, 'ee186d529e8e30bcdea6839308cd24ece556abe56d6a0075ba71201ccc7df998', '2026-05-23 18:51:13.597', NULL, '2026-04-23 18:51:13.598295');
+INSERT INTO public.auth_sessions (id, user_id, token_hash, expires_at, revoked_at, created_at) VALUES (23, 4, 'ae0d263588a84b08613e761a0eabfb6eade146c56ee4a60ece102d62c10409df', '2026-05-23 18:51:13.911', NULL, '2026-04-23 18:51:13.911653');
+INSERT INTO public.auth_sessions (id, user_id, token_hash, expires_at, revoked_at, created_at) VALUES (24, 1, '41707aacc9d1606f2d307f97c3ab2d12ee1ee74de4a3818b266831ea0be1655b', '2026-05-23 18:51:13.911', NULL, '2026-04-23 18:51:13.91208');
+INSERT INTO public.auth_sessions (id, user_id, token_hash, expires_at, revoked_at, created_at) VALUES (25, 6, '23ff2d9e3064633c8d8fd580aec944c002d05d4100f25921a7be991615caa1ff', '2026-05-23 18:51:13.912', NULL, '2026-04-23 18:51:13.91236');
+INSERT INTO public.auth_sessions (id, user_id, token_hash, expires_at, revoked_at, created_at) VALUES (26, 5, '44cec33c92bd048d12aea52002a2642acc01fb9590e7ec0c01ffbd55a03d3eaf', '2026-05-23 18:51:13.912', NULL, '2026-04-23 18:51:13.912661');
+INSERT INTO public.auth_sessions (id, user_id, token_hash, expires_at, revoked_at, created_at) VALUES (27, 3, '9fefbf96cd6822764e7f51e656c968e21abbbdbb3c2ccfc8195d94900d9ad8b9', '2026-05-23 18:51:42.204', NULL, '2026-04-23 18:51:42.204697');
+INSERT INTO public.auth_sessions (id, user_id, token_hash, expires_at, revoked_at, created_at) VALUES (28, 7, 'ecdc648c08fcc56eab24481f6b14203e75b1eed93701b27453515e2b08f87b63', '2026-05-23 19:00:56.909', NULL, '2026-04-23 19:00:56.910156');
+INSERT INTO public.auth_sessions (id, user_id, token_hash, expires_at, revoked_at, created_at) VALUES (29, 1, '3cb2ab2bd084eca367c9a687749691efe9b6d1aa4c76c714472496b052e2601c', '2026-05-23 19:00:57.005', NULL, '2026-04-23 19:00:57.005796');
+INSERT INTO public.auth_sessions (id, user_id, token_hash, expires_at, revoked_at, created_at) VALUES (30, 6, 'a9f67585cac1992f3f70a5c8b9a66d15648cfb8e04af1ae3ce21bb8fb566b0c8', '2026-05-23 19:00:57.093', NULL, '2026-04-23 19:00:57.093536');
+INSERT INTO public.auth_sessions (id, user_id, token_hash, expires_at, revoked_at, created_at) VALUES (31, 4, 'fccc068a9176fbc7cfa05c068829b537c4dbbf08651992b9d4a467118e101d7f', '2026-05-23 19:00:57.192', NULL, '2026-04-23 19:00:57.192708');
 
 
 --
@@ -153,6 +190,13 @@ INSERT INTO public.listings (id, listing_number, title, description, price_per_d
 INSERT INTO public.listings (id, listing_number, title, description, price_per_day, deposit, market_value, category_id, item_category, max_protection_limit, requires_manual_verification, region_id, city, lat, lng, meeting_address, owner_id, photos, owner_protection_enabled, is_available, created_at) VALUES (21, 'ВТ-2026-000021', 'Мотоблок Нева МБ-2Б', 'Мощный мотоблок для обработки огорода до 50 соток. Фрезы и плуг в комплекте.', 1200.00, NULL, NULL, 3, 'special_machinery', 12000, false, 2, NULL, NULL, NULL, NULL, 3, '{}', true, true, '2026-04-23 18:51:42.254616');
 INSERT INTO public.listings (id, listing_number, title, description, price_per_day, deposit, market_value, category_id, item_category, max_protection_limit, requires_manual_verification, region_id, city, lat, lng, meeting_address, owner_id, photos, owner_protection_enabled, is_available, created_at) VALUES (22, 'ВТ-2026-000022', 'Звуковая система JBL PRX825W', 'Профессиональная активная акустика. 2 колонки 15" + сабвуфер. Идеально для вечеринок.', 3500.00, NULL, NULL, 4, 'electronics', 25000, false, 2, NULL, NULL, NULL, NULL, 3, '{}', true, true, '2026-04-23 18:51:42.264361');
 INSERT INTO public.listings (id, listing_number, title, description, price_per_day, deposit, market_value, category_id, item_category, max_protection_limit, requires_manual_verification, region_id, city, lat, lng, meeting_address, owner_id, photos, owner_protection_enabled, is_available, created_at) VALUES (18, 'ВТ-2026-000018', 'Горный велосипед Trek 3500 (обновлён)', 'Отличный горный велосипед. Рама алюминиевая 21 скорость. Шлем и замок в комплекте.', 480.00, NULL, NULL, 2, 'leisure', 7200, false, 1, NULL, NULL, NULL, NULL, 1, '{}', true, true, '2026-04-23 18:51:42.213257');
+
+
+--
+-- Data for Name: contact_unlocks; Type: TABLE DATA; Schema: public; Owner: -
+--
+
+INSERT INTO public.contact_unlocks (id, user_id, listing_id, source, unlocked_at, expires_at) VALUES (1, 2, 1, 'balance', '2026-04-23 17:15:43.946527', NULL);
 
 
 --
@@ -362,6 +406,13 @@ SELECT pg_catalog.setval('public.admin_audit_log_id_seq', 6, true);
 
 
 --
+-- Name: auth_sessions_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
+--
+
+SELECT pg_catalog.setval('public.auth_sessions_id_seq', 31, true);
+
+
+--
 -- Name: booking_events_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
 --
 
@@ -408,6 +459,13 @@ SELECT pg_catalog.setval('public.contact_balances_id_seq', 2, true);
 --
 
 SELECT pg_catalog.setval('public.contact_purchases_id_seq', 3, true);
+
+
+--
+-- Name: contact_unlocks_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
+--
+
+SELECT pg_catalog.setval('public.contact_unlocks_id_seq', 1, true);
 
 
 --
@@ -498,5 +556,5 @@ SELECT pg_catalog.setval('public.users_id_seq', 10, true);
 -- PostgreSQL database dump complete
 --
 
-\unrestrict tdo8KHOocdLlt8xZ1npWRx8o4222pTBZAhU21cg4gGUohKGbLIculW2FYdiJkCZ
+\unrestrict VUoASmJnIIPcS5H11HRGITM1wLahEbTr2tRZiyah7gFXR1VXO1BxzBk7roaZZDH
 

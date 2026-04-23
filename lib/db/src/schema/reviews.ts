@@ -1,4 +1,4 @@
-import { pgTable, serial, integer, text, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -16,7 +16,12 @@ export const reviewsTable = pgTable("reviews", {
   responseText: text("response_text"),
   responseAt: timestamp("response_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (t) => ({
+  // Один отзыв на одну бронь от одного автора в каждом типе (listing/renter).
+  // Защита от race condition — дополняет проверку дублей в коде.
+  uniquePerBookingAuthorType: uniqueIndex("reviews_unique_per_booking_author_type")
+    .on(t.bookingId, t.authorId, t.reviewType),
+}));
 
 export const insertReviewSchema = createInsertSchema(reviewsTable).omit({ id: true, createdAt: true });
 export type InsertReview = z.infer<typeof insertReviewSchema>;

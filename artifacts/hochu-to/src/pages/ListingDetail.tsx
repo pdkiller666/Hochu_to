@@ -368,9 +368,13 @@ export default function ListingDetail() {
               </div>
 
               <div className="flex items-center gap-6 text-sm text-muted-foreground pb-6 border-b border-border">
-                <div className="flex items-center gap-1.5 font-medium text-foreground bg-amber-50 text-amber-700 px-3 py-1 rounded-lg">
+                <div
+                  className="flex items-center gap-1.5 font-medium text-foreground bg-amber-50 text-amber-700 px-3 py-1 rounded-lg cursor-help"
+                  title="Только проверенные отзывы. Оставить отзыв можно лишь после завершённой сделки через платформу — поэтому накрутка невозможна."
+                >
                   <Star className="w-4 h-4 fill-current" />
                   {avgRating > 0 ? `${avgRating.toFixed(1)} (${reviewCount} ${reviewCount === 1 ? "отзыв" : reviewCount < 5 ? "отзыва" : "отзывов"})` : "Нет отзывов"}
+                  <ShieldCheck className="w-3.5 h-3.5 text-amber-600" aria-label="Проверенные отзывы" />
                 </div>
                 <div className="flex items-center gap-1.5">
                   <MapPin className="w-4 h-4 shrink-0" />

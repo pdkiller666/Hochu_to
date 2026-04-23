@@ -1,0 +1,51 @@
+Это действительно один из самых мощных инструментов удержания! На языке маркетплейсов это называется **«Замкнутая петля доверия» (Closed-loop Trust System)**. 
+
+Если Вася и Петя ушли договариваться в WhatsApp, они теряют возможность оставить друг другу официальный отзыв. А без отзывов Вася в будущем не сможет сдать свой дорогой перфоратор (ему не доверят), а Пете никто не сдаст PlayStation без залога в полную стоимость. **Рейтинг становится дороже, чем сэкономленные на комиссии 100 рублей.**
+
+Вот готовый промт для Агента, который внедрит эту систему. 
+
+Скопируй и отправь ему:
+
+***
+
+### 📝 Промт для Replit Agent (Внедрение Системы Отзывов)
+
+> **Task: Stage 4 - Verified Reviews System (Platform Lock-in)**
+>
+> To prevent "platform leakage" (users bypassing the platform after getting contacts), we are implementing a "Verified Reviews" system. The core rule: **Users can ONLY leave a review if they completed a transaction through the platform's booking system.**
+>
+> **1. Database Schema (`schema.ts`):**
+> - Create a new table `reviews`:
+>   * `id`: serial/uuid
+>   * `booking_id`: integer (references bookings.id)
+>   * `reviewer_id`: integer (references users.id)
+>   * `reviewee_id`: integer (references users.id)
+>   * `rating`: integer (1 to 5)
+>   * `comment`: text
+>   * `created_at`: timestamp
+> - Ensure a unique constraint: A user can only leave ONE review per `booking_id`.
+> - Add `rating_avg` (numeric) and `review_count` (integer) to the `users` table for fast querying.
+>
+> **2. Backend Logic (`reviews.ts` & API):**
+> - Create `POST /api/bookings/:id/reviews`. 
+> - **Validation Rule:** The API must reject the review if the `booking.status` is not `completed`.
+> - Trigger: When a review is saved, recalculate and update the `rating_avg` and `review_count` for the `reviewee_id` in the `users` table.
+>
+> **3. Frontend UI - The "Lock-in" Banner:**
+> - On the `ListingDetail` page and User Profile, display the star rating and review count.
+> - Add a small info-tooltip next to the stars: *"Только проверенные отзывы. Оставить отзыв можно только при оформлении сделки через платформу."* (This is the psychological hook).
+>
+> **4. Frontend UI - Leaving a Review:**
+> - In the Booking Management / Chat view, if the booking status changes to `completed`, show a persistent call-to-action for both Owner and Renter: *"Оцените сделку и оставьте отзыв"*.
+> - Open a simple modal with 5 selectable stars and a text area.
+>
+> **5. Execution:**
+> - Please generate the migration for the `reviews` table, update the backend APIs, build the UI components, and push the changes via `github-push.sh "Implemented Verified Reviews system"`.
+
+***
+
+### 🧠 Почему это сработает на 100%:
+1. **Защита от фрода:** Никто не сможет накрутить себе отзывы, просто создав фейковые аккаунты. Чтобы написать отзыв, придется реально провести сделку через твою платформу (и заплатить тебе комиссию или взнос).
+2. **Эффект снежного кома:** Как только у первых пользователей появятся 2-3 отзыва, новые арендаторы будут выбирать *только* их. Те, кто работает в обход (с нулевым рейтингом), останутся без заказов и будут вынуждены вернуться к честной работе через платформу.
+
+Это блестящий стратегический шаг. Отправляй Агенту, пусть собирает эту «ловушку доверия»!

@@ -208,6 +208,10 @@ export default function Dashboard() {
       if (res.ok) {
         setReviewedIds(prev => new Set([...prev, reviewingBooking.id]));
         setReviewingBooking(null);
+      } else if (res.status === 409) {
+        // Уже оставлен — синхронизируем UI и закрываем
+        setReviewedIds(prev => new Set([...prev, reviewingBooking.id]));
+        setReviewingBooking(null);
       }
     } finally {
       setReviewSubmitting(false);
@@ -1266,6 +1270,24 @@ export default function Dashboard() {
 
             {["pending", "confirmed", "active", "return_pending"].includes(booking.status) && (
               <AutoHint booking={booking} role={role} />
+            )}
+
+            {booking.status === "completed" && !reviewedIds.has(booking.id) && (
+              <div className="pt-2 border-t border-border">
+                <button
+                  onClick={() => handleOpenReview(booking, role)}
+                  className={`flex items-center gap-2 text-sm font-bold transition-colors ${role === "renter" ? "text-amber-700 hover:text-amber-800" : "text-blue-700 hover:text-blue-800"}`}
+                  title="Только проверенные отзывы. Доступно после завершённой сделки через платформу."
+                >
+                  <Star className="w-4 h-4 fill-current" />
+                  {role === "renter" ? "Оцените сделку — оставьте отзыв о вещи и владельце" : "Оцените сделку — оставьте отзыв об арендаторе"}
+                </button>
+              </div>
+            )}
+            {booking.status === "completed" && reviewedIds.has(booking.id) && (
+              <div className="pt-2 border-t border-border flex items-center gap-1.5 text-sm text-green-700">
+                <CheckCircle2 className="w-4 h-4" /> Отзыв оставлен — спасибо!
+              </div>
             )}
 
             {/* ── Chat toggle button ─────────────────────────────────── */}
