@@ -1,7 +1,7 @@
 import { Layout } from "@/components/layout/Layout";
 import { useGetCurrentUser } from "@workspace/api-client-react";
 import { useLocation } from "wouter";
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import { getAuthHeaders } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -11,7 +11,7 @@ import {
   MessageSquare, AlertTriangle, ScrollText, Bell, Send,
   X, Pencil, ExternalLink, Trash2, RefreshCw, UserCheck,
   BarChart2, ArrowUpDown, Flag, Shield, Megaphone,
-  Coins, CreditCard, Save, RotateCcw, Banknote, ArrowDownToLine, ArrowUpFromLine, PiggyBank,
+  Coins, CreditCard, Save, RotateCcw, Banknote, ArrowDownToLine, ArrowUpFromLine, PiggyBank, Wallet,
 } from "lucide-react";
 import { formatPrice } from "@/lib/utils";
 import { format } from "date-fns";
@@ -2166,6 +2166,349 @@ function PaymentsTab() {
   );
 }
 
+// ─── Payouts Tab (Stage 17a) — очередь заявок на выплату ─────────────────────
+
+type AdminPayoutRow = {
+  id: number;
+  ownerId: number;
+  ownerName?: string;
+  ownerEmail?: string;
+  amountRub: number;
+  status: "pending" | "approved" | "paid" | "rejected";
+  methodSnapshot: any;
+  bookingIds: number[];
+  adminNote?: string | null;
+  rejectionReason?: string | null;
+  paymentRef?: string | null;
+  paidAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+function payoutStatusLabel(s: AdminPayoutRow["status"]): { text: string; cls: string } {
+  switch (s) {
+    case "pending": return { text: "Ожидает", cls: "bg-amber-100 text-amber-800" };
+    case "approved": return { text: "Одобрена", cls: "bg-blue-100 text-blue-800" };
+    case "paid": return { text: "Выплачена", cls: "bg-emerald-100 text-emerald-800" };
+    case "rejected": return { text: "Отклонена", cls: "bg-stone-200 text-stone-600" };
+  }
+}
+
+function PayoutsTab() {
+  const [statusFilter, setStatusFilter] = useState<"all" | AdminPayoutRow["status"]>("pending");
+  const [rows, setRows] = useState<AdminPayoutRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<number | null>(null);
+  const [paidModal, setPaidModal] = useState<AdminPayoutRow | null>(null);
+  const [rejectModal, setRejectModal] = useState<AdminPayoutRow | null>(null);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const url = statusFilter === "all" ? "/api/admin/payouts" : `/api/admin/payouts?status=${statusFilter}`;
+      const r = await fetch(url, { credentials: "include" });
+      if (!r.ok) throw new Error(String(r.status));
+      const j = await r.json();
+      setRows(j.requests || []);
+    } catch (e) {
+      console.error("PayoutsTab load failed:", e);
+      setRows([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); }, [statusFilter]);
+
+  const approve = async (row: AdminPayoutRow) => {
+    if (!confirm(`Одобрить заявку #${row.id} на ${row.amountRub} ₽?`)) return;
+    setBusyId(row.id);
+    try {
+      const r = await fetch(`/api/admin/payouts/${row.id}/approve`, { method: "POST", credentials: "include" });
+      if (!r.ok) throw new Error(await r.text());
+      await load();
+    } catch (e: any) {
+      alert("Не удалось одобрить: " + (e?.message || e));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const counts = useMemo(() => {
+    const c = { pending: 0, approved: 0, paid: 0, rejected: 0 };
+    for (const r of rows) c[r.status]++;
+    return c;
+  }, [rows]);
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-white rounded-xl border border-stone-200 p-4">
+        <div className="flex flex-wrap gap-2">
+          {(["pending", "approved", "paid", "rejected", "all"] as const).map(s => (
+            <button
+              key={s}
+              onClick={() => setStatusFilter(s)}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition ${
+                statusFilter === s ? "bg-[#C65D3B] text-white" : "bg-stone-100 text-stone-600 hover:bg-stone-200"
+              }`}
+            >
+              {s === "all" ? "Все" : payoutStatusLabel(s).text}
+              {s !== "all" && statusFilter === s && (
+                <span className="ml-1.5 text-xs opacity-80">{counts[s]}</span>
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="text-stone-500">Загрузка…</div>
+      ) : rows.length === 0 ? (
+        <div className="bg-white rounded-xl border border-stone-200 p-10 text-center text-stone-500">
+          Нет заявок в этой категории
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {rows.map(row => {
+            const lbl = payoutStatusLabel(row.status);
+            const m = row.methodSnapshot || {};
+            return (
+              <div key={row.id} className="bg-white rounded-xl border border-stone-200 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3 mb-3">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-base font-semibold text-stone-800">Заявка #{row.id}</span>
+                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${lbl.cls}`}>{lbl.text}</span>
+                    </div>
+                    <div className="text-sm text-stone-500">
+                      {row.ownerName || `Владелец #${row.ownerId}`}
+                      {row.ownerEmail && <span className="ml-2 text-stone-400">{row.ownerEmail}</span>}
+                    </div>
+                    <div className="text-xs text-stone-400 mt-0.5">
+                      Создана: {new Date(row.createdAt).toLocaleString("ru-RU")}
+                      {row.paidAt && ` • Оплачена: ${new Date(row.paidAt).toLocaleString("ru-RU")}`}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-2xl font-bold text-stone-800">{row.amountRub.toLocaleString("ru-RU")} ₽</div>
+                    <div className="text-xs text-stone-400">броней: {Array.isArray(row.bookingIds) ? row.bookingIds.length : 0}</div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+                  <div className="bg-stone-50 rounded-lg p-3 text-sm">
+                    <div className="text-xs text-stone-500 mb-1 font-medium uppercase tracking-wide">Реквизиты</div>
+                    {m.type === "card" ? (
+                      <div className="text-stone-700">
+                        <div>Карта •••• {m.cardLast4 || "????"}</div>
+                        <div className="text-stone-500">{m.holderName}</div>
+                        {m.bankName && <div className="text-stone-400 text-xs">{m.bankName}</div>}
+                      </div>
+                    ) : m.type === "sbp" ? (
+                      <div className="text-stone-700">
+                        <div>СБП {m.sbpPhone}</div>
+                        <div className="text-stone-500">{m.sbpBank}</div>
+                        <div className="text-stone-400 text-xs">{m.holderName}</div>
+                      </div>
+                    ) : (
+                      <div className="text-stone-400">нет данных</div>
+                    )}
+                  </div>
+                  <div className="bg-stone-50 rounded-lg p-3 text-sm">
+                    <div className="text-xs text-stone-500 mb-1 font-medium uppercase tracking-wide">ID броней</div>
+                    <div className="text-stone-700 break-all">
+                      {Array.isArray(row.bookingIds) && row.bookingIds.length > 0
+                        ? row.bookingIds.map(id => `#${id}`).join(", ")
+                        : "—"}
+                    </div>
+                  </div>
+                </div>
+
+                {row.paymentRef && (
+                  <div className="text-sm bg-emerald-50 border border-emerald-200 rounded-lg p-2 mb-3 text-emerald-800">
+                    Чек / референс: <span className="font-mono">{row.paymentRef}</span>
+                  </div>
+                )}
+                {row.rejectionReason && (
+                  <div className="text-sm bg-red-50 border border-red-200 rounded-lg p-2 mb-3 text-red-800">
+                    Причина отклонения: {row.rejectionReason}
+                  </div>
+                )}
+
+                <div className="flex flex-wrap gap-2">
+                  {row.status === "pending" && (
+                    <>
+                      <button
+                        disabled={busyId === row.id}
+                        onClick={() => approve(row)}
+                        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium disabled:opacity-50"
+                      >
+                        Одобрить
+                      </button>
+                      <button
+                        disabled={busyId === row.id}
+                        onClick={() => setRejectModal(row)}
+                        className="px-3 py-1.5 bg-stone-200 hover:bg-stone-300 text-stone-700 rounded-lg text-sm font-medium"
+                      >
+                        Отклонить
+                      </button>
+                    </>
+                  )}
+                  {row.status === "approved" && (
+                    <button
+                      disabled={busyId === row.id}
+                      onClick={() => setPaidModal(row)}
+                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-sm font-medium disabled:opacity-50"
+                    >
+                      Отметить «Выплачено»
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {paidModal && (
+        <MarkPaidModal
+          row={paidModal}
+          onClose={() => setPaidModal(null)}
+          onDone={() => { setPaidModal(null); load(); }}
+        />
+      )}
+      {rejectModal && (
+        <RejectPayoutModal
+          row={rejectModal}
+          onClose={() => setRejectModal(null)}
+          onDone={() => { setRejectModal(null); load(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function MarkPaidModal({ row, onClose, onDone }: { row: AdminPayoutRow; onClose: () => void; onDone: () => void }) {
+  const [paymentRef, setPaymentRef] = useState("");
+  const [adminNote, setAdminNote] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async () => {
+    setErr(null);
+    setSaving(true);
+    try {
+      const r = await fetch(`/api/admin/payouts/${row.id}/mark-paid`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paymentRef, adminNote: adminNote || undefined }),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error(j.message || j.error || `HTTP ${r.status}`);
+      }
+      onDone();
+    } catch (e: any) {
+      setErr(e?.message || "Ошибка");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl max-w-md w-full p-6">
+        <h3 className="text-lg font-semibold text-stone-800 mb-1">Отметить как выплачено</h3>
+        <p className="text-sm text-stone-500 mb-4">Заявка #{row.id} • {row.amountRub.toLocaleString("ru-RU")} ₽</p>
+        <div className="space-y-3">
+          <div>
+            <label className="text-sm font-medium text-stone-700 block mb-1">Референс перевода *</label>
+            <input
+              value={paymentRef}
+              onChange={e => setPaymentRef(e.target.value)}
+              placeholder="Номер банковской операции / ссылка на чек"
+              className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C65D3B] text-stone-800 text-sm"
+            />
+          </div>
+          <div>
+            <label className="text-sm font-medium text-stone-700 block mb-1">Комментарий (опционально)</label>
+            <textarea
+              value={adminNote}
+              onChange={e => setAdminNote(e.target.value)}
+              rows={3}
+              className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C65D3B] text-stone-800 text-sm resize-none"
+            />
+          </div>
+          {err && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-2">{err}</div>}
+        </div>
+        <div className="flex gap-2 mt-5">
+          <button onClick={onClose} disabled={saving} className="flex-1 px-4 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-lg font-medium">Отмена</button>
+          <button onClick={submit} disabled={saving || paymentRef.trim().length < 2} className="flex-1 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium disabled:opacity-50">
+            {saving ? "Сохранение…" : "Подтвердить"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RejectPayoutModal({ row, onClose, onDone }: { row: AdminPayoutRow; onClose: () => void; onDone: () => void }) {
+  const [reason, setReason] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async () => {
+    setErr(null);
+    setSaving(true);
+    try {
+      const r = await fetch(`/api/admin/payouts/${row.id}/reject`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rejectionReason: reason }),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error(j.message || j.error || `HTTP ${r.status}`);
+      }
+      onDone();
+    } catch (e: any) {
+      setErr(e?.message || "Ошибка");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-xl max-w-md w-full p-6">
+        <h3 className="text-lg font-semibold text-stone-800 mb-1">Отклонить заявку</h3>
+        <p className="text-sm text-stone-500 mb-4">Заявка #{row.id} • {row.amountRub.toLocaleString("ru-RU")} ₽. Брони вернутся в «доступные».</p>
+        <div className="space-y-3">
+          <div>
+            <label className="text-sm font-medium text-stone-700 block mb-1">Причина *</label>
+            <textarea
+              value={reason}
+              onChange={e => setReason(e.target.value)}
+              rows={4}
+              placeholder="Будет видно владельцу"
+              className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C65D3B] text-stone-800 text-sm resize-none"
+            />
+          </div>
+          {err && <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg p-2">{err}</div>}
+        </div>
+        <div className="flex gap-2 mt-5">
+          <button onClick={onClose} disabled={saving} className="flex-1 px-4 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-lg font-medium">Отмена</button>
+          <button onClick={submit} disabled={saving || reason.trim().length < 2} className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium disabled:opacity-50">
+            {saving ? "Сохранение…" : "Отклонить"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Analytics Tab (Этап 7) ───────────────────────────────────────────────────
 
 type ExtStats = {
@@ -2401,12 +2744,13 @@ function AnalyticsTab() {
 }
 
 // ─── Main AdminPage ────────────────────────────────────────────────────────────
-type Tab = "overview" | "analytics" | "users" | "listings" | "bookings" | "support" | "reports" | "claims" | "audit" | "economy" | "payments" | "finance";
+type Tab = "overview" | "analytics" | "users" | "listings" | "bookings" | "support" | "reports" | "claims" | "audit" | "economy" | "payments" | "finance" | "payouts";
 
 const TABS: { id: Tab; label: string; icon: any }[] = [
   { id: "overview", label: "Обзор", icon: LayoutDashboard },
   { id: "analytics", label: "Аналитика", icon: BarChart2 },
   { id: "finance", label: "Денежные потоки", icon: Banknote },
+  { id: "payouts", label: "Выплаты", icon: Wallet },
   { id: "users", label: "Пользователи", icon: Users },
   { id: "listings", label: "Объявления", icon: Package },
   { id: "bookings", label: "Бронирования", icon: CalendarDays },
@@ -2478,6 +2822,7 @@ export default function AdminPage() {
         {tab === "economy" && <EconomyTab />}
         {tab === "payments" && <PaymentsTab />}
         {tab === "finance" && <FinanceTab />}
+        {tab === "payouts" && <PayoutsTab />}
       </div>
 
       <BroadcastModal open={broadcastOpen} onClose={() => setBroadcastOpen(false)} />

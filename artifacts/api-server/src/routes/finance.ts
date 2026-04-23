@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, bookingsTable, listingsTable, usersTable, contactPurchasesTable, claimsTable } from "@workspace/db";
+import { db, bookingsTable, listingsTable, usersTable, contactPurchasesTable, claimsTable, payoutRequestsTable } from "@workspace/db";
 import { eq, or, desc, and, sql, gte } from "drizzle-orm";
 import { requireAuth, AuthRequest } from "../middleware/auth.js";
 
@@ -26,7 +26,10 @@ type EntryType =
   | "fund_out"           // выплата из фонда (по claim)
   | "deposit_hold"       // залог удержан
   | "deposit_release"    // залог возвращён
-  | "contact_topup";     // пополнение баланса контактов (top-up)
+  | "contact_topup"      // пополнение баланса контактов (top-up)
+  | "payout_request"     // владелец: оформлена заявка на выплату
+  | "payout_paid"        // владелец: выплата фактически переведена
+  | "payout_rejected";   // владелец: заявка отклонена (средства возвращены к доступному балансу)
 
 interface FinanceEntry {
   id: string;
@@ -71,11 +74,20 @@ router.get("/me/finance", requireAuth, async (req: AuthRequest, res) => {
     .where(eq(contactPurchasesTable.userId, userId))
     .orderBy(desc(contactPurchasesTable.createdAt));
 
+  // Активные/завершённые заявки на выплату пользователя
+  const payoutRequests = await db
+    .select()
+    .from(payoutRequestsTable)
+    .where(eq(payoutRequestsTable.ownerId, userId))
+    .orderBy(desc(payoutRequestsTable.createdAt));
+
   const entries: FinanceEntry[] = [];
   let lifetimeEarned = 0;
   let lifetimeSpent = 0;
   let pendingPayout = 0;
   let pendingDeposit = 0;
+  let availableForPayout = 0;
+  let inActiveRequests = 0;
 
   for (const row of rows) {
     const b = row.booking;
@@ -225,8 +237,15 @@ router.get("/me/finance", requireAuth, async (req: AuthRequest, res) => {
           ? "Выплата на карту"
           : "Ожидает завершения сделки — выплата после возврата вещи",
       });
-      if (settled) lifetimeEarned += ownerPayout;
-      else pendingPayout += ownerPayout;
+      if (settled) {
+        lifetimeEarned += ownerPayout;
+        // Доступно к выводу = только settled-брони без payoutSettledAt и без активной заявки
+        if (!b.payoutSettledAt && !b.payoutRequestId) {
+          availableForPayout += ownerPayout;
+        }
+      } else {
+        pendingPayout += ownerPayout;
+      }
 
       if (ownerFund > 0) {
         entries.push({
@@ -266,6 +285,53 @@ router.get("/me/finance", requireAuth, async (req: AuthRequest, res) => {
     if (t.kind !== "bonus" && t.kind !== "admin_grant") lifetimeSpent += t.amountRub;
   }
 
+  // Записи о заявках на выплату
+  for (const pr of payoutRequests) {
+    const snap = (pr.methodSnapshot ?? {}) as Record<string, unknown>;
+    const methodLabel =
+      snap.type === "card"
+        ? `Карта •••• ${snap.cardLast4 ?? "****"}`
+        : snap.type === "sbp"
+        ? `СБП ${snap.sbpBank ?? ""}`.trim()
+        : "Реквизиты";
+    if (pr.status === "paid") {
+      entries.push({
+        id: `pr${pr.id}-paid`,
+        date: (pr.paidAt ?? pr.updatedAt).toISOString(),
+        type: "payout_paid",
+        direction: "out",
+        amount: pr.amountRub,
+        status: "settled",
+        description: `Выплата на ${methodLabel}${pr.paymentRef ? ` · ${pr.paymentRef}` : ""}`,
+      });
+    } else if (pr.status === "rejected") {
+      entries.push({
+        id: `pr${pr.id}-rej`,
+        date: pr.updatedAt.toISOString(),
+        type: "payout_rejected",
+        direction: "in",
+        amount: pr.amountRub,
+        status: "settled",
+        description: `Заявка отклонена: ${pr.rejectionReason ?? "—"}. Средства снова доступны к выводу.`,
+      });
+    } else {
+      // pending / approved
+      inActiveRequests += pr.amountRub;
+      entries.push({
+        id: `pr${pr.id}-req`,
+        date: pr.createdAt.toISOString(),
+        type: "payout_request",
+        direction: "out",
+        amount: pr.amountRub,
+        status: "pending",
+        description:
+          pr.status === "approved"
+            ? `Заявка одобрена, ожидается перевод на ${methodLabel}`
+            : `Заявка на выплату создана (${methodLabel})`,
+      });
+    }
+  }
+
   entries.sort((a, b) => (a.date < b.date ? 1 : -1));
 
   res.json({
@@ -274,6 +340,8 @@ router.get("/me/finance", requireAuth, async (req: AuthRequest, res) => {
       lifetimeSpent: Math.round(lifetimeSpent),
       pendingPayout: Math.round(pendingPayout),
       pendingDeposit: Math.round(pendingDeposit),
+      availableForPayout: Math.max(0, Math.round(availableForPayout - inActiveRequests)),
+      inActiveRequests: Math.round(inActiveRequests),
     },
     entries,
   });

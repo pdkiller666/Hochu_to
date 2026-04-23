@@ -20,6 +20,7 @@ import reportsRouter from "./reports.js";
 import claimsRouter from "./claims.js";
 import contactsRouter from "./contacts.js";
 import financeRouter from "./finance.js";
+import payoutsRouter from "./payouts.js";
 
 const router: IRouter = Router();
 
@@ -42,6 +43,7 @@ router.use("/claims", claimsRouter);
 router.use("/admin", adminRouter);
 router.use(contactsRouter);
 router.use(financeRouter);
+router.use(payoutsRouter);
 router.use(geoipRouter);
 router.use(miscRouter);
 

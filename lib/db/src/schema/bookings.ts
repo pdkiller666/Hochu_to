@@ -29,6 +29,10 @@ export const bookingsTable = pgTable("bookings", {
   claimStatus: text("claim_status").default("none"),
   message: text("message"),
   ownerComment: text("owner_comment"),
+  /** Дата фактической выплаты владельцу. NULL = выплата ещё не сделана. */
+  payoutSettledAt: timestamp("payout_settled_at"),
+  /** Заявка на выплату, к которой привязана эта бронь (FK -> payout_requests.id) */
+  payoutRequestId: integer("payout_request_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

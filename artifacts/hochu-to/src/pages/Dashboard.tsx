@@ -24,6 +24,7 @@ import {
   Wallet, Infinity as InfinityIcon, Gift,
   Coins, ArrowDownToLine, ArrowUpFromLine, ShieldCheck, Banknote,
   Shield, KeyRound, ScrollText, Activity, ExternalLink, BarChart2, ChevronRight,
+  CreditCard, Smartphone, X, Star as StarIcon,
 } from "lucide-react";
 import { formatPrice } from "@/lib/utils";
 import { format } from "date-fns";
@@ -2802,7 +2803,8 @@ type FinanceEntry = {
   date: string;
   type: "rent_payout" | "rent_paid" | "direct_cash_in" | "direct_cash_out"
     | "contact_fee_paid" | "contact_topup" | "fund_in" | "fund_out"
-    | "deposit_hold" | "deposit_release";
+    | "deposit_hold" | "deposit_release"
+    | "payout_request" | "payout_paid" | "payout_rejected";
   direction: "in" | "out";
   amount: number;
   status: "pending" | "settled" | "off_platform" | "held";
@@ -2819,8 +2821,43 @@ type FinanceData = {
     lifetimeSpent: number;
     pendingPayout: number;
     pendingDeposit: number;
+    availableForPayout?: number;
+    inActiveRequests?: number;
   };
   entries: FinanceEntry[];
+};
+
+type PayoutMethod = {
+  id: number;
+  type: "card" | "sbp";
+  cardLast4: string | null;
+  cardHolderName: string | null;
+  bankName: string | null;
+  sbpPhone: string | null;
+  sbpBank: string | null;
+  isDefault: boolean;
+};
+
+type PayoutRequest = {
+  id: number;
+  amountRub: number;
+  status: "pending" | "approved" | "paid" | "rejected";
+  methodSnapshot: { type: string; cardLast4?: string | null; sbpBank?: string | null; cardHolderName?: string | null };
+  bookingIds: number[];
+  paymentRef: string | null;
+  rejectionReason: string | null;
+  paidAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type PayoutsData = {
+  available: number;
+  totalEarned: number;
+  pendingInRequests: number;
+  eligibleBookings: { id: number; bookingNumber: string | null; ownerPayout: number }[];
+  requests: PayoutRequest[];
+  minPayoutRub: number;
 };
 
 const ENTRY_LABELS: Record<FinanceEntry["type"], string> = {
@@ -2834,6 +2871,16 @@ const ENTRY_LABELS: Record<FinanceEntry["type"], string> = {
   fund_out: "Выплата из фонда",
   deposit_hold: "Залог удержан",
   deposit_release: "Залог возвращён",
+  payout_request: "Заявка на выплату",
+  payout_paid: "Выплата выполнена",
+  payout_rejected: "Заявка отклонена",
+};
+
+const PAYOUT_STATUS_LABELS: Record<PayoutRequest["status"], { label: string; cls: string }> = {
+  pending: { label: "На рассмотрении", cls: "bg-amber-100 text-amber-800" },
+  approved: { label: "Одобрена · ожидает перевода", cls: "bg-blue-100 text-blue-800" },
+  paid: { label: "Выплачено", cls: "bg-green-100 text-green-800" },
+  rejected: { label: "Отклонено", cls: "bg-rose-100 text-rose-800" },
 };
 
 const STATUS_LABELS: Record<FinanceEntry["status"], { label: string; cls: string }> = {
@@ -2848,6 +2895,8 @@ function FinanceSection({ token }: { token: string }) {
   const [data, setData] = useState<FinanceData | null>(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"all" | "in" | "out" | "pending">("all");
+  const [reloadCounter, setReloadCounter] = useState(0);
+  const onPayoutChange = useCallback(() => setReloadCounter(c => c + 1), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -2866,7 +2915,7 @@ function FinanceSection({ token }: { token: string }) {
       }
     })();
     return () => { cancelled = true; };
-  }, [token, API_BASE]);
+  }, [token, API_BASE, reloadCounter]);
 
   if (loading) {
     return (
@@ -2924,6 +2973,9 @@ function FinanceSection({ token }: { token: string }) {
           <p className="text-[11px] text-blue-700/80 mt-1">вернётся после возврата вещи</p>
         </div>
       </div>
+
+      {/* Payouts block (для владельцев — выводы средств) */}
+      <PayoutsBlock token={token} reloadCounter={reloadCounter} onChange={onPayoutChange} />
 
       {/* Filter */}
       <div className="flex flex-wrap gap-2 mb-3">
@@ -3016,6 +3068,604 @@ function FinanceSection({ token }: { token: string }) {
         <b> «Вне платформы»</b> — расчёт между арендатором и владельцем напрямую (наличные).
         После подключения боевых платежей здесь появится экспорт чеков и история переводов.
       </p>
+    </div>
+  );
+}
+
+// ─── PAYOUTS BLOCK (внутри FinanceSection) ──────────────────────────────────
+
+function PayoutsBlock({
+  token,
+  reloadCounter,
+  onChange,
+}: {
+  token: string;
+  reloadCounter: number;
+  onChange: () => void;
+}) {
+  const API_BASE = import.meta.env.VITE_API_URL ?? "";
+  const [data, setData] = useState<PayoutsData | null>(null);
+  const [methods, setMethods] = useState<PayoutMethod[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showRequestModal, setShowRequestModal] = useState(false);
+  const [showMethodModal, setShowMethodModal] = useState(false);
+  const [showMethods, setShowMethods] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const reload = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [pRes, mRes] = await Promise.all([
+        fetch(`${API_BASE}/api/me/payouts`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API_BASE}/api/me/payout-methods`, { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+      if (pRes.ok) setData(await pRes.json());
+      if (mRes.ok) {
+        const j = await mRes.json();
+        setMethods(j.methods ?? []);
+      }
+    } catch {
+      // silent — пользователь может быть не владельцем
+    } finally {
+      setLoading(false);
+    }
+  }, [token, API_BASE]);
+
+  useEffect(() => { reload(); }, [reload, reloadCounter]);
+
+  // Если нет ни одной заявки и нет доступной суммы и нет totalEarned — скрываем
+  // (это либо арендатор, либо новый владелец без сделок)
+  if (loading) return null;
+  const hasAnyPayoutActivity =
+    !!data && (data.totalEarned > 0 || data.requests.length > 0 || data.available > 0);
+  if (!hasAnyPayoutActivity) return null;
+
+  const available = data?.available ?? 0;
+  const minRub = data?.minPayoutRub ?? 500;
+  const canRequest = available >= minRub;
+
+  return (
+    <div className="bg-white border border-border rounded-2xl p-5 mb-5 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+        <div>
+          <h3 className="text-base font-bold flex items-center gap-2">
+            <Wallet className="w-4 h-4 text-primary" /> Вывод средств
+          </h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Заработанные деньги по защищённым сделкам можно вывести на свою карту или СБП.
+          </p>
+        </div>
+        <button
+          onClick={() => setShowMethods(s => !s)}
+          className="text-xs text-primary hover:underline flex items-center gap-1"
+        >
+          {showMethods ? "Скрыть реквизиты" : `Реквизиты (${methods.length})`}
+          <ChevronRight className={`w-3 h-3 transition-transform ${showMethods ? "rotate-90" : ""}`} />
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+        <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3">
+          <p className="text-[11px] text-emerald-700 font-semibold uppercase tracking-wide">Доступно к выводу</p>
+          <p className="text-2xl font-display font-black text-emerald-800 mt-1">{formatPrice(available)}</p>
+          {!canRequest && available > 0 && (
+            <p className="text-[10px] text-emerald-700/70 mt-1">мин. {formatPrice(minRub)} для заявки</p>
+          )}
+        </div>
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+          <p className="text-[11px] text-amber-700 font-semibold uppercase tracking-wide">В активных заявках</p>
+          <p className="text-2xl font-display font-black text-amber-800 mt-1">{formatPrice(data?.pendingInRequests ?? 0)}</p>
+          <p className="text-[10px] text-amber-700/70 mt-1">ожидают перевода</p>
+        </div>
+        <div className="bg-stone-50 border border-stone-200 rounded-xl p-3">
+          <p className="text-[11px] text-stone-700 font-semibold uppercase tracking-wide">Всего заработано</p>
+          <p className="text-2xl font-display font-black text-stone-800 mt-1">{formatPrice(data?.totalEarned ?? 0)}</p>
+          <p className="text-[10px] text-stone-700/70 mt-1">завершённых сделок</p>
+        </div>
+      </div>
+
+      {error && (
+        <div className="bg-rose-50 border border-rose-200 text-rose-800 text-sm rounded-lg px-3 py-2 mb-3">
+          {error}
+        </div>
+      )}
+
+      <div className="flex flex-wrap gap-2 mb-4">
+        <button
+          onClick={() => {
+            setError(null);
+            if (methods.length === 0) {
+              setShowMethodModal(true);
+              return;
+            }
+            setShowRequestModal(true);
+          }}
+          disabled={!canRequest}
+          className="px-4 py-2 rounded-xl bg-primary text-white text-sm font-semibold hover:bg-primary/90 disabled:bg-stone-300 disabled:cursor-not-allowed flex items-center gap-2"
+        >
+          <ArrowUpFromLine className="w-4 h-4" />
+          Запросить выплату
+        </button>
+        {methods.length === 0 && (
+          <button
+            onClick={() => setShowMethodModal(true)}
+            className="px-4 py-2 rounded-xl border border-primary/40 text-primary text-sm font-semibold hover:bg-primary/5 flex items-center gap-2"
+          >
+            <Plus className="w-4 h-4" /> Добавить реквизиты
+          </button>
+        )}
+      </div>
+
+      {showMethods && (
+        <PayoutMethodsList
+          methods={methods}
+          token={token}
+          onChanged={() => { reload(); }}
+          onAdd={() => setShowMethodModal(true)}
+        />
+      )}
+
+      {/* Список заявок пользователя */}
+      {data && data.requests.length > 0 && (
+        <div className="border border-border rounded-xl overflow-hidden mt-2">
+          <div className="bg-stone-50 px-3 py-2 text-xs font-bold text-muted-foreground uppercase tracking-wide">
+            Мои заявки на выплату
+          </div>
+          <ul className="divide-y divide-border text-sm">
+            {data.requests.map(r => {
+              const st = PAYOUT_STATUS_LABELS[r.status];
+              const m = r.methodSnapshot;
+              const methodLabel = m.type === "card"
+                ? `Карта •••• ${m.cardLast4 ?? "****"}`
+                : m.type === "sbp" ? `СБП ${m.sbpBank ?? ""}` : "Реквизиты";
+              return (
+                <li key={r.id} className="px-3 py-2.5 flex items-center justify-between gap-3 flex-wrap">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-bold">{formatPrice(r.amountRub)}</span>
+                      <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full ${st.cls}`}>
+                        {st.label}
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {methodLabel} · {format(new Date(r.createdAt), "dd.MM.yy HH:mm")}
+                      {r.status === "paid" && r.paymentRef && <> · Перевод: <b>{r.paymentRef}</b></>}
+                      {r.status === "rejected" && r.rejectionReason && <> · Причина: {r.rejectionReason}</>}
+                    </p>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+
+      {showRequestModal && data && (
+        <RequestPayoutModal
+          token={token}
+          methods={methods}
+          available={available}
+          minRub={minRub}
+          onClose={() => setShowRequestModal(false)}
+          onSuccess={() => { setShowRequestModal(false); reload(); onChange(); }}
+        />
+      )}
+
+      {showMethodModal && (
+        <AddPayoutMethodModal
+          token={token}
+          onClose={() => setShowMethodModal(false)}
+          onSuccess={() => { setShowMethodModal(false); reload(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function PayoutMethodsList({
+  methods,
+  token,
+  onChanged,
+  onAdd,
+}: {
+  methods: PayoutMethod[];
+  token: string;
+  onChanged: () => void;
+  onAdd: () => void;
+}) {
+  const API_BASE = import.meta.env.VITE_API_URL ?? "";
+  const [busyId, setBusyId] = useState<number | null>(null);
+  const [errorId, setErrorId] = useState<{ id: number; msg: string } | null>(null);
+
+  const setDefault = async (id: number) => {
+    setBusyId(id);
+    setErrorId(null);
+    try {
+      await fetch(`${API_BASE}/api/me/payout-methods/${id}/default`, {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      onChanged();
+    } finally { setBusyId(null); }
+  };
+
+  const remove = async (id: number) => {
+    if (!confirm("Удалить эти реквизиты?")) return;
+    setBusyId(id);
+    setErrorId(null);
+    try {
+      const r = await fetch(`${API_BASE}/api/me/payout-methods/${id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        setErrorId({ id, msg: j.message ?? "Не удалось удалить" });
+      } else onChanged();
+    } finally { setBusyId(null); }
+  };
+
+  return (
+    <div className="border border-border rounded-xl mb-4">
+      <div className="bg-stone-50 px-3 py-2 flex items-center justify-between">
+        <span className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Мои реквизиты</span>
+        <button onClick={onAdd} className="text-xs text-primary hover:underline flex items-center gap-1">
+          <Plus className="w-3 h-3" /> Добавить
+        </button>
+      </div>
+      {methods.length === 0 ? (
+        <p className="px-3 py-3 text-xs text-muted-foreground">Реквизиты ещё не добавлены</p>
+      ) : (
+        <ul className="divide-y divide-border text-sm">
+          {methods.map(m => (
+            <li key={m.id} className="px-3 py-2.5 flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                {m.type === "card" ? <CreditCard className="w-4 h-4 text-stone-500" /> : <Smartphone className="w-4 h-4 text-stone-500" />}
+                <div className="min-w-0">
+                  <div className="font-semibold truncate">
+                    {m.type === "card"
+                      ? `Карта •••• ${m.cardLast4}`
+                      : `СБП ${m.sbpBank}`}
+                    {m.isDefault && <span className="ml-2 inline-flex items-center gap-1 text-[10px] font-bold uppercase text-amber-700"><StarIcon className="w-3 h-3 fill-amber-500 text-amber-500" /> по умолчанию</span>}
+                  </div>
+                  <div className="text-xs text-muted-foreground truncate">
+                    {m.cardHolderName}
+                    {m.bankName && ` · ${m.bankName}`}
+                    {m.sbpPhone && ` · ${m.sbpPhone}`}
+                  </div>
+                  {errorId?.id === m.id && (
+                    <div className="text-[11px] text-rose-700 mt-0.5">{errorId.msg}</div>
+                  )}
+                </div>
+              </div>
+              <div className="flex gap-1 shrink-0">
+                {!m.isDefault && (
+                  <button
+                    onClick={() => setDefault(m.id)}
+                    disabled={busyId === m.id}
+                    className="text-xs px-2 py-1 rounded-lg border border-border hover:bg-stone-50 disabled:opacity-50"
+                  >
+                    Сделать основным
+                  </button>
+                )}
+                <button
+                  onClick={() => remove(m.id)}
+                  disabled={busyId === m.id}
+                  className="text-xs px-2 py-1 rounded-lg border border-rose-200 text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+                  title="Удалить"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function RequestPayoutModal({
+  token,
+  methods,
+  available,
+  minRub,
+  onClose,
+  onSuccess,
+}: {
+  token: string;
+  methods: PayoutMethod[];
+  available: number;
+  minRub: number;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const API_BASE = import.meta.env.VITE_API_URL ?? "";
+  const defaultId = methods.find(m => m.isDefault)?.id ?? methods[0]?.id ?? 0;
+  const [methodId, setMethodId] = useState(defaultId);
+  const [amount, setAmount] = useState<string>(String(available));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const amt = Math.floor(Number(amount));
+      if (!Number.isFinite(amt) || amt < minRub) {
+        setError(`Минимум ${minRub} ₽`);
+        setBusy(false);
+        return;
+      }
+      if (amt > available) {
+        setError(`Доступно только ${available} ₽`);
+        setBusy(false);
+        return;
+      }
+      const r = await fetch(`${API_BASE}/api/me/payouts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ payoutMethodId: methodId, amountRub: amt }),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        setError(j.message ?? "Не удалось создать заявку");
+        setBusy(false);
+        return;
+      }
+      onSuccess();
+    } catch (e) {
+      setError("Сетевая ошибка");
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl max-w-md w-full p-5" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-lg font-bold">Запросить выплату</h3>
+          <button onClick={onClose} className="text-stone-400 hover:text-stone-600">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-xs font-bold mb-1.5 text-muted-foreground uppercase tracking-wide">
+              Куда выплатить
+            </label>
+            <select
+              value={methodId}
+              onChange={e => setMethodId(Number(e.target.value))}
+              className="input-field w-full"
+            >
+              {methods.map(m => (
+                <option key={m.id} value={m.id}>
+                  {m.type === "card" ? `Карта •••• ${m.cardLast4}` : `СБП ${m.sbpBank}`} — {m.cardHolderName}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold mb-1.5 text-muted-foreground uppercase tracking-wide">
+              Сумма
+            </label>
+            <div className="relative">
+              <input
+                type="number"
+                value={amount}
+                onChange={e => setAmount(e.target.value)}
+                min={minRub}
+                max={available}
+                className="input-field w-full pr-12"
+              />
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">₽</span>
+            </div>
+            <div className="flex justify-between text-[11px] text-muted-foreground mt-1">
+              <span>мин. {formatPrice(minRub)}</span>
+              <button
+                onClick={() => setAmount(String(available))}
+                className="text-primary hover:underline"
+              >
+                Вывести всё ({formatPrice(available)})
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-900 leading-relaxed">
+            Платёжный шлюз пока не подключён — администратор переведёт средства вручную в течение 1-3 рабочих дней
+            после одобрения заявки. Вы получите уведомление со ссылкой на чек.
+          </div>
+
+          {error && (
+            <div className="bg-rose-50 border border-rose-200 text-rose-800 text-sm rounded-lg px-3 py-2">
+              {error}
+            </div>
+          )}
+
+          <div className="flex gap-2 pt-1">
+            <button
+              onClick={onClose}
+              className="flex-1 px-4 py-2.5 rounded-xl border border-border text-sm font-semibold hover:bg-stone-50"
+            >
+              Отмена
+            </button>
+            <button
+              onClick={submit}
+              disabled={busy || methods.length === 0}
+              className="flex-1 px-4 py-2.5 rounded-xl bg-primary text-white text-sm font-semibold hover:bg-primary/90 disabled:bg-stone-300"
+            >
+              {busy ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : "Создать заявку"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AddPayoutMethodModal({
+  token,
+  onClose,
+  onSuccess,
+}: {
+  token: string;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const API_BASE = import.meta.env.VITE_API_URL ?? "";
+  const [type, setType] = useState<"card" | "sbp">("card");
+  const [cardNumber, setCardNumber] = useState("");
+  const [holderName, setHolderName] = useState("");
+  const [bankName, setBankName] = useState("");
+  const [sbpPhone, setSbpPhone] = useState("");
+  const [sbpBank, setSbpBank] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const body = type === "card"
+        ? { type: "card", cardNumber, cardHolderName: holderName, bankName: bankName || undefined }
+        : { type: "sbp", sbpPhone, sbpBank, cardHolderName: holderName };
+      const r = await fetch(`${API_BASE}/api/me/payout-methods`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        setError(j.issues?.[0]?.message ?? j.message ?? "Не удалось сохранить");
+        setBusy(false);
+        return;
+      }
+      onSuccess();
+    } catch {
+      setError("Сетевая ошибка");
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl max-w-md w-full p-5" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-bold">Добавить реквизиты для выплат</h3>
+          <button onClick={onClose} className="text-stone-400 hover:text-stone-600">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2 mb-4">
+          <button
+            onClick={() => setType("card")}
+            className={`flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 text-sm font-semibold transition-colors ${
+              type === "card" ? "border-primary bg-primary/5 text-primary" : "border-border text-stone-600"
+            }`}
+          >
+            <CreditCard className="w-4 h-4" /> Карта
+          </button>
+          <button
+            onClick={() => setType("sbp")}
+            className={`flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 text-sm font-semibold transition-colors ${
+              type === "sbp" ? "border-primary bg-primary/5 text-primary" : "border-border text-stone-600"
+            }`}
+          >
+            <Smartphone className="w-4 h-4" /> СБП
+          </button>
+        </div>
+
+        <div className="space-y-3">
+          {type === "card" ? (
+            <>
+              <div>
+                <label className="block text-xs font-bold mb-1 text-muted-foreground">Номер карты</label>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={cardNumber}
+                  onChange={e => setCardNumber(e.target.value.replace(/[^\d\s]/g, "").slice(0, 23))}
+                  className="input-field w-full"
+                  placeholder="0000 0000 0000 0000"
+                />
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  Сохраним только последние 4 цифры. Полный номер не хранится.
+                </p>
+              </div>
+              <div>
+                <label className="block text-xs font-bold mb-1 text-muted-foreground">Банк (необязательно)</label>
+                <input
+                  type="text"
+                  value={bankName}
+                  onChange={e => setBankName(e.target.value)}
+                  className="input-field w-full"
+                  placeholder="Сбер, Тинькофф, Альфа..."
+                />
+              </div>
+            </>
+          ) : (
+            <>
+              <div>
+                <label className="block text-xs font-bold mb-1 text-muted-foreground">Телефон для СБП</label>
+                <input
+                  type="tel"
+                  value={sbpPhone}
+                  onChange={e => setSbpPhone(e.target.value)}
+                  className="input-field w-full"
+                  placeholder="+7 999 000 00 00"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold mb-1 text-muted-foreground">Банк-получатель</label>
+                <input
+                  type="text"
+                  value={sbpBank}
+                  onChange={e => setSbpBank(e.target.value)}
+                  className="input-field w-full"
+                  placeholder="Сбер, Тинькофф, Альфа..."
+                />
+              </div>
+            </>
+          )}
+
+          <div>
+            <label className="block text-xs font-bold mb-1 text-muted-foreground">ФИО получателя</label>
+            <input
+              type="text"
+              value={holderName}
+              onChange={e => setHolderName(e.target.value)}
+              className="input-field w-full"
+              placeholder="Иванов Иван Иванович"
+            />
+          </div>
+
+          {error && (
+            <div className="bg-rose-50 border border-rose-200 text-rose-800 text-sm rounded-lg px-3 py-2">
+              {error}
+            </div>
+          )}
+
+          <div className="flex gap-2 pt-1">
+            <button
+              onClick={onClose}
+              className="flex-1 px-4 py-2.5 rounded-xl border border-border text-sm font-semibold hover:bg-stone-50"
+            >
+              Отмена
+            </button>
+            <button
+              onClick={submit}
+              disabled={busy}
+              className="flex-1 px-4 py-2.5 rounded-xl bg-primary text-white text-sm font-semibold hover:bg-primary/90 disabled:bg-stone-300"
+            >
+              {busy ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : "Сохранить"}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

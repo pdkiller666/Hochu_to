@@ -17,3 +17,5 @@ export * from "./platform_settings";
 export * from "./contacts";
 export * from "./reports";
 export * from "./admin_audit_log";
+export * from "./payout_methods";
+export * from "./payout_requests";
