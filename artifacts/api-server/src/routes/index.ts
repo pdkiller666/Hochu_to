@@ -21,6 +21,7 @@ import claimsRouter from "./claims.js";
 import contactsRouter from "./contacts.js";
 import financeRouter from "./finance.js";
 import payoutsRouter from "./payouts.js";
+import promotionsRouter from "./promotions.js";
 
 const router: IRouter = Router();
 
@@ -40,6 +41,7 @@ router.use("/favorites", favoritesRouter);
 router.use("/support", supportRouter);
 router.use("/reports", reportsRouter);
 router.use("/claims", claimsRouter);
+router.use("/promotions", promotionsRouter);
 router.use("/admin", adminRouter);
 router.use(contactsRouter);
 router.use(financeRouter);

@@ -794,3 +794,33 @@ GITHUB_TOKEN=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 bash scripts/github-push.s
 - Workflow `Start application` стабильно работает на портах 5173 + 8080.
 - Аналитика возвращает корректный `balance=1750₽` на 23.04.2026 при наличии одной завершённой Premium-брони.
 - Забаненный аккаунт получает 403 «Ваш аккаунт заблокирован» при логине.
+
+## Журнал — Stage 18 (Платное продвижение, 23.04.2026)
+
+**Сделано:**
+- Схема `lib/db/src/schema/listings.ts`: добавлены `isFeatured boolean default false`, `featuredUntil timestamp`, `isUrgent boolean default false`, `urgentUntil timestamp`, `boostedUntil timestamp`.
+- Новая таблица `lib/db/src/schema/listing_promotions.ts` (журнал покупок): `id, listingId, ownerId, type(vip|urgent|boost), plan, days, priceRub, validUntil, paidAt, paymentRef`. Экспорт в `schema/index.ts`. Применено через `pnpm --filter @workspace/db push`.
+- `artifacts/api-server/src/routes/promotions.ts`:
+  - `GET /pricing` — отдаёт планы из `platform_settings` (без хардкода).
+  - `POST /listings/:id` — покупка VIP/Срочно/Boost; **продлевает** существующий *Until если он в будущем (от него +days), иначе от now. Пишет строку в `listing_promotions`.
+  - `GET /me` — журнал владельца.
+  - `GET /admin` — сводка для админа (total, last 50).
+  - Регистрация под `/api/promotions` в `routes/index.ts`.
+- `routes/listings.ts`:
+  - **default orderBy**: `isFeatured DESC → isUrgent DESC → boostedUntil DESC NULLS LAST → createdAt DESC` (через сырое SQL-выражение, чтобы Drizzle корректно генерил CASE/NULLS LAST).
+  - В `getListingWithDetails()` (для GET /listings/:id) и в основном select GET /listings добавлены поля `isFeatured/featuredUntil/isUrgent/urgentUntil/boostedUntil` — иначе UI бейджи не работают.
+- Frontend: новый компонент `artifacts/hochu-to/src/components/PromoteListingModal.tsx` — таб-выбор типа (VIP/Срочно/Топ), список планов, кнопка «Оплатить N₽», состояние success с датой `validUntil`. В `Dashboard.tsx` на каждой карточке владельца добавлены: бейджи VIP/Срочно/Топ + кнопка «Продвигать» (открывает модалку). Existing UI бейджей в `ListingCard.tsx` теперь подсвечивается на каталоге.
+
+**Цены (из `platform_settings`, можно менять в админке):**
+- VIP: 7д=199₽, 14д=349₽, 30д=599₽
+- Срочно: 3д=99₽, 7д=199₽
+- Boost (поднять в топ): 24ч=49₽
+
+**E2E прогон:**
+- Раунд 1 (12/13 PASS): pricing, foreign-protect 403, валидация плана/типа, покупка VIP с продлением (+7д ровно), Срочно/Boost, журнал владельца, admin total=546₽, сортировка #22 на 1м месте, RBAC.
+- Раунд 2 (11/11 PASS): после фикса select-маппингов поля `isFeatured/featuredUntil/isUrgent/urgentUntil/boostedUntil` корректно возвращаются из `GET /listings` и `GET /listings/:id`.
+
+**Известные ограничения (бэклог):**
+- Реальной оплаты нет — баланс виртуальный, ЮKassa подключим в Stage 19.
+- Нет автоматической деактивации по истечении (не нужна — UI и сортировка опираются на сравнение с `now()`); опционально cron-крон может позже сбрасывать `isFeatured/isUrgent`.
+- Нет прав отмены/возврата покупки (планируется в админ-панели).

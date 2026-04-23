@@ -402,9 +402,9 @@ DB поле `boosted_until` (timestamp). Сортировка `?sort=new` уже
 - **Stage 17b-limits — Анти-фрод фонда**: настройки `fundReserveRatioPct/maxClaimAmountSingleRub/maxClaimsPerUserMonth/maxClaimAmountPerListingPct`, проверки на POST/approve/mark-paid, расширенные KPI-карточки (Поступило/Выплачено/Баланс/Резерв/К выплате).
 - **Stage 17c — Аналитика фонда**: `GET /api/claims/analytics`, в админке lazy-блок с LineChart баланса по дням, топ-получателями и флагами подозрительных паттернов.
 - **Stage 17d — E2E-отладка перед деплоем**: 67 сценариев за все роли, RBAC по 6 admin-эндпоинтам, полный цикл брони, бан/анбан, лимиты claims. Исправлен P0-баг: analytics-SQL ссылался на несуществующее `bookings.updatedAt` → заменено на `COALESCE(payout_settled_at, created_at)`.
+- **Stage 18 — Платное продвижение**: добавлены колонки `is_featured/featured_until/is_urgent/urgent_until/boosted_until` в `listings` + таблица `listing_promotions` (журнал покупок). Маршруты `/api/promotions/pricing|listings/:id|me|admin`, цены берутся из `platform_settings` (VIP 199/349/599₽, Срочно 99/199₽, Boost 49₽). Каталог `/api/listings` сортируется VIP→Срочно→Boost→createdAt; продление включено (если *Until > now — добавляем дни поверх). UI: модалка `PromoteListingModal` + кнопка «Продвигать» на карточках Dashboard, бейджи VIP/Срочно/Топ. E2E: 12/13 ранее + 11/11 после фикса полей в API-выдаче.
 
 ### 🟡 В работе / частично
-- **Платное продвижение**: схема бейджей готова, но колонки `is_featured / featured_until / is_urgent / urgent_until / boosted_until` ещё не в `listings`
 - **Подписки владельцев** (Pro / Бизнес) — спроектированы, не реализованы
 - **Цифровой Акт check-in/check-out** (фото + видео + GPS) — не начато
 - **СБП/QR + загрузка чека + подтверждение админом** — `paymentMode` есть, потока нет

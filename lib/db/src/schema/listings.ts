@@ -27,6 +27,17 @@ export const listingsTable = pgTable("listings", {
   photos: text("photos").array().default([]),
   ownerProtectionEnabled: boolean("owner_protection_enabled").default(true).notNull(),
   isAvailable: boolean("is_available").default(true).notNull(),
+
+  // ── Платное продвижение (Stage 18) ────────────────────────────────────
+  /** VIP-пакет: жёлтая рамка, корона, верх выдачи. Активен пока now() < featuredUntil. */
+  isFeatured: boolean("is_featured").default(false).notNull(),
+  featuredUntil: timestamp("featured_until"),
+  /** Срочно: красный бейдж, поднимает в выдаче. Активен пока now() < urgentUntil. */
+  isUrgent: boolean("is_urgent").default(false).notNull(),
+  urgentUntil: timestamp("urgent_until"),
+  /** Поднятие на 24ч — boostedUntil > now() работает как «свежее createdAt». */
+  boostedUntil: timestamp("boosted_until"),
+
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

@@ -56,6 +56,11 @@ async function getListingWithDetails(id: number) {
       ownerName: usersTable.name,
       ownerAvatar: usersTable.avatar,
       ownerPhone: usersTable.phone,
+      isFeatured: listingsTable.isFeatured,
+      featuredUntil: listingsTable.featuredUntil,
+      isUrgent: listingsTable.isUrgent,
+      urgentUntil: listingsTable.urgentUntil,
+      boostedUntil: listingsTable.boostedUntil,
       createdAt: listingsTable.createdAt,
     })
     .from(listingsTable)
@@ -175,6 +180,11 @@ router.get("/", async (req, res) => {
       ownerName: usersTable.name,
       ownerAvatar: usersTable.avatar,
       ownerPhone: usersTable.phone,
+      isFeatured: listingsTable.isFeatured,
+      featuredUntil: listingsTable.featuredUntil,
+      isUrgent: listingsTable.isUrgent,
+      urgentUntil: listingsTable.urgentUntil,
+      boostedUntil: listingsTable.boostedUntil,
       createdAt: listingsTable.createdAt,
     })
     .from(listingsTable)
@@ -196,7 +206,15 @@ router.get("/", async (req, res) => {
       .orderBy(sql`${listingsTable.ownerProtectionEnabled} DESC`, desc(listingsTable.createdAt))
       .limit(limitNum).offset(offset);
   } else {
-    rawListings = await (baseQuery as any).orderBy(desc(listingsTable.createdAt)).limit(limitNum).offset(offset);
+    // Дефолт: VIP (активные) → Срочно (активные) → boosted (активные, поднятие на 24ч) → новые
+    // GREATEST(boostedUntil, createdAt) даёт «эффективную дату»: только если boost ещё не истёк.
+    rawListings = await (baseQuery as any)
+      .orderBy(
+        sql`(${listingsTable.isFeatured} = true AND ${listingsTable.featuredUntil} > NOW()) DESC`,
+        sql`(${listingsTable.isUrgent} = true AND ${listingsTable.urgentUntil} > NOW()) DESC`,
+        sql`GREATEST(COALESCE(CASE WHEN ${listingsTable.boostedUntil} > NOW() THEN ${listingsTable.boostedUntil} END, ${listingsTable.createdAt}), ${listingsTable.createdAt}) DESC`,
+      )
+      .limit(limitNum).offset(offset);
   }
 
   // Enrich with rating (and optionally booking count for popular sort)
