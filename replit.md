@@ -85,6 +85,17 @@ All routes prefixed with `/api`:
 - `GET /messages/unread-counts` — Returns unread message counts per booking `{bookingId: count}`
 - `GET /me/finance` — Личный финансовый журнал (derived ledger): `{summary, entries[]}` из bookings + contact_purchases. Без миграций.
 - `GET /admin/finance?period=today|week|month|all` — Сводка денежных потоков платформы: revenue, fund, payouts, counts, recent[50].
+- **Payouts (Stage 17a)** — заявки владельцев на вывод заработка:
+  - `GET/POST/PATCH/DELETE /me/payout-methods` — CRUD реквизитов (карта/СБП).
+  - `GET/POST /me/payouts` — мои заявки + создание новой (с проверкой available).
+  - `GET /admin/payouts` + `POST /admin/payouts/:id/approve|mark-paid|reject` — очередь админа.
+- **Claims (Stage 17b-core)** — выплаты компенсаций пострадавшим из фонда:
+  - `POST /claims` — создать заявку (Premium-броня, лимиты см. ниже).
+  - `GET /claims/my` — мои заявки.
+  - `GET /claims` + `POST /claims/:id/approve|mark-paid|reject` — админ.
+  - `GET /claims/fund-status` — баланс фонда + резерв + availableForClaims.
+  - `GET /claims/payout-methods/:userId` — реквизиты получателя (admin).
+- **Fund analytics (Stage 17c)** — `GET /api/claims/analytics?days=7|30|90` (admin): daily inflow/outflow/balance, топ-получатели, флаги подозрительных пользователей.
 
 ## Database Schema
 
@@ -98,13 +109,15 @@ Tables (`lib/db/src/schema/`):
 - `booking_events` — Audit log per booking (status changes, manager notes)
 - `booking_messages` — In-app chat per booking
 - `reviews` — Two types (listing / renter), tied to completed booking
-- `claims` — Shield-фонд заявки на возмещение (damage / theft, статусы pending→reviewing→approved|rejected→paid)
+- `claims` — заявки в Гарантийный фонд (damage/theft, статусы pending→admin_review→approved|rejected→paid). Расширена в 17b-core: `payoutToUserId`, `payoutMethodId`, `methodSnapshot jsonb`, `paymentRef`, `paidAt`, `rejectionReason`.
+- `payout_methods` — реквизиты пользователей для выплат (карта/СБП): `cardLast4`, `cardHolderName`, `bankName`, `sbpPhone`, `sbpBank`, `isDefault` (Stage 17a).
+- `payout_requests` — заявки владельцев на вывод заработка: `ownerId`, `amountRub`, `status`, `methodSnapshot jsonb`, `bookingIds int[]`, `adminNote`, `rejectionReason`, `paymentRef`, `paidAt` (Stage 17a). На `bookings` также добавлены `payoutSettledAt`, `payoutRequestId`.
 - `favorites` — Избранные объявления (renter)
 - `notifications` — In-app уведомления (тип, ссылка, прочитано)
 - `support` — Тикеты поддержки (категория, статус, переписка)
 - `reports` — Жалобы на объявления/пользователей
 - `admin_audit_log` — Действия админов (для тикетов/банов/правок настроек)
-- `platform_settings` — Singleton: все ставки, цены, paymentMode, ID шлюзов
+- `platform_settings` — Singleton: все ставки, цены, paymentMode, ID шлюзов. Анти-фрод фонда (Stage 17b-limits): `fundReserveRatioPct`, `maxClaimAmountSingleRub`, `maxClaimsPerUserMonth`, `maxClaimAmountPerListingPct`.
 - `joint_purchases` — Заявки на совместные закупки
 - `contacts` — Заявки с формы «Контакты»
 - `newsletter` — Подписчики
@@ -252,6 +265,10 @@ Located at `artifacts/api-server/src/lib/scheduler.ts`. Runs every hour via `nod
 - **Git push**: после каждой успешной итерации работы ОБЯЗАТЕЛЬНО выполнять `bash scripts/github-push.sh "описание"` — проект должен быть актуален на GitHub для деплоя через Amvera
 - Если `git add/commit` блокируется Replit (index.lock), скрипт всё равно пушит последний checkpoint-коммит
 - Деплой: GitHub webhook → Amvera (Docker)
+- **Документация — синхронно с пушем**: на каждой итерации обновлять оба файла:
+  - `docs/AGENT_INSTRUCTIONS.md` — добавлять блок «Журнал — Stage X» (что сделано, какие схемы/эндпоинты/UI, какие миграции, что проверено).
+  - `replit.md` — обновлять разделы `API Routes`, `Database Schema`, `Project Checklist` (✅ / 🟡 / 🔴) так, чтобы карта проекта всегда отражала реальность.
+  - Эти правки идут в **тот же** коммит, что и код этапа.
 
 ## Financial Model — Dual Shield (v2)
 
@@ -380,15 +397,19 @@ DB поле `boosted_until` (timestamp). Сортировка `?sort=new` уже
 - **GeoIP** для авто-выбора региона
 - **Health endpoint + Vite proxy** для dev
 - **Деплой**: GitHub → Amvera webhook (Docker), пуш через `bash scripts/github-push.sh`
+- **Stage 17a — Payout Requests**: реквизиты карты/СБП, очередь заявок владельцев на вывод, ручной mark-paid с проставлением `payoutSettledAt` на бронях.
+- **Stage 17b-core — Compensation Payouts**: claims расширены реквизитами получателя, админский поток approve→mark-paid→reject, кнопка «Подать претензию» на завершённой Premium-броне в Dashboard.
+- **Stage 17b-limits — Анти-фрод фонда**: настройки `fundReserveRatioPct/maxClaimAmountSingleRub/maxClaimsPerUserMonth/maxClaimAmountPerListingPct`, проверки на POST/approve/mark-paid, расширенные KPI-карточки (Поступило/Выплачено/Баланс/Резерв/К выплате).
+- **Stage 17c — Аналитика фонда**: `GET /api/claims/analytics`, в админке lazy-блок с LineChart баланса по дням, топ-получателями и флагами подозрительных паттернов.
 
 ### 🟡 В работе / частично
 - **Платное продвижение**: схема бейджей готова, но колонки `is_featured / featured_until / is_urgent / urgent_until / boosted_until` ещё не в `listings`
 - **Подписки владельцев** (Pro / Бизнес) — спроектированы, не реализованы
-- **Реальные выплаты из Shield-фонда** — статусы есть, исполнения платежа нет
 - **Цифровой Акт check-in/check-out** (фото + видео + GPS) — не начато
 - **СБП/QR + загрузка чека + подтверждение админом** — `paymentMode` есть, потока нет
 - **ЮKassa / CloudPayments интеграция** — публичные ID настраиваются в админке, серверной интеграции нет
 - **Trust Score** — не начато
+- **Реальные банковские выплаты по claims/payout_requests** — пока mark-paid вручную админом (запись `paymentRef`); автомат через банковский API/ЮKassa Payouts не реализован
 
 ### 🔴 Roadmap (не начато)
 - Партнёрские договоры с юрлицами (бейдж «Партнёр платформы», 5% комиссии)
