@@ -14,3 +14,4 @@ export * from "./support";
 export * from "./auth_sessions";
 export * from "./claims";
 export * from "./platform_settings";
+export * from "./contacts";

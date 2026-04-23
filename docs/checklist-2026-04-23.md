@@ -131,12 +131,16 @@
 - [x] OpenAPI spec обновлена (добавлены `sort` и `safeOnly`)
 - [ ] Сортировка: значения по умолчанию из platform_settings *(перенесено в Этап 7)*
 
-### 🚧 Этап 4 — Платные контакты: БД + API
-- [ ] Таблица `contact_purchases` (renter_id, listing_id, price, paid_at)
-- [ ] Таблица `contact_balances` (renter_id, balance, expires_at для пакетов)
-- [ ] Эндпоинт `POST /api/listings/:id/contact-purchase` — списание + выдача телефона
-- [ ] Эндпоинт `GET /api/me/contact-balance`
-- [ ] Цены контактов читаются из platform_settings (поштучно/пакет/безлимит)
+### ✅ Этап 4 — Платные контакты: БД + API
+- [x] Таблица `contact_balances` (1 строка/пользователь: balance, unlimitedUntil, bonusGranted)
+- [x] Таблица `contact_purchases` (история покупок: kind/amount/contactsAdded/expiresAt/refundedAt)
+- [x] Таблица `contact_unlocks` (журнал открытых телефонов с unique(userId, listingId))
+- [x] `GET /api/me/contact-balance` — баланс + история + текущие цены из настроек
+- [x] `GET /api/me/contact-unlocks` — список разблокированных контактов
+- [x] `POST /api/me/contact-balance/topup` — стаб пополнения (single/pack10/unlimited30d), реальная оплата — Этап 8
+- [x] `POST /api/listings/:id/contact-purchase` — списание + выдача телефона + welcome-бонус + кэш повторного запроса
+- [x] Цены, бонус, срок жизни контакта, окно возврата — из `platform_settings`
+- [x] Применена drizzle-миграция, e2e тест прошёл (bonus → unlock → cached → balance уменьшился)
 
 ### 🚧 Этап 5 — Платные контакты: UI
 - [ ] На карточке Free-объявления — кнопка «Связаться — N ₽»

@@ -18,6 +18,7 @@ import geoipRouter from "./geoip.js";
 import supportRouter from "./support.js";
 import reportsRouter from "./reports.js";
 import claimsRouter from "./claims.js";
+import contactsRouter from "./contacts.js";
 
 const router: IRouter = Router();
 
@@ -38,6 +39,7 @@ router.use("/support", supportRouter);
 router.use("/reports", reportsRouter);
 router.use("/claims", claimsRouter);
 router.use("/admin", adminRouter);
+router.use(contactsRouter);
 router.use(geoipRouter);
 router.use(miscRouter);
 
