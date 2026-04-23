@@ -764,3 +764,33 @@ GITHUB_TOKEN=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 bash scripts/github-push.s
 > ```bash
 > git push "https://pdkiller666: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@github.com/pdkiller666/Hochu_to.git" main
 > ```
+
+## Журнал — Stage 17d (Отладка перед деплоем, 23.04.2026)
+
+**Сделано:**
+- Прогон сквозных E2E-сценариев за 4 роли (гость / арендатор / владелец / админ): 67 кейсов, разбитых на 3 раунда. Покрыто:
+  - публичные эндпоинты (health, listings, regions, categories, фильтры, поиск);
+  - логин/логаут, неверный пароль (401), забаненный пользователь (403);
+  - полный жизненный цикл брони `pending → confirmed → active → return_pending → completed`;
+  - запрет невалидных переходов (completed → active = 422);
+  - приватность: посторонний renter не видит и не может править чужую бронь / чужое объявление (403);
+  - чат брони + unread-counts;
+  - claim из Premium-брони, лимиты анти-фрода (single, описание ≥10), approve без реквизитов = 400;
+  - payout-методы (карта/СБП), валидация номера карты и телефона СБП;
+  - support-тикет (`POST /support/tickets`);
+  - админ: ban/unban через `PATCH /admin/users/:id`, finance, payouts, listings, bookings, settings, claims/fund-status, claims/analytics;
+  - RBAC: 6 admin-эндпоинтов возвращают 403 для renter;
+  - SPA-маршруты `/, /catalog, /listings/:id, /admin, /dashboard, /profile, /login, /register` — все 200.
+
+**Найденные и исправленные баги:**
+- 🐛 **P0 — `GET /api/claims/analytics` падал в 500.** В `routes/claims.ts` использовалось `bookingsTable.updatedAt`, которого нет в схеме `bookings` (там только `createdAt` и `payoutSettledAt`). Drizzle тихо подставлял пустую строку → `TO_CHAR(::date, 'YYYY-MM-DD')` крашил Postgres. **Фикс:** заменил на `COALESCE(payout_settled_at, created_at)` — это семантически точный «момент финализации взноса в фонд». Применил то же выражение и в `preIn` для непрерывности баланса. Архитектор подтвердил консистентность с `calcFundBalance()`.
+- ✅ Параметр `days=999` в analytics теперь корректно зажимается до 365 (фикс выше также чинит этот сценарий).
+
+**Известные технические долги (не блокеры деплоя):**
+- Нет индексов на `bookings(status, protection_enabled, payout_settled_at)`, `claims(status, paid_at)`, `claims(claimant_id, created_at)`. На текущем размере БД (≤30 строк) не критично; добавить при росте.
+- `requireAdmin` всё ещё реализован через ручной `isAdmin(userId)` в каждом хендлере вместо middleware.
+
+**Проверено в живом запуске:**
+- Workflow `Start application` стабильно работает на портах 5173 + 8080.
+- Аналитика возвращает корректный `balance=1750₽` на 23.04.2026 при наличии одной завершённой Premium-брони.
+- Забаненный аккаунт получает 403 «Ваш аккаунт заблокирован» при логине.

@@ -401,6 +401,7 @@ DB поле `boosted_until` (timestamp). Сортировка `?sort=new` уже
 - **Stage 17b-core — Compensation Payouts**: claims расширены реквизитами получателя, админский поток approve→mark-paid→reject, кнопка «Подать претензию» на завершённой Premium-броне в Dashboard.
 - **Stage 17b-limits — Анти-фрод фонда**: настройки `fundReserveRatioPct/maxClaimAmountSingleRub/maxClaimsPerUserMonth/maxClaimAmountPerListingPct`, проверки на POST/approve/mark-paid, расширенные KPI-карточки (Поступило/Выплачено/Баланс/Резерв/К выплате).
 - **Stage 17c — Аналитика фонда**: `GET /api/claims/analytics`, в админке lazy-блок с LineChart баланса по дням, топ-получателями и флагами подозрительных паттернов.
+- **Stage 17d — E2E-отладка перед деплоем**: 67 сценариев за все роли, RBAC по 6 admin-эндпоинтам, полный цикл брони, бан/анбан, лимиты claims. Исправлен P0-баг: analytics-SQL ссылался на несуществующее `bookings.updatedAt` → заменено на `COALESCE(payout_settled_at, created_at)`.
 
 ### 🟡 В работе / частично
 - **Платное продвижение**: схема бейджей готова, но колонки `is_featured / featured_until / is_urgent / urgent_until / boosted_until` ещё не в `listings`
@@ -410,6 +411,8 @@ DB поле `boosted_until` (timestamp). Сортировка `?sort=new` уже
 - **ЮKassa / CloudPayments интеграция** — публичные ID настраиваются в админке, серверной интеграции нет
 - **Trust Score** — не начато
 - **Реальные банковские выплаты по claims/payout_requests** — пока mark-paid вручную админом (запись `paymentRef`); автомат через банковский API/ЮKassa Payouts не реализован
+- **Индексы для аналитики**: рекомендуется добавить `bookings(status, protection_enabled, payout_settled_at)`, `claims(status, paid_at)`, `claims(claimant_id, created_at)` — не критично на текущем объёме, но даст ощутимый эффект на проде.
+- **Admin-RBAC через middleware**: сейчас в каждом admin-хендлере ручной `await isAdmin(req.userId)`; стоит вынести в `requireAdmin` middleware.
 
 ### 🔴 Roadmap (не начато)
 - Партнёрские договоры с юрлицами (бейдж «Партнёр платформы», 5% комиссии)

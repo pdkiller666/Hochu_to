@@ -116,19 +116,23 @@ router.get("/analytics", requireAuth, async (req: AuthRequest, res) => {
   const sinceUtcMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()) - (days - 1) * 86_400_000;
   const since = new Date(sinceUtcMs);
 
-  // 1. Поступления по дням (completed Premium-брони)
+  // 1. Поступления по дням (completed Premium-брони).
+  //    bookings не содержит updated_at; используем COALESCE(payout_settled_at, created_at)
+  //    как момент финализации взноса в фонд.
+  const inflowDayExpr = sql`TO_CHAR(COALESCE(${bookingsTable.payoutSettledAt}, ${bookingsTable.createdAt})::date, 'YYYY-MM-DD')`;
+  const inflowDateExpr = sql`COALESCE(${bookingsTable.payoutSettledAt}, ${bookingsTable.createdAt})`;
   const inflowRows = await db
     .select({
-      day: sql<string>`TO_CHAR(${bookingsTable.updatedAt}::date, 'YYYY-MM-DD')`,
+      day: sql<string>`${inflowDayExpr}`,
       amount: sql<string>`COALESCE(SUM(${bookingsTable.fundContribution} + ${bookingsTable.renterFundContribution}), 0)`,
     })
     .from(bookingsTable)
     .where(and(
       eq(bookingsTable.status, "completed"),
       eq(bookingsTable.protectionEnabled, true),
-      gte(bookingsTable.updatedAt, since),
+      sql`${inflowDateExpr} >= ${since}`,
     ))
-    .groupBy(sql`TO_CHAR(${bookingsTable.updatedAt}::date, 'YYYY-MM-DD')`);
+    .groupBy(inflowDayExpr);
 
   // 2. Выплаты по дням (paid claims)
   const outflowRows = await db
@@ -150,7 +154,7 @@ router.get("/analytics", requireAuth, async (req: AuthRequest, res) => {
     .where(and(
       eq(bookingsTable.status, "completed"),
       eq(bookingsTable.protectionEnabled, true),
-      sql`${bookingsTable.updatedAt} < ${since}`,
+      sql`${inflowDateExpr} < ${since}`,
     ));
   const [preOut] = await db
     .select({ s: sql<string>`COALESCE(SUM(${claimsTable.approvedAmount}), 0)` })
