@@ -982,12 +982,51 @@ export default function Dashboard() {
                 <p className="text-xs text-muted-foreground">{booking.totalDays} {booking.totalDays === 1 ? "сутки" : "суток"}</p>
               </div>
               <div>
-                <p className="text-muted-foreground text-xs mb-0.5">Сумма</p>
-                <p className="font-bold text-primary text-base">{formatPrice(booking.totalPrice)}</p>
-                {booking.listingDeposit != null && booking.listingDeposit > 0 && (
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    + залог <span className="font-semibold text-foreground">{formatPrice(booking.listingDeposit)}</span>
-                  </p>
+                {role === "owner" ? (() => {
+                  const isDirect = (booking as any).protectionEnabled === false;
+                  const rentAmount = (booking as any).rentAmount as number | undefined;
+                  const ownerPayout = (booking as any).ownerPayout as number | undefined;
+                  // Сколько владелец фактически получит:
+                  //  • прямой контактный расчёт — арендатор платит наличными за всю аренду
+                  //  • защищённая сделка — выплата от платформы после удержания комиссии
+                  const profit = isDirect
+                    ? rentAmount
+                    : (ownerPayout ?? rentAmount ?? booking.totalPrice);
+                  return (
+                    <>
+                      <p className="text-muted-foreground text-xs mb-0.5">Ваш доход</p>
+                      <p className="font-bold text-green-700 text-base">
+                        {profit != null ? formatPrice(profit) : "по договорённости"}
+                      </p>
+                      {isDirect ? (
+                        <p className="text-[11px] text-muted-foreground mt-0.5 leading-tight">
+                          наличными от арендатора
+                          <span className="block text-[10px] text-muted-foreground/80">
+                            (платформе оплачено {formatPrice(booking.totalPrice)} за контакт)
+                          </span>
+                        </p>
+                      ) : (
+                        <p className="text-[11px] text-muted-foreground mt-0.5 leading-tight">
+                          поступит на карту после возврата
+                        </p>
+                      )}
+                      {booking.listingDeposit != null && booking.listingDeposit > 0 && (
+                        <p className="text-[11px] text-muted-foreground mt-1">
+                          + залог <span className="font-semibold text-foreground">{formatPrice(booking.listingDeposit)}</span>
+                        </p>
+                      )}
+                    </>
+                  );
+                })() : (
+                  <>
+                    <p className="text-muted-foreground text-xs mb-0.5">Сумма</p>
+                    <p className="font-bold text-primary text-base">{formatPrice(booking.totalPrice)}</p>
+                    {booking.listingDeposit != null && booking.listingDeposit > 0 && (
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        + залог <span className="font-semibold text-foreground">{formatPrice(booking.listingDeposit)}</span>
+                      </p>
+                    )}
+                  </>
                 )}
               </div>
               <div className="col-span-2 sm:col-span-1">

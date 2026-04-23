@@ -333,6 +333,14 @@ export interface Booking {
   endDate: string;
   totalDays?: number;
   totalPrice: number;
+  /** Сумма аренды без комиссий (что фактически получает владелец в Free-сделке). */
+  rentAmount?: number;
+  /** Выплата владельцу после удержания комиссий (для защищённых сделок). */
+  ownerPayout?: number;
+  /** Защита (эскроу/фонд) включена. Для прямого контактного расчёта — false. */
+  protectionEnabled?: boolean;
+  /** Залог по объявлению. */
+  listingDeposit?: number;
   status: BookingStatus;
   message?: string;
   ownerPhone?: string;

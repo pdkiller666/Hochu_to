@@ -346,6 +346,25 @@ export const GetMyBookingsResponseItem = zod.object({
   endDate: zod.string(),
   totalDays: zod.number().optional(),
   totalPrice: zod.number(),
+  rentAmount: zod
+    .number()
+    .optional()
+    .describe(
+      "Сумма аренды без комиссий (что фактически получает владелец в Free-сделке).",
+    ),
+  ownerPayout: zod
+    .number()
+    .optional()
+    .describe(
+      "Выплата владельцу после удержания комиссий (для защищённых сделок).",
+    ),
+  protectionEnabled: zod
+    .boolean()
+    .optional()
+    .describe(
+      "Защита (эскроу\/фонд) включена. Для прямого контактного расчёта — false.",
+    ),
+  listingDeposit: zod.number().optional().describe("Залог по объявлению."),
   status: zod.enum([
     "pending",
     "confirmed",
@@ -401,6 +420,25 @@ export const GetBookingByIdResponse = zod.object({
   endDate: zod.string(),
   totalDays: zod.number().optional(),
   totalPrice: zod.number(),
+  rentAmount: zod
+    .number()
+    .optional()
+    .describe(
+      "Сумма аренды без комиссий (что фактически получает владелец в Free-сделке).",
+    ),
+  ownerPayout: zod
+    .number()
+    .optional()
+    .describe(
+      "Выплата владельцу после удержания комиссий (для защищённых сделок).",
+    ),
+  protectionEnabled: zod
+    .boolean()
+    .optional()
+    .describe(
+      "Защита (эскроу\/фонд) включена. Для прямого контактного расчёта — false.",
+    ),
+  listingDeposit: zod.number().optional().describe("Залог по объявлению."),
   status: zod.enum([
     "pending",
     "confirmed",
@@ -443,6 +481,25 @@ export const UpdateBookingStatusResponse = zod.object({
   endDate: zod.string(),
   totalDays: zod.number().optional(),
   totalPrice: zod.number(),
+  rentAmount: zod
+    .number()
+    .optional()
+    .describe(
+      "Сумма аренды без комиссий (что фактически получает владелец в Free-сделке).",
+    ),
+  ownerPayout: zod
+    .number()
+    .optional()
+    .describe(
+      "Выплата владельцу после удержания комиссий (для защищённых сделок).",
+    ),
+  protectionEnabled: zod
+    .boolean()
+    .optional()
+    .describe(
+      "Защита (эскроу\/фонд) включена. Для прямого контактного расчёта — false.",
+    ),
+  listingDeposit: zod.number().optional().describe("Залог по объявлению."),
   status: zod.enum([
     "pending",
     "confirmed",

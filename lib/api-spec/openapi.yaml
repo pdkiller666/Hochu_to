@@ -1109,6 +1109,18 @@ components:
           type: integer
         totalPrice:
           type: number
+        rentAmount:
+          type: number
+          description: Сумма аренды без комиссий (что фактически получает владелец в Free-сделке).
+        ownerPayout:
+          type: number
+          description: Выплата владельцу после удержания комиссий (для защищённых сделок).
+        protectionEnabled:
+          type: boolean
+          description: Защита (эскроу/фонд) включена. Для прямого контактного расчёта — false.
+        listingDeposit:
+          type: number
+          description: Залог по объявлению.
         status:
           type: string
           enum: [pending, confirmed, rejected, completed, cancelled]
