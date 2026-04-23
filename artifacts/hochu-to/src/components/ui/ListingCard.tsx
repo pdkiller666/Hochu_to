@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { MapPin, Star, Heart, Info, ShieldCheck, Sparkles, Award, Flame, Crown, Zap, Tag, Phone } from "lucide-react";
+import { MapPin, Star, Heart, Info, ShieldCheck, Sparkles, Award, Flame, Crown, Zap, Tag } from "lucide-react";
 import { Listing } from "@workspace/api-client-react";
 import { formatPrice, calculateTotalPrice, calcDeposit, type ItemCategory } from "@/lib/utils";
 import { useState } from "react";
@@ -7,8 +7,6 @@ import { ListingPlaceholder } from "@/components/ui/ListingPlaceholder";
 import { useFavorites } from "@/lib/favorites-context";
 import { getToken } from "@/lib/auth";
 import { useLocation } from "wouter";
-import { ContactPurchaseModal } from "@/components/ui/ContactPurchaseModal";
-import { usePublicSettings } from "@/lib/use-public-settings";
 
 interface ListingCardProps {
   listing: Listing;
@@ -71,28 +69,18 @@ function getListingBadges(listing: Listing): Badge[] {
 export function ListingCard({ listing }: ListingCardProps) {
   const [imgError, setImgError] = useState(false);
   const [showTooltip, setShowTooltip] = useState(false);
-  const [contactOpen, setContactOpen] = useState(false);
   const badges = getListingBadges(listing);
   const hasPhoto = (listing.photos?.length ?? 0) > 0 && !imgError;
   const photoUrl = listing.photos?.[0] ? getPhotoSrc(listing.photos[0]) : null;
   const { isFavorite, toggle } = useFavorites();
   const [, navigate] = useLocation();
   const fav = isFavorite(listing.id);
-  const settings = usePublicSettings();
-  const isFree = (listing as any).ownerProtectionEnabled === false;
-  const contactPrice = settings?.contactPriceSingle ?? 0;
 
   const handleFavoriteClick = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     if (!getToken()) { navigate("/auth"); return; }
     toggle(listing.id);
-  };
-
-  const handleContactClick = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setContactOpen(true);
   };
 
   return (
@@ -210,24 +198,12 @@ export function ListingCard({ listing }: ListingCardProps) {
                       </div>
                     )}
                   </div>
-                  {isFree ? (
-                    <button
-                      type="button"
-                      onClick={handleContactClick}
-                      className="bg-slate-800 hover:bg-slate-900 text-white py-1.5 sm:py-2 px-3 sm:px-4 rounded-xl text-xs sm:text-sm whitespace-nowrap shrink-0 inline-flex items-center gap-1 font-bold transition-colors"
-                      title="Купить контакт владельца и связаться напрямую"
-                    >
-                      <Phone className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
-                      Связаться{contactPrice > 0 ? ` — ${contactPrice} ₽` : ""}
-                    </button>
-                  ) : (
-                    <Link
-                      href={`/listings/${listing.id}`}
-                      className="btn-primary py-1.5 sm:py-2 px-3 sm:px-4 rounded-xl text-xs sm:text-sm whitespace-nowrap shrink-0"
-                    >
-                      Подробнее
-                    </Link>
-                  )}
+                  <Link
+                    href={`/listings/${listing.id}`}
+                    className="btn-primary py-1.5 sm:py-2 px-3 sm:px-4 rounded-xl text-xs sm:text-sm whitespace-nowrap shrink-0"
+                  >
+                    Подробнее
+                  </Link>
                 </div>
 
                 {/* Бейджи — отличительные метки объявления */}
@@ -253,15 +229,6 @@ export function ListingCard({ listing }: ListingCardProps) {
           })()}
         </div>
       </div>
-
-      {isFree && (
-        <ContactPurchaseModal
-          open={contactOpen}
-          onClose={() => setContactOpen(false)}
-          listingId={listing.id}
-          listingTitle={listing.title}
-        />
-      )}
     </div>
   );
 }

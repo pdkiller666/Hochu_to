@@ -58,6 +58,8 @@ export default function ListingDetail() {
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [mainImgError, setMainImgError] = useState(false);
   const [contactModalOpen, setContactModalOpen] = useState(false);
+  const [showFeeDetails, setShowFeeDetails] = useState(false);
+  const [showFreeUpgradeDetails, setShowFreeUpgradeDetails] = useState(false);
   const publicSettings = usePublicSettings();
   const contactPriceSingle = publicSettings?.contactPriceSingle ?? 0;
 
@@ -278,7 +280,7 @@ export default function ListingDetail() {
             <div className="space-y-2">
               {/* Main photo */}
               <div
-                className={`relative aspect-[4/3] rounded-3xl overflow-hidden bg-muted border border-border shadow-sm group ${photos.length > 0 && !mainImgError ? "cursor-zoom-in" : ""}`}
+                className={`relative aspect-[4/3] lg:aspect-[16/10] lg:max-h-[420px] mx-auto w-full rounded-3xl overflow-hidden bg-muted border border-border shadow-sm group ${photos.length > 0 && !mainImgError ? "cursor-zoom-in" : ""}`}
                 onClick={() => photos.length > 0 && !mainImgError && openLightbox(0)}
               >
                 {photos.length > 0 && !mainImgError ? (
@@ -539,16 +541,18 @@ export default function ListingDetail() {
           <div className="lg:col-span-1">
             <div className="sticky top-28 glass-panel p-6 rounded-3xl">
               <div className="mb-6 pb-6 border-b border-border">
-                {(() => {
+                <div className="flex items-end gap-2 mb-2">
+                  <span className="text-4xl font-display font-black text-primary">{formatPrice(listing.pricePerDay)}</span>
+                  <span className="text-muted-foreground pb-1">/ сутки</span>
+                </div>
+                {isOwnerRole && currentUser?.id === (listing as any).ownerId && (() => {
                   const cat = ((listing as any).itemCategory ?? "tools") as ItemCategory;
                   const ownerProt = (listing as any).ownerProtectionEnabled !== false;
-                  const { total } = calculateTotalPrice(listing.pricePerDay, cat, 1, ownerProt);
+                  const { ownerPayout } = calculateTotalPrice(listing.pricePerDay, cat, 1, ownerProt, false);
                   return (
-                    <div className="flex items-end gap-2 mb-2">
-                      <span className="text-sm font-bold text-muted-foreground pb-2">от</span>
-                      <span className="text-4xl font-display font-black text-primary">{formatPrice(total)}</span>
-                      <span className="text-muted-foreground pb-1">/ сутки</span>
-                    </div>
+                    <p className="text-xs text-muted-foreground mb-2">
+                      Вы получите ≈ <strong className="text-foreground">{formatPrice(ownerPayout)}</strong> с суток (после комиссий)
+                    </p>
                   );
                 })()}
                 {(() => {
@@ -852,24 +856,34 @@ export default function ListingDetail() {
                         </button>
                       </div>
 
-                      {/* ─── Пояснение апгрейда Free → Premium ─────────── */}
-                      {isFreeListing && protectionEnabled && (
-                        <div className="mt-3 pt-3 border-t border-primary/20 text-xs text-muted-foreground space-y-1.5">
-                          <p className="flex items-start gap-1.5">
-                            <Shield className="w-3.5 h-3.5 text-primary shrink-0 mt-0.5" />
-                            <span>
-                              Владелец выбрал <b>Free-тариф</b>, но вы можете провести сделку через
-                              Гарантийный фонд платформы. К сумме аренды добавится Shield Fee
-                              {publicSettings?.shieldFeePercent ? ` (${publicSettings.shieldFeePercent}%, минимум ${publicSettings.shieldFeeMin ?? 0} ₽)` : ""}.
-                            </span>
-                          </p>
-                          <p className="text-[11px]">Владельцу придёт уведомление о смене типа сделки.</p>
-                        </div>
-                      )}
-                      {isFreeListing && !protectionEnabled && (
-                        <div className="mt-3 pt-3 border-t border-orange-200 text-[11px] text-orange-700/90">
-                          Это Free-объявление: владелец работает без Гарантийного фонда. Вы можете
-                          включить защиту выше — комиссию заплатите вы.
+                      {/* ─── Пояснение апгрейда Free → Premium (свернуто) ─── */}
+                      {isFreeListing && (
+                        <div className="mt-2 pt-2 border-t border-primary/10">
+                          <button
+                            type="button"
+                            onClick={() => setShowFreeUpgradeDetails(v => !v)}
+                            className="text-[11px] text-primary/70 hover:text-primary inline-flex items-center gap-1 font-semibold"
+                          >
+                            <Info className="w-3 h-3" />
+                            {showFreeUpgradeDetails ? "Скрыть детали" : "Подробнее"}
+                          </button>
+                          {showFreeUpgradeDetails && (
+                            <div className="mt-2 text-[11px] text-muted-foreground space-y-1 leading-snug">
+                              {protectionEnabled ? (
+                                <>
+                                  <p>
+                                    Владелец выбрал <b>Free-тариф</b>. Вы проводите сделку через Гарантийный фонд — к аренде добавится Shield Fee
+                                    {publicSettings?.shieldFeePercent ? ` (${publicSettings.shieldFeePercent}%, минимум ${publicSettings.shieldFeeMin ?? 0} ₽)` : ""}.
+                                  </p>
+                                  <p>Владельцу придёт уведомление о смене типа сделки.</p>
+                                </>
+                              ) : (
+                                <p className="text-orange-700/90">
+                                  Это Free-объявление: владелец работает без Гарантийного фонда. Вы можете включить защиту выше — комиссию заплатите вы.
+                                </p>
+                              )}
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
@@ -957,6 +971,7 @@ export default function ListingDetail() {
                       const ownerProt = (listing as any).ownerProtectionEnabled !== false;
                       const breakdown = calculateTotalPrice(listing.pricePerDay, cat, totalDays, ownerProt, renterFundEnabled);
                       const { rent, renterFundContrib, serviceFee, taxFee, total, deposit, isFreeUpgrade, fundShare } = breakdown;
+                      const platformFees = (isFreeUpgrade ? serviceFee + taxFee : 0) + renterFundContrib;
                       return (
                         <div className="bg-primary/5 p-4 rounded-xl border border-primary/20 space-y-2 text-sm">
                           <div className="flex justify-between text-muted-foreground">
@@ -964,21 +979,43 @@ export default function ListingDetail() {
                             <span>{formatPrice(rent)}</span>
                           </div>
 
-                          {/* Variant 3: Free + апгрейд → арендатор платит сервис и налог */}
-                          {isFreeUpgrade && serviceFee > 0 && (
+                          {platformFees > 0 && (
                             <div className="flex justify-between text-primary/80 text-xs">
-                              <span>Сервис платформы (эскроу + эквайринг)</span>
-                              <span>{formatPrice(serviceFee + taxFee)}</span>
+                              <span className="flex items-center gap-1.5">
+                                <ShieldCheck className="w-3.5 h-3.5" />
+                                Сервис и защита
+                                <button
+                                  type="button"
+                                  onClick={() => setShowFeeDetails(v => !v)}
+                                  className="text-primary/60 hover:text-primary"
+                                  aria-label="Подробнее"
+                                >
+                                  <Info className="w-3 h-3" />
+                                </button>
+                              </span>
+                              <span>{formatPrice(platformFees)}</span>
                             </div>
                           )}
 
-                          {renterFundContrib > 0 && (
-                            <div className="flex justify-between text-primary/80">
-                              <span className="flex items-center gap-1.5">
-                                <ShieldCheck className="w-3.5 h-3.5" />
-                                Ваш взнос в Гарантийный фонд
-                              </span>
-                              <span>{formatPrice(renterFundContrib)}</span>
+                          {showFeeDetails && platformFees > 0 && (
+                            <div className="bg-white/70 border border-primary/10 rounded-lg p-2.5 text-[11px] text-muted-foreground space-y-1">
+                              {isFreeUpgrade && serviceFee + taxFee > 0 && (
+                                <div className="flex justify-between">
+                                  <span>Сервис платформы (эскроу + эквайринг)</span>
+                                  <span>{formatPrice(serviceFee + taxFee)}</span>
+                                </div>
+                              )}
+                              {renterFundContrib > 0 && (
+                                <div className="flex justify-between">
+                                  <span>Гарантийный фонд</span>
+                                  <span>{formatPrice(renterFundContrib)}</span>
+                                </div>
+                              )}
+                              {isFreeUpgrade && (
+                                <p className="pt-1 text-amber-700 leading-snug">
+                                  Владелец на тарифе <b>Free</b> — получает 100% аренды. Комиссии платформы оплачиваете вы.
+                                </p>
+                              )}
                             </div>
                           )}
 
@@ -987,39 +1024,27 @@ export default function ListingDetail() {
                             <span className="text-xl text-primary">{formatPrice(total)}</span>
                           </div>
 
-                          {/* ── Чекбокс: участие арендатора в фонде ───────── */}
-                          <div className="border-t border-primary/10 pt-2.5 mt-1.5">
-                            <label className="flex items-start gap-2 cursor-pointer group">
-                              <input
-                                type="checkbox"
-                                checked={renterFundEnabled}
-                                onChange={(e) => setRenterFundEnabled(e.target.checked)}
-                                className="mt-0.5 w-4 h-4 rounded accent-primary cursor-pointer shrink-0"
-                              />
-                              <span className="text-xs text-foreground leading-snug">
-                                <span className="font-semibold">Защитить меня через Гарантийный фонд</span>
-                                <span className="text-muted-foreground"> (+{formatPrice(fundShare)} к оплате)</span>
-                                <span className="block text-[11px] text-muted-foreground mt-0.5">
-                                  {renterFundEnabled
-                                    ? "Платформа возместит ущерб, если вещь окажется не такой как описана, или владелец нарушит договорённости."
-                                    : "Без защиты: платформа не вмешивается в споры. Только сама сделка через эскроу."}
-                                </span>
-                              </span>
-                            </label>
-                          </div>
-
-                          {isFreeUpgrade && (
-                            <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2 mt-1">
-                              ⓘ Владелец работает по тарифу <b>Free</b> и получит 100% аренды ({formatPrice(rent)} ₽).
-                              Все комиссии платформы (сервис {serviceFee} ₽ + налог {taxFee} ₽
-                              {renterFundContrib > 0 ? ` + страховка ${renterFundContrib} ₽` : ""}) оплачиваете вы.
-                            </p>
-                          )}
-
-                          <div className="flex justify-between text-amber-700 text-xs pt-1 border-t border-primary/10">
-                            <span>Залог (возвращается после сдачи вещи)</span>
+                          <div className="flex justify-between text-amber-700 text-[11px] pt-1.5 border-t border-primary/10">
+                            <span className="flex items-center gap-1">
+                              Залог
+                              <span className="text-muted-foreground">(вернётся)</span>
+                            </span>
                             <span className="font-medium">{formatPrice(deposit)}</span>
                           </div>
+
+                          {/* Тонкая ссылка-чекбокс на защиту фонда — спрятано под опцию */}
+                          <label className="flex items-start gap-2 cursor-pointer pt-2 border-t border-primary/10 mt-1">
+                            <input
+                              type="checkbox"
+                              checked={renterFundEnabled}
+                              onChange={(e) => setRenterFundEnabled(e.target.checked)}
+                              className="mt-0.5 w-3.5 h-3.5 rounded accent-primary cursor-pointer shrink-0"
+                            />
+                            <span className="text-[11px] text-muted-foreground leading-snug">
+                              Защитить меня Гарантийным фондом
+                              {renterFundEnabled ? "" : ` (+${formatPrice(fundShare)})`}
+                            </span>
+                          </label>
                         </div>
                       );
                     })()}
