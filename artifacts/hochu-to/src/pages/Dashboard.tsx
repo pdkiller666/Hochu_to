@@ -21,6 +21,7 @@ import {
   Trash2, Eye, EyeOff, ListFilter, LayoutGrid, ArrowUpDown,
   Globe, Send, User, CalendarDays, Star, ShoppingBag, BadgeCheck,
   TrendingUp, TrendingDown, MessageSquare, Leaf, PiggyBank, Wind, MapPin, LifeBuoy,
+  Wallet, Infinity as InfinityIcon, Gift,
 } from "lucide-react";
 import { formatPrice } from "@/lib/utils";
 import { format } from "date-fns";
@@ -161,8 +162,8 @@ export default function Dashboard() {
   const search = useSearch();
   const initialTab = new URLSearchParams(search).get("tab");
 
-  type DashTab = "incoming" | "outgoing" | "listings" | "profile" | "history" | "support";
-  const validTabs: DashTab[] = ["incoming", "outgoing", "listings", "profile", "history", "support"];
+  type DashTab = "incoming" | "outgoing" | "listings" | "profile" | "history" | "support" | "contacts";
+  const validTabs: DashTab[] = ["incoming", "outgoing", "listings", "profile", "history", "support", "contacts"];
   const urlTab = initialTab && validTabs.includes(initialTab as DashTab) ? (initialTab as DashTab) : null;
   const [activeTab, setActiveTab] = usePersistedState<DashTab>("dashboard_tab", urlTab ?? "incoming");
   // URL-параметр tab всегда берёт приоритет над сохранённым значением
@@ -1273,6 +1274,7 @@ export default function Dashboard() {
       { id: "listings" as const, label: "Мои объявления", icon: LayoutGrid, badge: 0 },
     ] : []),
     { id: "history" as const, label: "История сделок", icon: BadgeCheck, badge: badgeHistory },
+    { id: "contacts" as const, label: "Баланс контактов", icon: Wallet, badge: 0 },
     { id: "support" as const, label: "Поддержка", icon: LifeBuoy, badge: 0 },
     { id: "profile" as const, label: "Настройки", icon: Settings, badge: 0 },
   ];
@@ -2028,6 +2030,11 @@ export default function Dashboard() {
               </div>
             )}
 
+            {/* ── CONTACTS BALANCE ── */}
+            {activeTab === "contacts" && (
+              <ContactsBalanceSection token={token!} />
+            )}
+
             {/* ── SUPPORT ── */}
             {activeTab === "support" && (
               <div className="max-w-2xl w-full">
@@ -2643,5 +2650,283 @@ export default function Dashboard() {
         </div>
       )}
     </Layout>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════
+// ContactsBalanceSection — баланс контактов, пополнение, история
+// ════════════════════════════════════════════════════════════════════
+interface ContactBalanceData {
+  balance: number;
+  unlimitedUntil: string | null;
+  unlimitedActive: boolean;
+  bonusGranted: boolean;
+  prices: { single: number; pack10: number; unlimited30d: number };
+  contactLifetimeDays: number;
+  history: Array<{
+    id: number;
+    kind: string;
+    amountRub: number;
+    contactsAdded: number;
+    expiresAt: string | null;
+    refundedAt: string | null;
+    createdAt: string;
+  }>;
+}
+
+interface UnlockData {
+  id: number;
+  listingId: number;
+  source: string;
+  unlockedAt: string;
+  expiresAt: string | null;
+  active: boolean;
+}
+
+function ContactsBalanceSection({ token }: { token: string }) {
+  const API_BASE = import.meta.env.VITE_API_URL ?? "";
+  const [data, setData] = useState<ContactBalanceData | null>(null);
+  const [unlocks, setUnlocks] = useState<UnlockData[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busyKind, setBusyKind] = useState<null | "single" | "pack10" | "unlimited30d">(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const reload = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [bRes, uRes] = await Promise.all([
+        fetch(`${API_BASE}/api/me/contact-balance`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API_BASE}/api/me/contact-unlocks`, { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+      if (bRes.ok) setData(await bRes.json());
+      if (uRes.ok) {
+        const u = await uRes.json();
+        setUnlocks(Array.isArray(u.unlocks) ? u.unlocks : []);
+      }
+    } catch {
+      setError("Не удалось загрузить данные");
+    } finally {
+      setLoading(false);
+    }
+  }, [token, API_BASE]);
+
+  useEffect(() => { reload(); }, [reload]);
+
+  const topup = async (kind: "single" | "pack10" | "unlimited30d") => {
+    setBusyKind(kind);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/me/contact-balance/topup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ kind }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        setError(j.message ?? "Не удалось пополнить");
+      } else {
+        await reload();
+      }
+    } catch {
+      setError("Ошибка сети");
+    } finally {
+      setBusyKind(null);
+    }
+  };
+
+  const kindLabel = (kind: string): string => {
+    switch (kind) {
+      case "bonus": return "Welcome-бонус";
+      case "single": return "1 контакт";
+      case "pack10": return "Пакет 10 контактов";
+      case "unlimited30d": return "Безлимит 30 дней";
+      default: return kind;
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex justify-center py-16">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  if (!data) {
+    return (
+      <div className="text-center py-16 bg-white rounded-2xl border border-border">
+        <p className="text-muted-foreground">Не удалось загрузить баланс. Попробуйте обновить страницу.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-3xl w-full space-y-5">
+      <h2 className="text-xl font-bold flex items-center gap-2 mb-1">
+        <Wallet className="w-5 h-5 text-primary" /> Баланс контактов
+      </h2>
+      <p className="text-sm text-muted-foreground">
+        Контакты позволяют открывать телефоны владельцев Free-объявлений напрямую,
+        без оформления бронирования через Гарантийный фонд.
+      </p>
+
+      {/* ── Текущий баланс ─────────────────────────────────────────── */}
+      <div className="bg-gradient-to-br from-primary/5 via-white to-accent/5 border-2 border-primary/20 rounded-2xl p-5">
+        <div className="flex items-center gap-4">
+          <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center text-primary shrink-0">
+            {data.unlimitedActive ? <InfinityIcon className="w-7 h-7" /> : <Phone className="w-7 h-7" />}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-[11px] text-muted-foreground uppercase font-semibold tracking-wide">Доступно</p>
+            {data.unlimitedActive ? (
+              <>
+                <p className="text-2xl font-display font-black">Безлимит</p>
+                <p className="text-xs text-muted-foreground">
+                  до {new Date(data.unlimitedUntil!).toLocaleDateString("ru", { day: "numeric", month: "long", year: "numeric" })}
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-2xl font-display font-black">{data.balance} <span className="text-base text-muted-foreground font-bold">шт.</span></p>
+                {data.bonusGranted && (
+                  <p className="text-[11px] text-amber-700 mt-0.5 inline-flex items-center gap-1">
+                    <Gift className="w-3 h-3" /> Welcome-бонус начислен
+                  </p>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+        {data.contactLifetimeDays > 0 && (
+          <p className="text-[11px] text-muted-foreground mt-3 pt-3 border-t border-border">
+            Каждый открытый контакт остаётся доступным {data.contactLifetimeDays} дней — повторное открытие бесплатно.
+          </p>
+        )}
+      </div>
+
+      {error && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-xl text-sm">{error}</div>
+      )}
+
+      {/* ── Пополнение ─────────────────────────────────────────────── */}
+      <div>
+        <h3 className="font-bold text-base mb-3">Пополнить баланс</h3>
+        <div className="grid sm:grid-cols-3 gap-3">
+          <TopupCard
+            title="1 контакт"
+            subtitle="Разово"
+            price={data.prices.single}
+            busy={busyKind === "single"}
+            onClick={() => topup("single")}
+          />
+          <TopupCard
+            title="10 контактов"
+            subtitle={`${Math.round(data.prices.pack10 / 10)} ₽ / шт`}
+            price={data.prices.pack10}
+            highlight
+            busy={busyKind === "pack10"}
+            onClick={() => topup("pack10")}
+          />
+          <TopupCard
+            title="Безлимит 30 дней"
+            subtitle="Без ограничений"
+            price={data.prices.unlimited30d}
+            busy={busyKind === "unlimited30d"}
+            onClick={() => topup("unlimited30d")}
+          />
+        </div>
+        <p className="text-[11px] text-muted-foreground mt-2">
+          MVP: пополнение мгновенное, оплата — заглушка. Реальная ЮKassa подключится отдельным этапом.
+        </p>
+      </div>
+
+      {/* ── Открытые контакты ──────────────────────────────────────── */}
+      {unlocks.length > 0 && (
+        <div>
+          <h3 className="font-bold text-base mb-3">Открытые контакты ({unlocks.length})</h3>
+          <div className="space-y-2">
+            {unlocks.map(u => (
+              <Link
+                key={u.id}
+                href={`/listings/${u.listingId}`}
+                className="block bg-white border border-border rounded-xl p-3 hover:border-primary/40 transition-colors"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold truncate">Объявление #{u.listingId}</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Открыт {format(new Date(u.unlockedAt), "d MMM yyyy")}
+                      {u.expiresAt && ` • до ${format(new Date(u.expiresAt), "d MMM yyyy")}`}
+                    </p>
+                  </div>
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase ${
+                    u.active ? "bg-green-100 text-green-700" : "bg-muted text-muted-foreground"
+                  }`}>
+                    {u.active ? "Активен" : "Истёк"}
+                  </span>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── История пополнений ─────────────────────────────────────── */}
+      <div>
+        <h3 className="font-bold text-base mb-3">История покупок</h3>
+        {data.history.length === 0 ? (
+          <div className="text-center py-8 bg-muted/30 rounded-xl text-sm text-muted-foreground">
+            Покупок пока нет
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {data.history.map(h => (
+              <div key={h.id} className="bg-white border border-border rounded-xl p-3 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold">{kindLabel(h.kind)}</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {format(new Date(h.createdAt), "d MMM yyyy, HH:mm")}
+                    {h.refundedAt && " • возвращено"}
+                  </p>
+                </div>
+                <div className="text-right shrink-0">
+                  {h.amountRub > 0 ? (
+                    <p className="font-bold text-sm">{formatPrice(h.amountRub)}</p>
+                  ) : (
+                    <p className="text-xs text-amber-700 font-semibold">Бесплатно</p>
+                  )}
+                  {h.contactsAdded > 0 && (
+                    <p className="text-[11px] text-muted-foreground">+{h.contactsAdded} конт.</p>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TopupCard({
+  title, subtitle, price, busy, onClick, highlight,
+}: { title: string; subtitle: string; price: number; busy: boolean; onClick: () => void; highlight?: boolean }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={busy}
+      className={`text-left p-4 rounded-2xl border-2 transition-all disabled:opacity-50 ${
+        highlight
+          ? "border-primary bg-primary/5 hover:bg-primary/10"
+          : "border-border bg-white hover:border-primary/40"
+      }`}
+    >
+      <p className="font-bold text-sm">{title}</p>
+      <p className="text-[11px] text-muted-foreground mb-2">{subtitle}</p>
+      <div className="flex items-center justify-between">
+        <span className="font-display font-black text-xl text-primary">{price} ₽</span>
+        {busy && <Loader2 className="w-4 h-4 animate-spin text-primary" />}
+      </div>
+    </button>
   );
 }

@@ -16,6 +16,8 @@ import { ReviewCard, ReviewData } from "@/components/ui/ReviewCard";
 import { StarRating, RatingDisplay } from "@/components/ui/StarRating";
 import { ListingMap } from "@/components/ui/ListingMap";
 import { CollapsibleMap } from "@/components/ui/CollapsibleMap";
+import { ContactPurchaseModal } from "@/components/ui/ContactPurchaseModal";
+import { usePublicSettings } from "@/lib/use-public-settings";
 
 export default function ListingDetail() {
   const [, params] = useRoute("/listings/:id");
@@ -55,6 +57,9 @@ export default function ListingDetail() {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [mainImgError, setMainImgError] = useState(false);
+  const [contactModalOpen, setContactModalOpen] = useState(false);
+  const publicSettings = usePublicSettings();
+  const contactPriceSingle = publicSettings?.contactPriceSingle ?? 0;
 
   // Reviews state
   const [reviews, setReviews] = useState<ReviewData[]>([]);
@@ -955,7 +960,7 @@ export default function ListingDetail() {
                             ? "Отправить заявку"
                             : (!startDate || !endDate)
                               ? "Выберите период аренды"
-                              : <><Phone className="w-5 h-5" /> Получить контакты (150 ₽)</>
+                              : <><Phone className="w-5 h-5" /> Получить контакты ({contactPriceSingle} ₽)</>
                         }
                       </button>
                     ) : (
