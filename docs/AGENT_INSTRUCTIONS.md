@@ -78,9 +78,16 @@ git push → GitHub → Amvera webhook → Docker build (Kaniko) → запус�
 
 ### При старте контейнера (CMD в Dockerfile):
 ```bash
-cd /app/lib/db && pnpm run push-force   # синхронизация схемы БД
-cd /app && node artifacts/api-server/dist/index.mjs  # запуск сервера
+node /app/lib/db/migrate-prod.mjs                    # 0) drizzle push (создаёт таблицы)
+                                                     # 1) ALTER TABLE ... IF NOT EXISTS (легаси)
+                                                     # 2) seed категорий/регионов/demo
+node artifacts/api-server/dist/index.mjs             # запуск сервера
 ```
+
+> **Важно:** до 23.04.26 скрипт `migrate-prod.mjs` делал только ALTER TABLE без CREATE.
+> На свежей БД Amvera первый ALTER падал с `relation "listings" does not exist`,
+> и контейнер не стартовал. Теперь шаг 0 выполняет `drizzle-kit push --force` и
+> создаёт все недостающие таблицы из `lib/db/src/schema/`.
 
 ### Dockerfile — важные параметры:
 - Base: `node:20-slim`
