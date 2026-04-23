@@ -31,37 +31,27 @@
 Значение: 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
 ```
 
-### Пуш в GitHub:
+### Пуш в GitHub (из Shell пользователя):
 ```bash
-bash scripts/github-push.sh "описание изменений"
-# Если заблокирован git add/commit (Replit lock):
-TOKEN="${GITHUB_TOKEN:-$GITHUB_PERSONAL_ACCESS_TOKEN}"
-git push "https://pdkiller666:${TOKEN}@github.com/pdkiller666/Hochu_to.git" main
+GITHUB_TOKEN=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 bash scripts/github-push.sh "описание изменений"
 ```
 
-> **Если скрипт ругается** `❌ Переменная GITHUB_TOKEN или GITHUB_PERSONAL_ACCESS_TOKEN не задана` —
-> значит токен не лежит в Replit Secrets. Быстрое решение в Shell:
+> **Если `git add -A` заблокирован** (Replit lock `.git/index.lock`):
 > ```bash
-> export GITHUB_PERSONAL_ACCESS_TOKEN=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
-> bash scripts/github-push.sh "описание"
+> git push "https://pdkiller666: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@github.com/pdkiller666/Hochu_to.git" main
 > ```
-> Лучше один раз добавить `GITHUB_PERSONAL_ACCESS_TOKEN` в Replit Secrets —
-> тогда переменная подхватится автоматически в любой новой Shell-сессии.
+> Replit-агент не может делать `git add/commit`, но `git push` существующих чекпойнтов работает.
+> Чекпойнт-коммит создаётся автоматически Replit в конце каждого диалога.
 
-### Проверить, что коммит реально на GitHub:
+### Проверить актуальность на GitHub:
 ```bash
-# Hash последнего коммита на удалённом main (репозиторий приватный — нужна авторизация)
-curl -s -u "pdkiller666:$GITHUB_PERSONAL_ACCESS_TOKEN" \
-  https://api.github.com/repos/pdkiller666/Hochu_to/commits/main | grep '"sha"' | head -1
-# Сравнить с локальным:
-git log -1 --pretty=%H
+git log --oneline -5
+git log origin/main..HEAD --oneline   # покажет непушенные коммиты
 ```
 
 ---
 
 ## 3. База данных (Replit PostgreSQL)
-
-Переменные окружения уже установлены в Replit Secrets:
 
 | Переменная | Значение |
 |------------|----------|
@@ -102,24 +92,9 @@ node /app/lib/db/migrate-prod.mjs                    # 0) drizzle push (созд
 node artifacts/api-server/dist/index.mjs             # запуск сервера
 ```
 
-> **Важно:** до 23.04.26 скрипт `migrate-prod.mjs` делал только ALTER TABLE без CREATE.
-> На свежей БД Amvera первый ALTER падал с `relation "listings" does not exist`,
-> и контейнер не стартовал. Теперь шаг 0 выполняет `drizzle-kit push --force` и
-> создаёт все недостающие таблицы из `lib/db/src/schema/`.
-
-> **Замечание по `drizzle-kit push --force` на проде с данными (23.04.26):**
-> На уже заполненной БД push может выдать ошибку вида
-> `column "claim_status" of relation "bookings" contains null values` —
-> это происходит, когда новая колонка объявлена `NOT NULL` без `DEFAULT`,
-> а в существующих строках уже есть NULL. Эта ошибка **некритична** —
-> следующий шаг (ALTER TABLE … IF NOT EXISTS из `migrate-prod.mjs`) добавит
-> колонку как nullable, и контейнер стартует штатно. В логе после такой ошибки
-> должны быть строки `[migrate] Step 0: schema synced` → `[migrate] OK: ALTER TABLE …`
-> → `[migrate] Done` → `Server listening`.
-
-> **Если же добавляете в схему новый NOT NULL без DEFAULT** — обязательно
-> в первой миграции дайте дефолт или сделайте поле nullable, иначе drizzle push
-> упадёт окончательно на проде.
+> **Важно:** если в схему добавляется новый NOT NULL столбец без DEFAULT — обязательно
+> сделайте его nullable или добавьте DEFAULT, иначе `drizzle-kit push --force` упадёт на проде
+> с ошибкой `column contains null values`.
 
 ### Dockerfile — важные параметры:
 - Base: `node:20-slim`
@@ -128,19 +103,14 @@ node artifacts/api-server/dist/index.mjs             # запуск сервер
 - Продакшн порт: `8080`
 - Frontend статика раздаётся бэкендом из `dist/public/`
 
-### Переменные окружения на Amvera (нужно установить вручную в панели):
+### Переменные окружения на Amvera:
 | Переменная | Описание |
 |------------|----------|
 | `DATABASE_URL` | URL PostgreSQL базы Amvera |
 | `PORT` | `8080` |
 | `NODE_ENV` | `production` |
-| `ADMIN_EMAIL` | Email первого администратора (или `admin@hochu.to`) |
+| `ADMIN_EMAIL` | Email первого администратора |
 | `ADMIN_PASSWORD` | Пароль первого администратора |
-
-> **Примечание:** Amvera предоставляет собственную PostgreSQL — URL будет другим, не локальным Replit.
-
-### Доступ в панель Amvera:
-Логин и пароль от аккаунта Amvera — у владельца проекта (pdkiller666). Агент не имеет прямого доступа к панели Amvera.
 
 ---
 
@@ -149,15 +119,6 @@ node artifacts/api-server/dist/index.mjs             # запуск сервер
 ### Запуск воркфлоу:
 - **API сервер**: `pnpm --filter @workspace/api-server run dev` → порт `8080`
 - **Фронтенд**: `pnpm --filter @workspace/hochu-to run dev` → порт из `$PORT`
-
-### Обязательные переменные окружения (уже в Replit Secrets):
-- `DATABASE_URL` — локальная Replit БД
-- `GITHUB_PERSONAL_ACCESS_TOKEN` — токен для пуша
-
-### Установка зависимостей:
-```bash
-pnpm install --no-frozen-lockfile
-```
 
 ### Структура монорепо:
 ```
@@ -174,11 +135,13 @@ scripts/
 Dockerfile          # Multi-stage Docker сборка
 ```
 
+### Важно: esbuild версия:
+- `artifacts/api-server/package.json` — строго `"esbuild": "0.25.8"` (не менять!)
+- Плагин `esbuild-plugin-pino@2.3.3` требует `>=0.25.0 <=0.25.8`
+
 ---
 
 ## 6. Тестовые пользователи
-
-Созданы через `pnpm --filter @workspace/api-server run seed`
 
 | Email | Пароль | Роль |
 |-------|--------|------|
@@ -201,27 +164,29 @@ Dockerfile          # Multi-stage Docker сборка
 | POST | `/auth/login` | Вход, возвращает `{ token }` |
 | POST | `/auth/register` | Регистрация |
 | GET | `/listings` | Список объявлений `{ listings, total, page, totalPages }` |
-| GET | `/regions` | Регионы (плоский массив) |
-| GET | `/categories` | Категории (плоский массив) |
-| GET | `/notifications` | Уведомления (массив) |
+| GET | `/listings/:id` | Карточка объявления (телефон маскируется при `freeShowOwnerPhoneMode=after_payment`) |
+| GET | `/regions` | Регионы |
+| GET | `/categories` | Категории |
+| GET | `/settings` | Публичные настройки платформы |
+| GET | `/notifications` | Уведомления |
 | PATCH | `/notifications/:id/read` | Прочитать уведомление |
 | POST | `/notifications/read-all` | Прочитать все |
 | GET | `/bookings/:id/messages` | Чат бронирования |
 | POST | `/bookings/:id/messages` | Отправить `{ content }` |
 | GET | `/messages/unread-counts` | Непрочитанные `{ [bookingId]: count }` |
-| POST | `/support/tickets` | Создать тикет `{ subject, body, category }` |
+| POST | `/support/tickets` | Создать тикет |
 | GET | `/support/tickets` | Мои тикеты |
-| POST | `/reports` | Жалоба `{ reportType, reportedListingId\|reportedUserId, reason, comment }` |
+| POST | `/reports` | Жалоба |
 | PUT | `/bookings/:id/status` | Смена статуса бронирования |
+| POST | `/contacts/unlock` | Купить доступ к контактам владельца Free-объявления |
 
 ### Авторизация:
 ```javascript
-// В заголовках запросов:
 Authorization: Bearer <token>
-// Или cookie: token=<token>
+// или cookie: token=<token>
 ```
 
-### Статусы бронирований (матрица переходов):
+### Статусы бронирований:
 - `pending` → `confirmed` / `rejected` (owner)
 - `confirmed` → `active` (owner)
 - `active` → `return_pending` (owner)
@@ -230,7 +195,92 @@ Authorization: Bearer <token>
 
 ---
 
-## 8. Бренд и дизайн
+## 8. Экономика платформы (Модель А — актуально на 23.04.2026)
+
+### Два тарифа объявлений
+
+| Параметр | Premium (`ownerProtectionEnabled=true`) | Free (`ownerProtectionEnabled=false`) |
+|---|---|---|
+| Создание | Бесплатно | Бесплатно, лимит `freeListingsMaxPerOwner` активных |
+| Условие создания | — | Требует телефон в профиле (если `freeListingsRequirePhone=true`) |
+| Кто может создать | Все | Если `freeListingsEnabled=true` |
+| Арендатор платит | `rent + renterFundContrib` | `contactPriceSingle` ₽ за доступ к контактам |
+| Телефон владельца | Не нужен, всё через платформу | Скрыт пока не куплен доступ (`freeShowOwnerPhoneMode=after_payment`) |
+
+### Формула Гарантийного фонда (Модель А: один фонд, два независимых опт-ина)
+
+```
+fundShare = max(rent × shieldFeePercent%, shieldFeeMin)
+
+ownerFundContrib  = ownerOptedIn  ? fundShare : 0
+renterFundContrib = renterOptedIn ? fundShare : 0
+
+// Premium-сделка:
+total       = rent + renterFundContrib
+ownerPayout = rent - serviceFee - taxFee - ownerFundContrib
+
+// Variant 3 (Free + арендатор апгрейдит защиту):
+isFreeUpgrade = !ownerOptedIn && renterOptedIn
+total         = rent + serviceFee + taxFee + renterFundContrib   // арендатор платит за всё
+ownerPayout   = rent                                              // владелец получает 100%
+```
+
+### Маппинг полей в БД (`bookings`):
+| Поле | Значение |
+|------|----------|
+| `fundContribution` | `ownerFundContrib` — взнос ВЛАДЕЛЬЦА в фонд |
+| `renterFundContribution` | `renterFundContrib` — взнос АРЕНДАТОРА в фонд |
+| `serviceFee` | Сервисная комиссия |
+| `taxFee` | Налоговая компенсация |
+| `ownerPayout` | Итоговая выплата владельцу |
+| `totalPrice` | Сумма к оплате арендатором (без залога) |
+
+### `platform_settings` — что реально работает и что нет:
+
+#### ✅ Настройки, подключённые к логике бэкенда:
+| Поле | Где используется |
+|------|-----------------|
+| `serviceFeePercent` | `bookings.ts` — комиссия из аренды |
+| `taxFeePercent` | `bookings.ts` — налог |
+| `shieldFeePercent` / `shieldFeeMin` | `bookings.ts` — доля фонда обеих сторон |
+| `riskCoveragePercent` / `riskCoverageMin` | Автоматически зеркалятся из `shieldFee*` при сохранении в `admin.ts` (legacy-совместимость) |
+| `depositMultiplier` / `depositMin` | `bookings.ts` — автозалог |
+| `protMultElectronics/Tools/Leisure/SpecialMachinery` | `listings.ts` — лимит фонда по категории |
+| `newUserProtectionCap` / `newUserDealsThreshold` | `listings.ts` — лимит для новых пользователей |
+| `freeListingsEnabled` | `listings.ts` POST — блокирует создание Free если `false` |
+| `freeListingsMaxPerOwner` | `listings.ts` POST — считает активные Free объявления владельца |
+| `freeListingsRequirePhone` | `listings.ts` POST — проверяет наличие телефона в профиле |
+| `freeShowOwnerPhoneMode` | `listings.ts` GET /:id — маскирует `ownerPhone: null` если `after_payment` |
+| `freeToPremiumUpgradeEnabled` | `bookings.ts` — блокирует апгрейд Free→Premium если `false` |
+| `defaultCatalogSort` | `listings.ts` GET / — дефолтная сортировка каталога |
+| `contactPriceSingle` / `contactPricePack10` / `contactPriceUnlimited30d` | `contacts.ts` — цены |
+| `freeContactsBonus` | `contacts.ts` — welcome-бонус при регистрации |
+| `contactLifetimeDays` | `contacts.ts` — срок жизни купленного контакта |
+
+#### ⚙️ Сортировки каталога (`?sort=`):
+| Значение | Описание |
+|----------|----------|
+| `new` | По дате создания DESC (дефолт если не задано `defaultCatalogSort`) |
+| `protected_first` | Premium-объявления сверху, потом Free; внутри — по дате |
+| `price_asc` / `price_desc` | По цене |
+| `rating` | По среднему рейтингу (JS-сортировка) |
+| `popular` | По количеству бронирований (JS-сортировка) |
+
+#### ❌ Настройки в UI, которые пока не подключены к логике:
+| Поле | Статус |
+|------|--------|
+| `vipPrice*` / `urgentPrice*` / `boostPrice*` | Система продвижения не реализована |
+| `subscriptionProMonthly` / `subscriptionBusinessMonthly` | Подписки не реализованы |
+| `subscriptionBusinessCommissionPercent` | Не применяется |
+| `jointPurchaseFeePercent` | Совместные покупки не реализованы |
+| `minPremiumShareInResults` | Требует сложной логики пагинации |
+| `showFormatBadges` | Бейджи всегда показываются |
+| `contactPackRefundEnabled` / `contactPackRefundWindowDays` | Только передаются в UI, логики возврата нет |
+| `yookassaEnabled` / `sbpEnabled` / `cloudpaymentsEnabled` | Платёжная интеграция не реализована |
+
+---
+
+## 9. Бренд и дизайн
 
 | Токен | Значение |
 |-------|----------|
@@ -240,31 +290,6 @@ Authorization: Bearer <token>
 | Text | `#2B2B2B` |
 | Заголовки | Montserrat |
 | Текст | Inter |
-
----
-
-## 9. Важные нюансы
-
-### esbuild версия:
-- `artifacts/api-server/package.json` — строго `"esbuild": "0.25.8"` (не менять!)
-- Плагин `esbuild-plugin-pino@2.3.3` требует `>=0.25.0 <=0.25.8`
-- В `pnpm-workspace.yaml` есть глобальный override `esbuild: 0.27.3` — для api-server он переопределяется точной версией в package.json
-
-### Replit блокирует git commit/add:
-- `git add -A` и `git commit` блокируются главным агентом
-- Checkpoint создаётся автоматически в конце каждого диалога
-- Пушить нужно через прямой вызов: `git push "https://pdkiller666:${TOKEN}@github.com/pdkiller666/Hochu_to.git" main`
-
-### `.dockerignore`:
-Файлы исключены из Docker-образа: `node_modules`, `.git`, `.replit`, `dist`, `amvera.yml`, `replit.md`, `attached_assets`, `artifacts/mockup-sandbox`
-
-### Seed при продакшн-запуске:
-Dockerfile CMD запускает `drizzle-kit push-force` + seed при каждом старте контейнера. Это нормально — seed проверяет наличие данных и не дублирует их.
-
-### Переменные фронтенда:
-- `VITE_API_URL` — по умолчанию пустая строка (фронтенд и бэкенд на одном домене)
-- `PORT` — обязательна при сборке (`vite.config.ts` бросит ошибку без неё)
-- `BASE_PATH` — обязательна при сборке (в Dockerfile: `/`)
 
 ---
 
@@ -289,19 +314,13 @@ PORT=3001 BASE_PATH=/ pnpm --filter @workspace/hochu-to run dev
 # 6. Проверить API
 curl http://localhost:8080/api/health
 
-# 7. Запустить production-сборку (тест)
-NODE_ENV=production pnpm --filter @workspace/api-server run build
-PORT=3000 BASE_PATH=/ NODE_ENV=production pnpm --filter @workspace/hochu-to run build
-
-# 8. Пуш на GitHub
-bash scripts/github-push.sh "описание изменений" 
+# 7. Пуш на GitHub (из Shell)
+GITHUB_TOKEN=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 bash scripts/github-push.sh "Stage X: описание"
 ```
 
 ---
 
-## 11. Дорожная карта (актуально на 23.04.2026)
-
-> Полная версия в `docs/checklist-2026-04-23.md`. Здесь — короткий статус для агента.
+## 11. Дорожная карта (актуально на 23.04.2026 вечер)
 
 ### ✅ Готово
 | Этап | Описание |
@@ -309,101 +328,89 @@ bash scripts/github-push.sh "описание изменений"
 | 1 | Free-тариф «🪧 Объявление — бесплатно» |
 | 2 | Все настройки монетизации в админке (`platform_settings`) |
 | 3 | Каталог: бейджи Free/Premium + фильтр `safeOnly` |
-| 4 | Платные контакты — БД (`contact_balances`, `contact_purchases`, `contact_unlocks`) + API |
+| 4 | Платные контакты — БД + API (`contact_balances`, `contact_unlocks`) |
 | 5 | Платные контакты — UI (`ContactPurchaseModal`, вкладка «Баланс контактов») |
-| 6 | Апгрейд Free → Premium прямо в брони + аудит `renter_upgraded_to_protection` |
-| 🐛 | Хотфиксы 23.04: audit_log, header lg, бронирование Direct Contact, отображение ошибок |
+| 6 | Апгрейд Free → Premium в брони + аудит `renter_upgraded_to_protection` |
+| 🐛 | Хотфиксы 23.04 утро: audit_log, header, бронирование Direct Contact, отображение ошибок |
+| 7 | **Экономика Модель А**: один Гарантийный фонд, два независимых опт-ина (владелец + арендатор) |
+| 7a | Variant 3 (Free Upgrade): арендатор платит service+tax+fund, владелец получает 100% rent |
+| 7b | UI чекбокс «Защитить через Гарантийный фонд» для арендатора в `ListingDetail` |
+| 7c | Фикс хардкода `150 ₽` → динамический `contactPriceSingle` в 3 местах `ListingDetail` |
+| 7d | Пересчёт reschedule по Модели А (раньше игнорировал ownerFundContrib, Variant 3) |
+| 7e | Унификация полей фонда в админке: одна секция «Гарантийный фонд (Модель А)» |
+| 7f | Зеркалирование `shieldFee* ↔ riskCoverage*` в `admin.ts` при сохранении |
+| 7g | **Подключение «фантомных» настроек** к реальной логике бэкенда |
+| 7g-1 | `calcMaxProtection` в `listings.ts` — убраны хардкоды, читает `protMult*` и `newUser*` из настроек |
+| 7g-2 | `freeListingsEnabled/MaxPerOwner/RequirePhone` — проверяются при создании Free-объявления |
+| 7g-3 | `freeShowOwnerPhoneMode` — маскирует телефон в GET `/listings/:id` при `after_payment` |
+| 7g-4 | `freeToPremiumUpgradeEnabled` — блокирует апгрейд Free→Premium если выключено |
+| 7g-5 | `defaultCatalogSort` — используется как дефолт в GET `/listings` |
+| 7g-6 | Добавлен кейс `protected_first` в сортировку каталога |
+| 7g-7 | `ListingForm.tsx` — обработка ошибок `free_disabled/free_limit_reached/phone_required` |
 
 ### 🚧 Следующие приоритеты
 
-#### Этап 7 — Расширенная статистика в админке (рекомендую начать)
-- [ ] `GET /api/admin/stats?from=&to=` с агрегациями + кэш 60с
-- [ ] Блок «Объявления»: всего активных Free/Premium, конверсия Free→Premium, ТОП-10 категорий
-- [ ] Блок «Сделки»: брони за период Free/Premium, средний чек, % завершённых/отменённых/спорных, среднее время заявка→подтверждение
-- [ ] Блок «Контакты»: куплено за период, ARPU арендатора, конверсия открытие→покупка, ТОП-20 объявлений
-- [ ] Блок «Пользователи»: регистрации, DAU/MAU, активные владельцы/арендаторы
+#### Этап 8 — Расширенная статистика в админке
+- [ ] `GET /api/admin/stats?from=&to=` с агрегациями
+- [ ] Блок «Объявления»: всего Free/Premium, конверсия Free→Premium, ТОП категорий
+- [ ] Блок «Сделки»: брони за период, средний чек, % завершённых
+- [ ] Блок «Контакты»: куплено за период, ARPU, конверсия
+- [ ] Блок «Пользователи»: регистрации, DAU/MAU
 
-> Преимущества Этапа 7: не требует внешних ключей, изолирован, разбивается на 2 итерации (API → UI).
-
-#### Этап 8 — ЮKassa для контактов (нужны ключи)
+#### Этап 9 — ЮKassa для контактов
 - [ ] SDK + webhook
-- [ ] Создание платежа на покупку контакта (поштучно/пакет)
+- [ ] Создание платежа на покупку контакта
 - [ ] Подтверждение и активация баланса
+> Требует `YOOKASSA_SHOP_ID` и `YOOKASSA_SECRET_KEY` в Replit Secrets и на Amvera.
 
-> Требует от пользователя `YOOKASSA_SHOP_ID` и `YOOKASSA_SECRET_KEY` в Replit Secrets и на Amvera.
-
-### 📦 Бэклог (по убыванию приоритета)
-- 💳 Реальная оплата для Premium-броней (ЮKassa, СБП-чеки, CloudPayments-холд депозита, автовыплата владельцу)
-- 🏷️ Продвижение объявлений: `is_featured`, `is_urgent`, `boosted_until` + `POST /listings/:id/promote` + админ-вкладка
-- 📋 Подписки владельцев: `owner_subscriptions` (basic/pro/business), пониженная комиссия для Business
-- 🧾 Цифровой акт check-in/check-out: 4 фото + видео + GPS + подпись
-- 🛡️ Реальные выплаты из Shield-фонда + баланс фонда в Admin Обзоре
-- 📊 Trust Score пользователей, статистика просмотров (для Pro), финансовый P&L
+### 📦 Бэклог
+- 💳 Реальная оплата для Premium-броней (ЮKassa, СБП, CloudPayments-холд депозита)
+- 🏷️ Продвижение объявлений: VIP/Boost/Срочно + `POST /listings/:id/promote`
+- 📋 Подписки владельцев: basic/pro/business + пониженная комиссия
+- 🧾 Цифровой акт check-in/check-out: фото + GPS + подпись
+- 🛡️ Реальные выплаты из Гарантийного фонда + баланс фонда в Admin
+- 📊 Trust Score, статистика просмотров (для Pro), финансовый P&L
+- 🔔 `showFormatBadges` → фронтовый переключатель
+- 📊 `minPremiumShareInResults` → логика «буфера Premium» в пагинации
 
 ---
 
 ## 12. Журнал релизов
 
-### 23.04.2026 (вечер) — Хотфиксы бронирования и шапки
-- **audit_log:** таблица отсутствовала в локальной БД — создана через
-  `pnpm --filter @workspace/db run push-force`. Аудит админ-действий
-  снова пишется.
-- **Header (lg breakpoint 1024–1279px):** на средних экранах админ-кнопки
-  выталкивали поиск. Уменьшены иконки (4×4), бейджи (16px), кнопка «Панель»
-  на lg сворачивается в иконку Shield, текст и аватар появляются с xl.
-- **Бронирование «Прямой расчёт» — критичный фикс:** Zod-схема
-  `CreateBookingBody` валидировала только `listingId/startDate/endDate/message`,
-  поля `protectionEnabled` и `renterProtectionEnabled` молча отбрасывались.
-  Из-за этого при выборе «Получить контакты» на Free-объявлении сервер
-  всегда создавал полноценную Premium-сделку с Shield Fee и фондом.
-  Поля добавлены в `lib/api-spec/openapi.yaml` →
-  `pnpm --filter @workspace/api-spec run codegen` → клиент и Zod обновлены.
-- **ListingDetail — отображение ошибок:** `handleBooking` теперь имеет
-  `onError`, выводит сообщение сервера в красном баннере над кнопкой submit.
-  Раньше любая 4xx-ошибка проглатывалась — пользователь видел «ничего не происходит».
-- **Коммиты:** `4f62a44` (header), `be2687b` (booking + audit_log + checklist),
-  `f66a320` (checkpoint). Все на GitHub `main`, Amvera по вебхуку перезаливает прод.
+### 23.04.2026 вечер — Подключение «фантомных» настроек платформы
+- Полный аудит `platform_settings`: выявлено 15+ полей, которые были в UI-форме админки, но не применялись в логике бэкенда.
+- `calcMaxProtection` в `listings.ts` переписана как `async`, читает `protMultElectronics/Tools/Leisure/SpecialMachinery`, `newUserProtectionCap`, `newUserDealsThreshold` из базы вместо хардкодов.
+- POST `/listings`: добавлены проверки `freeListingsEnabled` (403), `freeListingsMaxPerOwner` (422), `freeListingsRequirePhone` (422).
+- GET `/listings/:id`: маскирует `ownerPhone → null` если `freeShowOwnerPhoneMode = after_payment`.
+- GET `/listings`: добавлен `sort=protected_first` (Premium выше Free); дефолт берётся из `defaultCatalogSort`.
+- POST `/bookings`: проверяет `freeToPremiumUpgradeEnabled` перед Free→Premium апгрейдом.
+- `ListingForm.tsx`: `onError` обрабатывает коды `free_disabled`, `free_limit_reached`, `phone_required` → понятные toast-уведомления.
 
-### 23.04.2026 — Stage 5 + Stage 6 в проде
-- **Stage 5 — Платные контакты UI:** компонент `ContactPurchaseModal`,
-  хук `usePublicSettings`, кнопка «Связаться — N ₽» на `ListingCard`
-  для Free-объявлений, динамическая цена контакта на `ListingDetail`,
-  новая вкладка «Баланс контактов» в `Dashboard` (баланс / пополнение /
-  список открытых контактов / история покупок).
-- **Stage 6 — Апгрейд Free → Premium прямо в брони:** на Free-объявлении
-  переключатель защиты по умолчанию выключен; включение = апгрейд до
-  Premium с полным расчётом fees, Shield Fee и взносом в Гарантийный фонд;
-  владельцу уходит уведомление со специальным заголовком 🛡️ + аудит-событие
-  `renter_upgraded_to_protection`.
-- **Bugfix шапки (PC):** на больших экранах содержимое шапки выталкивалось
-  вправо (горизонтальный скролл). Причина — `flex-1` у поисковой строки
-  без `min-w-0` не давал ей сжаться. Исправлено добавлением `min-w-0`
-  на flex-контейнеры и `overflow-x-clip` на корневой `<header>`.
-- **Деплой:** Amvera успешно пересобрал образ и стартовал контейнер
-  (`Server listening` в логах после `[migrate] Done`).
+### 23.04.2026 день — Экономика Модель А + Variant 3
+- `calculateTotalPrice` в `lib/utils.ts` полностью переписана: новый интерфейс `PriceBreakdown` с `fundShare`, `ownerFundContrib`, `renterFundContrib`, `isFreeUpgrade`. Старые поля (`shieldFee`, `riskCoverage`, `combinedServiceFee`) сохранены как deprecated-алиасы для `ListingForm` и `ListingCard`.
+- `bookings.ts`: create и reschedule пересчитаны по Модели А. Три ветки: Premium (оба опт-инули), Variant 3 (Free + рентер апгрейдит), Free прямой расчёт.
+- `ListingDetail.tsx`: чекбокс «Защитить через Гарантийный фонд»; дефолт — включён на Premium, выключен на Free; описание меняется в реальном времени.
+- Хардкод `150 ₽` заменён на `contactPriceSingle` в 3 местах.
+- Унификация секции фонда в `AdminPage.tsx`: два поля вместо четырёх; `onChange` одновременно пишет в `shieldFee*` и `riskCoverage*`.
+- Зеркалирование в `admin.ts`: при сохранении одной пары автоматически обновляется другая.
 
-### 23.04.2026 — Фикс миграций Amvera
-- В `lib/db/migrate-prod.mjs` добавлен Step 0: `drizzle-kit push --force`,
-  чтобы создавать таблицы на пустой БД. Step 1 (ALTER) сделан некритичным.
-- Коммит `821514b`.
+### 23.04.2026 утро — Хотфиксы бронирования и шапки
+- `audit_log`: таблица создана через `push-force`.
+- Header (lg breakpoint): иконки и бейджи уменьшены, текст и аватар появляются с xl.
+- Бронирование «Прямой расчёт»: `protectionEnabled` и `renterProtectionEnabled` добавлены в Zod-схему.
+- `ListingDetail`: `onError` выводит сообщение сервера в баннер.
 
 ---
 
 ## 13. Команда для пуша после каждой итерации
 
-После любых изменений в коде агент должен в конце ответа явно указывать
-команду для пуша:
-
 ```bash
 GITHUB_TOKEN=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 bash scripts/github-push.sh "Stage X: краткое описание"
 ```
 
-Если `GITHUB_TOKEN` лежит в Replit Secrets — короче:
-```bash
-bash scripts/github-push.sh "Stage X: краткое описание"
-```
-
-> **Почему агент не пушит сам:** Replit на main-агенте блокирует любые
-> destructive git-операции (включая `git push`). Чекпойнт-коммит создаётся
-> автоматически, но залить его на удалённый GitHub может только
-> пользователь вручную из Shell.
+> **Почему агент не пушит сам:** Replit на main-агенте блокирует `git add/commit`.
+> Чекпойнт создаётся автоматически, но залить его на GitHub может только пользователь из Shell.
+> Если скрипт зависает из-за `.git/index.lock` — запустить напрямую:
+> ```bash
+> git push "https://pdkiller666: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@github.com/pdkiller666/Hochu_to.git" main
+> ```
