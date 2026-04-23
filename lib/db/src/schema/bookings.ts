@@ -26,7 +26,7 @@ export const bookingsTable = pgTable("bookings", {
   renterProtectionEnabled: boolean("renter_protection_enabled").default(false),
   status: bookingStatusEnum("status").notNull().default("pending"),
   /** Статус заявки на компенсацию из фонда */
-  claimStatus: text("claim_status").default("none").notNull(),
+  claimStatus: text("claim_status").default("none"),
   message: text("message"),
   ownerComment: text("owner_comment"),
   createdAt: timestamp("created_at").defaultNow().notNull(),

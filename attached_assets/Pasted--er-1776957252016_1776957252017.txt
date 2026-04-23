@@ -1,0 +1,30 @@
+Опять база данных капризничает, но на этот раз лог выдал четкую причину! Смотри на эту строчку:
+`error: column "claim_status" of relation "bookings" contains null values`
+
+**В чем суть проблемы:**
+В твоей базе на Amvera уже есть созданные ранее бронирования (от старых тестов). Агент попытался добавить новую колонку `claim_status` (статус жалобы) и, судя по всему, задал ей жесткое правило `NOT NULL` (не может быть пустой). 
+База данных смотрит на твои старые бронирования, видит, что у них этого статуса нет (там пустота, `NULL`), паникует и прерывает обновление.
+
+Это классическая ошибка при обновлении рабочих баз данных. Чтобы ее решить, новым колонкам нужно просто задать **значение по умолчанию** (например, `default('none')` или `default(0)`), либо разрешить им быть пустыми.
+
+### 🛠️ Что нужно передать Агенту в Replit:
+
+Скопируй этот текст и отправь Агенту, он за минуту поправит схему и пушнет фикс.
+
+> **Prompt for Replit Agent:**
+>
+> "The Amvera deployment is failing during database migration with this specific PostgreSQL error:
+> `error: column "claim_status" of relation "bookings" contains null values` (code: '23502').
+> 
+> This is happening because `drizzle-kit push` is trying to add new `NOT NULL` columns to existing tables that already contain rows, without providing a default value.
+>
+> **Please fix the schema (`schema.ts`):**
+> 1. Check all recently added columns to existing tables (e.g., `claim_status`, `renter_fund_contribution`, `renter_protection_enabled` in `bookings`; `completed_deals_count` in `users`; `requires_manual_verification`, `max_protection_limit`, `item_category` in `listings`).
+> 2. Ensure every new column either has a `.default(...)` value or is made nullable by removing `.notNull()`.
+> 3. For example: 
+>    - `claim_status: text('claim_status').default('none').notNull()`
+>    - `renter_fund_contribution: integer('renter_fund_contribution').default(0).notNull()`
+>    - `completed_deals_count: integer('completed_deals_count').default(0).notNull()`
+> 4. Once the schema is updated with defaults, commit and push the changes to GitHub so Amvera can rebuild successfully."
+
+Как только Агент задаст дефолтные значения и код улетит на сервер, скрипт без проблем обновит старые строчки, подставив туда нули или дефолтные тексты, и всё наконец-то запустится!
