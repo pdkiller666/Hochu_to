@@ -11,4 +11,8 @@ export interface CreateBookingRequest {
   startDate: string;
   endDate: string;
   message?: string;
+  /** Если false — режим «Прямой расчёт» (платная выдача контактов владельца). */
+  protectionEnabled?: boolean;
+  /** Арендатор подключает Гарантийный фонд для своей стороны сделки. */
+  renterProtectionEnabled?: boolean;
 }

@@ -180,20 +180,31 @@ export default function ListingDetail() {
 
   const openLightbox = (i: number) => { setLightboxIndex(i); setLightboxOpen(true); };
 
+  const [bookingError, setBookingError] = useState<string | null>(null);
+
   const handleBooking = (e: React.FormEvent) => {
     e.preventDefault();
     if (!startDate || !endDate) return;
+    setBookingError(null);
     createBooking.mutate({
       data: {
         listingId: id,
-        startDate: startDate || undefined,
-        endDate: endDate || undefined,
-        message,
+        startDate,
+        endDate,
+        message: message || undefined,
         protectionEnabled,
         renterProtectionEnabled: renterFundEnabled,
-      } as any
+      }
     }, {
       onSuccess: () => setBookingSuccess(true),
+      onError: (err: any) => {
+        const serverMsg =
+          err?.data?.message ??
+          err?.response?.data?.message ??
+          err?.message ??
+          "Не удалось отправить заявку. Попробуйте ещё раз.";
+        setBookingError(String(serverMsg));
+      },
     });
   };
 
@@ -977,6 +988,13 @@ export default function ListingDetail() {
                         onChange={e => setMessage(e.target.value)}
                       />
                     </div>
+
+                    {bookingError && (
+                      <div className="flex items-start gap-2 bg-destructive/10 border border-destructive/30 text-destructive text-sm p-3 rounded-xl mt-2">
+                        <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                        <p>{bookingError}</p>
+                      </div>
+                    )}
 
                     {isAuthenticated ? (
                       <button

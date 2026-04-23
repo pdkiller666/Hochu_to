@@ -103,6 +103,7 @@ export const GetCategoriesResponse = zod.array(GetCategoriesResponseItem);
 /**
  * @summary Get listings with filters
  */
+export const getListingsQuerySortDefault = `new`;
 export const getListingsQueryPageDefault = 1;
 export const getListingsQueryLimitDefault = 12;
 
@@ -112,6 +113,14 @@ export const GetListingsQueryParams = zod.object({
   minPrice: zod.coerce.number().optional(),
   maxPrice: zod.coerce.number().optional(),
   search: zod.coerce.string().optional(),
+  sort: zod
+    .enum(["new", "popular", "rating", "price_asc", "price_desc"])
+    .default(getListingsQuerySortDefault)
+    .describe("Sort order (new, popular, rating, price_asc, price_desc)"),
+  safeOnly: zod
+    .enum(["true", "false"])
+    .optional()
+    .describe('Если \"true\" — только объявления с включённой защитой сделки'),
   page: zod.coerce.number().default(getListingsQueryPageDefault),
   limit: zod.coerce.number().default(getListingsQueryLimitDefault),
 });
@@ -354,6 +363,18 @@ export const CreateBookingBody = zod.object({
   startDate: zod.string(),
   endDate: zod.string(),
   message: zod.string().optional(),
+  protectionEnabled: zod
+    .boolean()
+    .optional()
+    .describe(
+      "Если false — режим «Прямой расчёт» (платная выдача контактов владельца).",
+    ),
+  renterProtectionEnabled: zod
+    .boolean()
+    .optional()
+    .describe(
+      "Арендатор подключает Гарантийный фонд для своей стороны сделки.",
+    ),
 });
 
 /**

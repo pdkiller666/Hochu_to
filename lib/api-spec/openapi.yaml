@@ -1062,6 +1062,12 @@ components:
           type: string
         message:
           type: string
+        protectionEnabled:
+          type: boolean
+          description: Если false — режим «Прямой расчёт» (платная выдача контактов владельца).
+        renterProtectionEnabled:
+          type: boolean
+          description: Арендатор подключает Гарантийный фонд для своей стороны сделки.
       required:
         - listingId
         - startDate

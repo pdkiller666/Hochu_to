@@ -288,6 +288,10 @@ export interface CreateBookingRequest {
   startDate: string;
   endDate: string;
   message?: string;
+  /** Если false — режим «Прямой расчёт» (платная выдача контактов владельца). */
+  protectionEnabled?: boolean;
+  /** Арендатор подключает Гарантийный фонд для своей стороны сделки. */
+  renterProtectionEnabled?: boolean;
 }
 
 export type UpdateBookingStatusRequestStatus =
@@ -390,6 +394,33 @@ export type GetListingsParams = {
   minPrice?: number;
   maxPrice?: number;
   search?: string;
+  /**
+   * Sort order (new, popular, rating, price_asc, price_desc)
+   */
+  sort?: GetListingsSort;
+  /**
+   * Если "true" — только объявления с включённой защитой сделки
+   */
+  safeOnly?: GetListingsSafeOnly;
   page?: number;
   limit?: number;
 };
+
+export type GetListingsSort =
+  (typeof GetListingsSort)[keyof typeof GetListingsSort];
+
+export const GetListingsSort = {
+  new: "new",
+  popular: "popular",
+  rating: "rating",
+  price_asc: "price_asc",
+  price_desc: "price_desc",
+} as const;
+
+export type GetListingsSafeOnly =
+  (typeof GetListingsSafeOnly)[keyof typeof GetListingsSafeOnly];
+
+export const GetListingsSafeOnly = {
+  true: "true",
+  false: "false",
+} as const;

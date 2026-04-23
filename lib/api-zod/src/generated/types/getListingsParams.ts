@@ -5,6 +5,8 @@
  * Хочу_То — Rental Marketplace API
  * OpenAPI spec version: 0.1.0
  */
+import type { GetListingsSafeOnly } from "./getListingsSafeOnly";
+import type { GetListingsSort } from "./getListingsSort";
 
 export type GetListingsParams = {
   category?: string;
@@ -12,6 +14,14 @@ export type GetListingsParams = {
   minPrice?: number;
   maxPrice?: number;
   search?: string;
+  /**
+   * Sort order (new, popular, rating, price_asc, price_desc)
+   */
+  sort?: GetListingsSort;
+  /**
+   * Если "true" — только объявления с включённой защитой сделки
+   */
+  safeOnly?: GetListingsSafeOnly;
   page?: number;
   limit?: number;
 };
