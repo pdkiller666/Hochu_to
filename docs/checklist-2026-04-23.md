@@ -218,3 +218,8 @@
 - [x] **Header (lg breakpoint 1024–1279px)**: уплотнены админ-кнопки и поиск; иконки 4×4, бейджи 16px, «Панель» сворачивается в иконку Shield.
 - [x] **Бронирование «Прямой расчёт»**: Zod-схема `CreateBookingBody` принимает `protectionEnabled` и `renterProtectionEnabled` (раньше эти поля молча отбрасывались — Free-режим всегда сохранялся как Premium). Обновлены OpenAPI, перегенерирован клиент.
 - [x] **ListingDetail.handleBooking**: добавлен `onError` с показом ошибки сервера в красном баннере над кнопкой submit (раньше ошибки молча проглатывались — отсюда «ничего не происходит»).
+
+### 📊 Этап 7 — Расширенная аналитика админки (готово)
+- [x] **Backend**: `GET /api/admin/stats/extended?from=&to=` (`artifacts/api-server/src/routes/admin.ts`) — 4 блока: listings (active Free/Premium, конверсия Free→Premium, top-10 категорий), bookings (Free/Premium, средний чек, %completed/cancelled/disputed, среднее время до подтверждения по `booking_events`), contacts (покупки, выручка, ARPU, unlocks, top-20 по открытиям), users (registrations, active owners/renters, DAU/MAU). In-memory кэш 60 секунд по ключу `from|to` (заголовок `X-Cache: HIT/MISS`). Валидация формата дат и `from ≤ to`.
+- [x] **Frontend**: новая вкладка **«Аналитика»** в `AdminPage.tsx` (иконка BarChart2, между «Обзор» и «Пользователи»). Пресеты периода 7д/30д/90д + custom range. 4 секции с карточками (`StatCard`) и топ-листами. Цветовая схема: Premium = violet, Free = stone, выручка = orange/violet.
+- [x] **Тесты**: эндпоинт проверен curl-ом (MISS/HIT кэш, 400 на инвертированных датах), prod-сборка (`vite build`) зелёная.

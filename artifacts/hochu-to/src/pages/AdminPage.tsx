@@ -2003,11 +2003,246 @@ function PaymentsTab() {
   );
 }
 
+// ─── Analytics Tab (Этап 7) ───────────────────────────────────────────────────
+
+type ExtStats = {
+  period: { from: string; to: string };
+  listings: {
+    activeTotal: number; activePremium: number; activeFree: number; newInPeriod: number;
+    conversionFreeToPremiumPct: number;
+    topCategories: { id: number; name: string; active: number; premium: number; free: number }[];
+  };
+  bookings: {
+    total: number; premium: number; free: number; completed: number; cancelled: number; disputed: number;
+    completedPct: number; cancelledPct: number; disputedPct: number;
+    avgTicket: number; avgTicketPremium: number; avgTicketFree: number; avgHoursToConfirm: number;
+  };
+  contacts: {
+    purchases: number; uniqueBuyers: number; revenue: number; arpu: number;
+    unlocks: number; conversionUnlockPerPurchasePct: number;
+    topUnlockedListings: { id: number; title: string; unlocks: number }[];
+  };
+  users: {
+    total: number; totalOwners: number; totalRenters: number;
+    registrationsInPeriod: number; activeRenters: number; activeOwners: number;
+    dau: number; mau: number;
+  };
+};
+
+function AnalyticsTab() {
+  const todayISO = () => new Date().toISOString().slice(0, 10);
+  const daysAgoISO = (d: number) => new Date(Date.now() - d * 86_400_000).toISOString().slice(0, 10);
+
+  const [preset, setPreset] = useState<"7d" | "30d" | "90d" | "custom">("30d");
+  const [from, setFrom] = useState<string>(daysAgoISO(30));
+  const [to, setTo] = useState<string>(todayISO());
+
+  const applyPreset = (p: "7d" | "30d" | "90d") => {
+    setPreset(p);
+    const d = p === "7d" ? 7 : p === "30d" ? 30 : 90;
+    setFrom(daysAgoISO(d));
+    setTo(todayISO());
+  };
+
+  const { data, isLoading, error } = useFetch<ExtStats>(
+    `${API}/api/admin/stats/extended?from=${from}&to=${to}`,
+  );
+
+  return (
+    <div className="space-y-6">
+      {/* Period picker */}
+      <div className="bg-white rounded-xl border border-stone-200 p-4 flex flex-wrap items-center gap-3">
+        <span className="text-sm font-semibold text-stone-700">Период:</span>
+        {(["7d", "30d", "90d"] as const).map(p => (
+          <button key={p} onClick={() => applyPreset(p)}
+            className={`px-3 py-1.5 rounded-lg text-sm transition ${
+              preset === p ? "bg-[#C65D3B] text-white" : "bg-stone-100 text-stone-600 hover:bg-stone-200"
+            }`}>
+            {p === "7d" ? "7 дней" : p === "30d" ? "30 дней" : "90 дней"}
+          </button>
+        ))}
+        <button onClick={() => setPreset("custom")}
+          className={`px-3 py-1.5 rounded-lg text-sm transition ${
+            preset === "custom" ? "bg-[#C65D3B] text-white" : "bg-stone-100 text-stone-600 hover:bg-stone-200"
+          }`}>
+          Свой
+        </button>
+        {preset === "custom" && (
+          <div className="flex items-center gap-2 text-sm">
+            <input type="date" value={from} max={to} onChange={e => setFrom(e.target.value)}
+              className="px-2 py-1 border border-stone-200 rounded-lg" />
+            <span className="text-stone-400">—</span>
+            <input type="date" value={to} min={from} max={todayISO()} onChange={e => setTo(e.target.value)}
+              className="px-2 py-1 border border-stone-200 rounded-lg" />
+          </div>
+        )}
+        <span className="ml-auto text-xs text-stone-400">
+          {data ? `${data.period.from} — ${data.period.to}` : ""}
+        </span>
+      </div>
+
+      {isLoading && (
+        <div className="flex items-center justify-center py-12">
+          <div className="animate-spin w-6 h-6 border-2 border-[#C65D3B] border-t-transparent rounded-full" />
+        </div>
+      )}
+
+      {error && (
+        <div className="bg-rose-50 border border-rose-200 text-rose-700 text-sm rounded-xl p-4">
+          Не удалось загрузить статистику: {String((error as any)?.message ?? error)}
+        </div>
+      )}
+
+      {data && (
+        <>
+          {/* ─── ОБЪЯВЛЕНИЯ ─── */}
+          <section>
+            <h3 className="font-semibold text-stone-700 mb-3 flex items-center gap-2">
+              <Package className="w-4 h-4 text-stone-400" /> Объявления
+            </h3>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+              <StatCard icon={Package} label="Активных всего" value={data.listings.activeTotal} color="bg-emerald-50 text-emerald-600" />
+              <StatCard icon={Shield} label="Premium" value={data.listings.activePremium} color="bg-violet-50 text-violet-600" />
+              <StatCard icon={Package} label="Free" value={data.listings.activeFree} color="bg-stone-100 text-stone-600" />
+              <StatCard icon={TrendingUp} label="Новых за период" value={data.listings.newInPeriod} color="bg-blue-50 text-blue-600" />
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="bg-white rounded-xl border border-stone-200 p-5">
+                <div className="text-xs text-stone-500 mb-1">Конверсия Free → Premium (по броням)</div>
+                <div className="text-2xl font-bold text-stone-800">{data.listings.conversionFreeToPremiumPct}%</div>
+                <div className="text-xs text-stone-400 mt-1">Доля бронирований на Free-объявлениях, где арендатор включил Premium-защиту</div>
+              </div>
+              <div className="bg-white rounded-xl border border-stone-200 p-5">
+                <h4 className="text-sm font-semibold text-stone-700 mb-3">Топ-10 категорий по числу активных</h4>
+                <div className="space-y-1.5">
+                  {data.listings.topCategories.map((c, i) => (
+                    <div key={c.id} className="flex items-center gap-3 text-sm">
+                      <span className="w-5 text-stone-400 text-xs font-bold">{i + 1}</span>
+                      <span className="flex-1 truncate text-stone-700">{c.name}</span>
+                      <span className="text-stone-500 tabular-nums">{c.active}</span>
+                      <span className="text-violet-600 text-xs tabular-nums">P:{c.premium}</span>
+                      <span className="text-stone-400 text-xs tabular-nums">F:{c.free}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* ─── СДЕЛКИ ─── */}
+          <section>
+            <h3 className="font-semibold text-stone-700 mb-3 flex items-center gap-2">
+              <CalendarDays className="w-4 h-4 text-stone-400" /> Сделки
+            </h3>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+              <StatCard icon={CalendarDays} label="Всего за период" value={data.bookings.total} color="bg-orange-50 text-orange-600" />
+              <StatCard icon={Shield} label="Premium" value={data.bookings.premium}
+                sub={`${data.bookings.total ? Math.round(data.bookings.premium / data.bookings.total * 100) : 0}%`}
+                color="bg-violet-50 text-violet-600" />
+              <StatCard icon={CalendarDays} label="Free" value={data.bookings.free}
+                sub={`${data.bookings.total ? Math.round(data.bookings.free / data.bookings.total * 100) : 0}%`}
+                color="bg-stone-100 text-stone-600" />
+              <StatCard icon={Coins} label="Средний чек" value={`${formatPrice(data.bookings.avgTicket)} ₽`} color="bg-blue-50 text-blue-600" />
+            </div>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+              <StatCard icon={CheckCircle} label="Завершено" value={`${data.bookings.completedPct}%`}
+                sub={`${data.bookings.completed} шт.`} color="bg-green-50 text-green-600" />
+              <StatCard icon={Clock} label="Отменено" value={`${data.bookings.cancelledPct}%`}
+                sub={`${data.bookings.cancelled} шт.`} color="bg-rose-50 text-rose-600" />
+              <StatCard icon={Flag} label="С претензиями" value={`${data.bookings.disputedPct}%`}
+                sub={`${data.bookings.disputed} шт.`} color="bg-amber-50 text-amber-600"
+                alert={data.bookings.disputedPct > 5} />
+              <StatCard icon={Clock} label="Время до подтв." value={`${data.bookings.avgHoursToConfirm} ч`} color="bg-yellow-50 text-yellow-600" />
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="bg-white rounded-xl border border-stone-200 p-5">
+                <div className="text-xs text-stone-500 mb-1">Средний чек Premium</div>
+                <div className="text-2xl font-bold text-stone-800">{formatPrice(data.bookings.avgTicketPremium)} ₽</div>
+              </div>
+              <div className="bg-white rounded-xl border border-stone-200 p-5">
+                <div className="text-xs text-stone-500 mb-1">Средний чек Free</div>
+                <div className="text-2xl font-bold text-stone-800">{formatPrice(data.bookings.avgTicketFree)} ₽</div>
+              </div>
+            </div>
+          </section>
+
+          {/* ─── КОНТАКТЫ ─── */}
+          <section>
+            <h3 className="font-semibold text-stone-700 mb-3 flex items-center gap-2">
+              <CreditCard className="w-4 h-4 text-stone-400" /> Контакты (монетизация Direct)
+            </h3>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+              <StatCard icon={CreditCard} label="Покупок пакетов" value={data.contacts.purchases} color="bg-blue-50 text-blue-600" />
+              <StatCard icon={Users} label="Уникальных покупателей" value={data.contacts.uniqueBuyers} color="bg-emerald-50 text-emerald-600" />
+              <StatCard icon={Coins} label="Выручка (₽)" value={formatPrice(data.contacts.revenue)} color="bg-violet-50 text-violet-600" />
+              <StatCard icon={TrendingUp} label="ARPU (₽)" value={formatPrice(data.contacts.arpu)}
+                sub="на покупателя" color="bg-orange-50 text-orange-600" />
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="bg-white rounded-xl border border-stone-200 p-5">
+                <div className="text-xs text-stone-500 mb-1">Открытий контактов / покупок</div>
+                <div className="text-2xl font-bold text-stone-800">{data.contacts.conversionUnlockPerPurchasePct}%</div>
+                <div className="text-xs text-stone-400 mt-1">Открытий: {data.contacts.unlocks} • Покупок: {data.contacts.purchases}</div>
+              </div>
+              <div className="bg-white rounded-xl border border-stone-200 p-5">
+                <h4 className="text-sm font-semibold text-stone-700 mb-3">Топ-20 объявлений по открытиям</h4>
+                <div className="space-y-1.5 max-h-72 overflow-y-auto">
+                  {data.contacts.topUnlockedListings.length === 0 && (
+                    <div className="text-xs text-stone-400 py-4 text-center">Нет данных за период</div>
+                  )}
+                  {data.contacts.topUnlockedListings.map((l, i) => (
+                    <div key={l.id} className="flex items-center gap-3 text-sm">
+                      <span className="w-5 text-stone-400 text-xs font-bold">{i + 1}</span>
+                      <a href={`/listings/${l.id}`} target="_blank" rel="noreferrer"
+                        className="flex-1 truncate text-stone-700 hover:text-[#C65D3B] transition">{l.title}</a>
+                      <span className="text-stone-500 tabular-nums text-xs">{l.unlocks}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </section>
+
+          {/* ─── ПОЛЬЗОВАТЕЛИ ─── */}
+          <section>
+            <h3 className="font-semibold text-stone-700 mb-3 flex items-center gap-2">
+              <Users className="w-4 h-4 text-stone-400" /> Пользователи
+            </h3>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+              <StatCard icon={Users} label="Всего" value={data.users.total}
+                sub={`${data.users.totalOwners} владельцев / ${data.users.totalRenters} арендаторов`}
+                color="bg-blue-50 text-blue-600" />
+              <StatCard icon={TrendingUp} label="Регистраций за период" value={data.users.registrationsInPeriod} color="bg-emerald-50 text-emerald-600" />
+              <StatCard icon={Users} label="Активных арендаторов" value={data.users.activeRenters}
+                sub="оставили бронь" color="bg-orange-50 text-orange-600" />
+              <StatCard icon={Users} label="Активных владельцев" value={data.users.activeOwners}
+                sub="получили бронь" color="bg-violet-50 text-violet-600" />
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="bg-white rounded-xl border border-stone-200 p-5">
+                <div className="text-xs text-stone-500 mb-1">DAU (за 24 часа)</div>
+                <div className="text-2xl font-bold text-stone-800">{data.users.dau}</div>
+                <div className="text-xs text-stone-400 mt-1">Уникальные арендаторы, оставившие бронь за сутки</div>
+              </div>
+              <div className="bg-white rounded-xl border border-stone-200 p-5">
+                <div className="text-xs text-stone-500 mb-1">MAU (за 30 дней)</div>
+                <div className="text-2xl font-bold text-stone-800">{data.users.mau}</div>
+                <div className="text-xs text-stone-400 mt-1">Уникальные арендаторы, оставившие бронь за месяц</div>
+              </div>
+            </div>
+          </section>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ─── Main AdminPage ────────────────────────────────────────────────────────────
-type Tab = "overview" | "users" | "listings" | "bookings" | "support" | "reports" | "claims" | "audit" | "economy" | "payments";
+type Tab = "overview" | "analytics" | "users" | "listings" | "bookings" | "support" | "reports" | "claims" | "audit" | "economy" | "payments";
 
 const TABS: { id: Tab; label: string; icon: any }[] = [
   { id: "overview", label: "Обзор", icon: LayoutDashboard },
+  { id: "analytics", label: "Аналитика", icon: BarChart2 },
   { id: "users", label: "Пользователи", icon: Users },
   { id: "listings", label: "Объявления", icon: Package },
   { id: "bookings", label: "Бронирования", icon: CalendarDays },
@@ -2068,6 +2303,7 @@ export default function AdminPage() {
         </div>
 
         {tab === "overview" && <OverviewTab onBroadcast={() => setBroadcastOpen(true)} />}
+        {tab === "analytics" && <AnalyticsTab />}
         {tab === "users" && <UsersTab />}
         {tab === "listings" && <ListingsTab />}
         {tab === "bookings" && <BookingsTab />}

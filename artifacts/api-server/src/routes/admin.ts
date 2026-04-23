@@ -142,6 +142,243 @@ router.get("/analytics", requireAuth, requireAdmin, async (_req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// STATS — EXTENDED (Этап 7): аналитика по периоду с кэшем 60с
+// ─────────────────────────────────────────────────────────────────────────────
+
+const extendedStatsCache = new Map<string, { ts: number; data: any }>();
+const EXT_STATS_TTL_MS = 60 * 1000;
+
+function parseDateOnly(s: unknown, fallback: string): string {
+  if (typeof s === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  return fallback;
+}
+
+router.get("/stats/extended", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+  // Период по умолчанию — последние 30 дней
+  const today = new Date();
+  const defaultTo = today.toISOString().slice(0, 10);
+  const defaultFrom = new Date(today.getTime() - 30 * 86_400_000).toISOString().slice(0, 10);
+
+  const from = parseDateOnly(req.query.from, defaultFrom);
+  const to = parseDateOnly(req.query.to, defaultTo);
+
+  if (from > to) {
+    res.status(400).json({ error: "validation_error", message: "from должен быть ≤ to" });
+    return;
+  }
+
+  const cacheKey = `${from}|${to}`;
+  const cached = extendedStatsCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < EXT_STATS_TTL_MS) {
+    res.set("X-Cache", "HIT").json(cached.data);
+    return;
+  }
+
+  // ─── 1. ОБЪЯВЛЕНИЯ ────────────────────────────────────────────────────────
+  const [listingsTotals] = (await db.execute(sql`
+    SELECT
+      COUNT(*) FILTER (WHERE is_available = true) AS active_total,
+      COUNT(*) FILTER (WHERE is_available = true AND owner_protection_enabled = true)  AS active_premium,
+      COUNT(*) FILTER (WHERE is_available = true AND owner_protection_enabled = false) AS active_free,
+      COUNT(*) FILTER (WHERE created_at::date BETWEEN ${from}::date AND ${to}::date) AS new_in_period
+    FROM listings
+  `)).rows as any[];
+
+  // Конверсия Free → Premium: брони на Free-объявлениях, где арендатор включил защиту
+  // (renterUpgradedFromFree = listing.owner_protection_enabled=false AND booking.protection_enabled=true)
+  const [freeUpgradeRow] = (await db.execute(sql`
+    SELECT
+      COUNT(*) FILTER (WHERE l.owner_protection_enabled = false) AS bookings_on_free,
+      COUNT(*) FILTER (WHERE l.owner_protection_enabled = false AND b.protection_enabled = true) AS upgraded_to_premium
+    FROM bookings b
+    JOIN listings l ON l.id = b.listing_id
+    WHERE b.created_at::date BETWEEN ${from}::date AND ${to}::date
+  `)).rows as any[];
+
+  const topCategories = (await db.execute(sql`
+    SELECT c.id, c.name,
+           COUNT(l.id) FILTER (WHERE l.is_available = true) AS active,
+           COUNT(l.id) FILTER (WHERE l.is_available = true AND l.owner_protection_enabled = true)  AS premium,
+           COUNT(l.id) FILTER (WHERE l.is_available = true AND l.owner_protection_enabled = false) AS free
+    FROM categories c
+    LEFT JOIN listings l ON l.category_id = c.id
+    GROUP BY c.id, c.name
+    ORDER BY active DESC
+    LIMIT 10
+  `)).rows as any[];
+
+  // ─── 2. СДЕЛКИ ────────────────────────────────────────────────────────────
+  const [bookingsTotals] = (await db.execute(sql`
+    SELECT
+      COUNT(*) AS total,
+      COUNT(*) FILTER (WHERE protection_enabled = true)  AS premium,
+      COUNT(*) FILTER (WHERE protection_enabled = false) AS free,
+      COUNT(*) FILTER (WHERE status = 'completed') AS completed,
+      COUNT(*) FILTER (WHERE status IN ('cancelled','rejected')) AS cancelled,
+      COUNT(*) FILTER (WHERE claim_status IN ('open','approved','rejected')) AS disputed,
+      COALESCE(AVG(total_price)::float, 0) AS avg_ticket,
+      COALESCE(AVG(total_price) FILTER (WHERE protection_enabled = true)::float, 0)  AS avg_ticket_premium,
+      COALESCE(AVG(total_price) FILTER (WHERE protection_enabled = false)::float, 0) AS avg_ticket_free
+    FROM bookings
+    WHERE created_at::date BETWEEN ${from}::date AND ${to}::date
+  `)).rows as any[];
+
+  // Среднее время от заявки (created) до подтверждения (status='confirmed')
+  // Используем booking_events: первое событие to_status='confirmed' после created.
+  const [confirmTime] = (await db.execute(sql`
+    WITH first_confirm AS (
+      SELECT booking_id, MIN(created_at) AS confirmed_at
+      FROM booking_events
+      WHERE to_status = 'confirmed'
+      GROUP BY booking_id
+    )
+    SELECT COALESCE(
+      AVG(EXTRACT(EPOCH FROM (fc.confirmed_at - b.created_at)) / 3600.0)::float,
+      0
+    ) AS avg_hours_to_confirm
+    FROM bookings b
+    JOIN first_confirm fc ON fc.booking_id = b.id
+    WHERE b.created_at::date BETWEEN ${from}::date AND ${to}::date
+  `)).rows as any[];
+
+  // ─── 3. КОНТАКТЫ ──────────────────────────────────────────────────────────
+  const [contactsTotals] = (await db.execute(sql`
+    SELECT
+      COUNT(*) AS purchases,
+      COUNT(DISTINCT user_id) AS unique_buyers,
+      COALESCE(SUM(amount_rub)::int, 0) AS revenue
+    FROM contact_purchases
+    WHERE created_at::date BETWEEN ${from}::date AND ${to}::date
+      AND refunded_at IS NULL
+  `)).rows as any[];
+
+  const [unlocksRow] = (await db.execute(sql`
+    SELECT COUNT(*) AS unlocks
+    FROM contact_unlocks
+    WHERE unlocked_at::date BETWEEN ${from}::date AND ${to}::date
+  `)).rows as any[];
+
+  const topUnlockedListings = (await db.execute(sql`
+    SELECT l.id, l.title, COUNT(cu.id) AS unlocks
+    FROM contact_unlocks cu
+    JOIN listings l ON l.id = cu.listing_id
+    WHERE cu.unlocked_at::date BETWEEN ${from}::date AND ${to}::date
+    GROUP BY l.id, l.title
+    ORDER BY unlocks DESC
+    LIMIT 20
+  `)).rows as any[];
+
+  // ─── 4. ПОЛЬЗОВАТЕЛИ ──────────────────────────────────────────────────────
+  const [usersTotals] = (await db.execute(sql`
+    SELECT
+      COUNT(*) AS total,
+      COUNT(*) FILTER (WHERE created_at::date BETWEEN ${from}::date AND ${to}::date) AS registrations_in_period,
+      COUNT(*) FILTER (WHERE role = 'owner') AS total_owners,
+      COUNT(*) FILTER (WHERE role = 'renter') AS total_renters
+    FROM users
+  `)).rows as any[];
+
+  // Активные арендаторы за период — оставили хотя бы одну бронь
+  const [activeRentersRow] = (await db.execute(sql`
+    SELECT COUNT(DISTINCT renter_id) AS active_renters
+    FROM bookings
+    WHERE created_at::date BETWEEN ${from}::date AND ${to}::date
+  `)).rows as any[];
+
+  // Активные владельцы за период — получили хотя бы одну бронь
+  const [activeOwnersRow] = (await db.execute(sql`
+    SELECT COUNT(DISTINCT owner_id) AS active_owners
+    FROM bookings
+    WHERE created_at::date BETWEEN ${from}::date AND ${to}::date
+  `)).rows as any[];
+
+  // DAU за последние 30 дней (как 30-дневное окно безотносительно выбранного периода — нужно для контекста)
+  const [dauMauRow] = (await db.execute(sql`
+    SELECT
+      COUNT(DISTINCT renter_id) FILTER (WHERE created_at >= NOW() - INTERVAL '1 day')  AS dau,
+      COUNT(DISTINCT renter_id) FILTER (WHERE created_at >= NOW() - INTERVAL '30 days') AS mau
+    FROM bookings
+  `)).rows as any[];
+
+  const purchases = Number(contactsTotals?.purchases ?? 0);
+  const uniqueBuyers = Number(contactsTotals?.unique_buyers ?? 0);
+  const contactsRevenue = Number(contactsTotals?.revenue ?? 0);
+  const unlocks = Number(unlocksRow?.unlocks ?? 0);
+  const bookingsOnFree = Number(freeUpgradeRow?.bookings_on_free ?? 0);
+  const upgradedToPremium = Number(freeUpgradeRow?.upgraded_to_premium ?? 0);
+  const totalBookingsInPeriod = Number(bookingsTotals?.total ?? 0);
+
+  const data = {
+    period: { from, to },
+    listings: {
+      activeTotal: Number(listingsTotals?.active_total ?? 0),
+      activePremium: Number(listingsTotals?.active_premium ?? 0),
+      activeFree: Number(listingsTotals?.active_free ?? 0),
+      newInPeriod: Number(listingsTotals?.new_in_period ?? 0),
+      conversionFreeToPremiumPct: bookingsOnFree > 0
+        ? Math.round((upgradedToPremium / bookingsOnFree) * 1000) / 10
+        : 0,
+      topCategories: topCategories.map(r => ({
+        id: Number(r.id),
+        name: String(r.name),
+        active: Number(r.active),
+        premium: Number(r.premium),
+        free: Number(r.free),
+      })),
+    },
+    bookings: {
+      total: totalBookingsInPeriod,
+      premium: Number(bookingsTotals?.premium ?? 0),
+      free: Number(bookingsTotals?.free ?? 0),
+      completed: Number(bookingsTotals?.completed ?? 0),
+      cancelled: Number(bookingsTotals?.cancelled ?? 0),
+      disputed: Number(bookingsTotals?.disputed ?? 0),
+      completedPct: totalBookingsInPeriod > 0
+        ? Math.round((Number(bookingsTotals?.completed ?? 0) / totalBookingsInPeriod) * 1000) / 10
+        : 0,
+      cancelledPct: totalBookingsInPeriod > 0
+        ? Math.round((Number(bookingsTotals?.cancelled ?? 0) / totalBookingsInPeriod) * 1000) / 10
+        : 0,
+      disputedPct: totalBookingsInPeriod > 0
+        ? Math.round((Number(bookingsTotals?.disputed ?? 0) / totalBookingsInPeriod) * 1000) / 10
+        : 0,
+      avgTicket: Math.round(Number(bookingsTotals?.avg_ticket ?? 0)),
+      avgTicketPremium: Math.round(Number(bookingsTotals?.avg_ticket_premium ?? 0)),
+      avgTicketFree: Math.round(Number(bookingsTotals?.avg_ticket_free ?? 0)),
+      avgHoursToConfirm: Math.round(Number(confirmTime?.avg_hours_to_confirm ?? 0) * 10) / 10,
+    },
+    contacts: {
+      purchases,
+      uniqueBuyers,
+      revenue: contactsRevenue,
+      arpu: uniqueBuyers > 0 ? Math.round(contactsRevenue / uniqueBuyers) : 0,
+      unlocks,
+      conversionUnlockPerPurchasePct: purchases > 0
+        ? Math.round((unlocks / purchases) * 1000) / 10
+        : 0,
+      topUnlockedListings: topUnlockedListings.map(r => ({
+        id: Number(r.id),
+        title: String(r.title),
+        unlocks: Number(r.unlocks),
+      })),
+    },
+    users: {
+      total: Number(usersTotals?.total ?? 0),
+      totalOwners: Number(usersTotals?.total_owners ?? 0),
+      totalRenters: Number(usersTotals?.total_renters ?? 0),
+      registrationsInPeriod: Number(usersTotals?.registrations_in_period ?? 0),
+      activeRenters: Number(activeRentersRow?.active_renters ?? 0),
+      activeOwners: Number(activeOwnersRow?.active_owners ?? 0),
+      dau: Number(dauMauRow?.dau ?? 0),
+      mau: Number(dauMauRow?.mau ?? 0),
+    },
+  };
+
+  extendedStatsCache.set(cacheKey, { ts: Date.now(), data });
+  res.set("X-Cache", "MISS").json(data);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // USERS
 // ─────────────────────────────────────────────────────────────────────────────
 
