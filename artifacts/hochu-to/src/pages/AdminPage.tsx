@@ -1452,7 +1452,7 @@ function AuditLogTab() {
 function ClaimsTab() {
   const API = import.meta.env.VITE_API_URL ?? "";
   const { data, loading, refresh } = useFetch<any[]>(`${API}/api/claims`, []);
-  const { data: fund, refresh: refreshFund } = useFetch<{ inSum: number; outSum: number; balance: number }>(`${API}/api/claims/fund-status`, []);
+  const { data: fund, refresh: refreshFund } = useFetch<{ inSum: number; outSum: number; balance: number; reserve: number; availableForClaims: number; reserveRatioPct: number }>(`${API}/api/claims/fund-status`, []);
 
   const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
     pending:      { label: "На рассмотрении",          color: "bg-amber-100 text-amber-700" },
@@ -1485,7 +1485,7 @@ function ClaimsTab() {
       <p className="text-sm text-stone-500">Заявки в гарантийный фонд — выплаты компенсаций пострадавшим</p>
 
       {fund && (
-        <div className="grid grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
           <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3">
             <div className="text-[10px] uppercase font-bold text-emerald-700 mb-1">Поступило в фонд</div>
             <div className="text-xl font-bold text-emerald-800">{fund.inSum.toLocaleString("ru")} ₽</div>
@@ -1495,8 +1495,16 @@ function ClaimsTab() {
             <div className="text-xl font-bold text-rose-800">{fund.outSum.toLocaleString("ru")} ₽</div>
           </div>
           <div className="bg-blue-50 border border-blue-200 rounded-xl p-3">
-            <div className="text-[10px] uppercase font-bold text-blue-700 mb-1">Доступный баланс</div>
+            <div className="text-[10px] uppercase font-bold text-blue-700 mb-1">Баланс</div>
             <div className="text-xl font-bold text-blue-800">{fund.balance.toLocaleString("ru")} ₽</div>
+          </div>
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+            <div className="text-[10px] uppercase font-bold text-amber-700 mb-1">Резерв ({fund.reserveRatioPct}%)</div>
+            <div className="text-xl font-bold text-amber-800">{fund.reserve.toLocaleString("ru")} ₽</div>
+          </div>
+          <div className="bg-violet-50 border border-violet-200 rounded-xl p-3">
+            <div className="text-[10px] uppercase font-bold text-violet-700 mb-1">К выплате</div>
+            <div className="text-xl font-bold text-violet-800">{fund.availableForClaims.toLocaleString("ru")} ₽</div>
           </div>
         </div>
       )}
@@ -1621,7 +1629,7 @@ function ClaimsTab() {
       )}
 
       {approveModal && (
-        <ClaimApproveModal claim={approveModal} fundBalance={fund?.balance ?? 0} onClose={() => setApproveModal(null)} onSuccess={() => { setApproveModal(null); onSuccess(); }} />
+        <ClaimApproveModal claim={approveModal} fundBalance={fund?.availableForClaims ?? 0} onClose={() => setApproveModal(null)} onSuccess={() => { setApproveModal(null); onSuccess(); }} />
       )}
       {paidModal && (
         <ClaimMarkPaidModal claim={paidModal} onClose={() => setPaidModal(null)} onSuccess={() => { setPaidModal(null); onSuccess(); }} />
@@ -1949,6 +1957,7 @@ function useSettingsForm() {
       "shieldFeeMin","riskCoverageMin","depositMin",
       "protMultElectronics","protMultTools","protMultLeisure","protMultSpecialMachinery",
       "newUserProtectionCap","newUserDealsThreshold",
+      "fundReserveRatioPct","maxClaimAmountSingleRub","maxClaimsPerUserMonth","maxClaimAmountPerListingPct",
       "vipPrice7d","vipPrice14d","vipPrice30d",
       "urgentPrice3d","urgentPrice7d","boostPrice24h",
       "subscriptionProMonthly","subscriptionBusinessMonthly",
@@ -2264,6 +2273,25 @@ function EconomyTab() {
           </SettingsField>
           <SettingsField label="Снять лимит после N сделок">
             <NumInput value={data.newUserDealsThreshold} onChange={v => set("newUserDealsThreshold", v)} />
+          </SettingsField>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl border border-stone-200 p-6">
+        <h2 className="text-lg font-semibold text-stone-800 mb-1">Гарантийный фонд — анти-фрод</h2>
+        <p className="text-sm text-stone-500 mb-4">Лимиты выплат и резерв фонда. Применяются на стороне сервера.</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <SettingsField label="Резерв фонда (% от поступлений)">
+            <NumInput suffix="%" value={data.fundReserveRatioPct} onChange={v => set("fundReserveRatioPct", v)} />
+          </SettingsField>
+          <SettingsField label="Лимит одной выплаты (0 = без лимита)">
+            <NumInput suffix="₽" value={data.maxClaimAmountSingleRub} onChange={v => set("maxClaimAmountSingleRub", v)} />
+          </SettingsField>
+          <SettingsField label="Заявок на пользователя в месяц">
+            <NumInput value={data.maxClaimsPerUserMonth} onChange={v => set("maxClaimsPerUserMonth", v)} />
+          </SettingsField>
+          <SettingsField label="Доля от лимита защиты на одну выплату">
+            <NumInput suffix="%" value={data.maxClaimAmountPerListingPct} onChange={v => set("maxClaimAmountPerListingPct", v)} />
           </SettingsField>
         </div>
       </div>

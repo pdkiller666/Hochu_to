@@ -7,9 +7,10 @@ import {
   payoutMethodsTable,
   listingsTable,
 } from "@workspace/db";
-import { eq, desc, and, inArray, sql } from "drizzle-orm";
+import { eq, desc, and, inArray, sql, gte } from "drizzle-orm";
 import { requireAuth, AuthRequest } from "../middleware/auth.js";
 import { createNotification } from "../lib/notifications.js";
+import { getPlatformSettings } from "../lib/platform-settings.js";
 
 const router = Router();
 
@@ -28,8 +29,17 @@ async function isAdmin(userId: number): Promise<boolean> {
  * Текущий баланс гарантийного фонда:
  *   sum(fundContribution) по completed Premium-броням
  *   − sum(approvedAmount) по claims со статусом 'paid'
+ *
+ * Также возвращает reserve (неприкосновенный остаток) и availableForClaims (что реально можно выплатить).
  */
-async function calcFundBalance(): Promise<{ inSum: number; outSum: number; balance: number }> {
+async function calcFundBalance(): Promise<{
+  inSum: number;
+  outSum: number;
+  balance: number;
+  reserve: number;
+  availableForClaims: number;
+  reserveRatioPct: number;
+}> {
   const [premium] = await db
     .select({
       ownerFund: sql<string>`COALESCE(SUM(${bookingsTable.fundContribution}), 0)`,
@@ -43,9 +53,45 @@ async function calcFundBalance(): Promise<{ inSum: number; outSum: number; balan
     .from(claimsTable)
     .where(eq(claimsTable.status, "paid"));
 
+  // Уже одобренные, но ещё не выплаченные — резервируются «мягко» против available,
+  // чтобы два одновременных approve не превысили баланс.
+  const [approvedPending] = await db
+    .select({ pendingOut: sql<string>`COALESCE(SUM(${claimsTable.approvedAmount}), 0)` })
+    .from(claimsTable)
+    .where(eq(claimsTable.status, "approved"));
+
+  const settings = await getPlatformSettings();
+  const reserveRatioPct = Math.max(0, Math.min(100, settings.fundReserveRatioPct ?? 0));
+
   const inSum = Math.round(num(premium?.ownerFund) + num(premium?.renterFund));
   const outSum = Math.round(num(paid?.paidOut));
-  return { inSum, outSum, balance: Math.max(0, inSum - outSum) };
+  const approvedPendingSum = Math.round(num(approvedPending?.pendingOut));
+  const balance = Math.max(0, inSum - outSum);
+  // Резерв считается от текущего баланса (а не от inSum), иначе по мере роста выплат
+  // фонд бы навсегда «залип» на нуле доступного. Резерв — это % того, что лежит сейчас.
+  const reserve = Math.round(balance * reserveRatioPct / 100);
+  const availableForClaims = Math.max(0, balance - reserve - approvedPendingSum);
+  return { inSum, outSum, balance, reserve, availableForClaims, reserveRatioPct };
+}
+
+/**
+ * Считает claims пользователя за текущий календарный месяц
+ * (учитываются все кроме rejected — отклонённые в счёт не идут).
+ */
+async function countClaimsThisMonth(userId: number): Promise<number> {
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const [row] = await db
+    .select({ c: sql<number>`COUNT(*)::int` })
+    .from(claimsTable)
+    .where(
+      and(
+        eq(claimsTable.claimantId, userId),
+        gte(claimsTable.createdAt, monthStart),
+        sql`${claimsTable.status} != 'rejected'`,
+      ),
+    );
+  return row?.c ?? 0;
 }
 
 // ─── GET /claims/fund-status — публичный (для админа) баланс фонда ───────────
@@ -219,6 +265,38 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
       message: `Максимальная защита по этому объявлению — ${Math.round(maxAllowed)} ₽`,
     });
     return;
+  }
+
+  // ── Анти-фрод лимиты из platform_settings ────────────────────────────────
+  const settings = await getPlatformSettings();
+
+  if (requested != null && settings.maxClaimAmountSingleRub > 0 && requested > settings.maxClaimAmountSingleRub) {
+    res.status(400).json({
+      error: "exceeds_single_claim_cap",
+      message: `Максимум для одной заявки — ${settings.maxClaimAmountSingleRub} ₽`,
+    });
+    return;
+  }
+  const listingPct = settings.maxClaimAmountPerListingPct;
+  if (requested != null && listingPct > 0 && listingPct < 100 && maxAllowed > 0) {
+    const listingCap = Math.round(maxAllowed * listingPct / 100);
+    if (requested > listingCap) {
+      res.status(400).json({
+        error: "exceeds_listing_cap",
+        message: `По правилам фонда выплата по этому объявлению не может превышать ${listingCap} ₽ (${listingPct}% от лимита защиты).`,
+      });
+      return;
+    }
+  }
+  if (settings.maxClaimsPerUserMonth > 0) {
+    const claimsThisMonth = await countClaimsThisMonth(userId);
+    if (claimsThisMonth >= settings.maxClaimsPerUserMonth) {
+      res.status(429).json({
+        error: "monthly_limit_reached",
+        message: `Превышен лимит заявок: ${settings.maxClaimsPerUserMonth} в месяц на одного пользователя.`,
+      });
+      return;
+    }
   }
 
   // Защита от дубликатов: одна активная заявка на бронь от одного юзера
@@ -398,11 +476,32 @@ router.post("/:id/approve", requireAuth, async (req: AuthRequest, res) => {
     return;
   }
 
+  // Анти-фрод лимиты при approve
+  const settings = await getPlatformSettings();
+  if (settings.maxClaimAmountSingleRub > 0 && approvedAmount > settings.maxClaimAmountSingleRub) {
+    res.status(400).json({
+      error: "exceeds_single_claim_cap",
+      message: `Максимум для одной выплаты — ${settings.maxClaimAmountSingleRub} ₽.`,
+    });
+    return;
+  }
+  const listingPct = settings.maxClaimAmountPerListingPct;
+  if (listingPct > 0 && listingPct < 100 && maxAllowed > 0) {
+    const listingCap = Math.round(maxAllowed * listingPct / 100);
+    if (approvedAmount > listingCap) {
+      res.status(400).json({
+        error: "exceeds_listing_cap",
+        message: `Лимит выплаты по объявлению — ${listingCap} ₽ (${listingPct}% от защиты).`,
+      });
+      return;
+    }
+  }
+
   const fund = await calcFundBalance();
-  if (approvedAmount > fund.balance) {
+  if (approvedAmount > fund.availableForClaims) {
     res.status(400).json({
       error: "insufficient_fund_balance",
-      message: `Запрошено ${Math.round(approvedAmount)} ₽, баланс фонда ${fund.balance} ₽.`,
+      message: `Доступно к выплате ${fund.availableForClaims} ₽ (баланс ${fund.balance} ₽ − резерв ${fund.reserve} ₽).`,
     });
     return;
   }
@@ -490,10 +589,10 @@ router.post("/:id/mark-paid", requireAuth, async (req: AuthRequest, res) => {
   // Повторная проверка баланса фонда (защита на случай если другие заявки прошли)
   const fund = await calcFundBalance();
   const amount = num(claim.approvedAmount);
-  if (amount > fund.balance) {
+  if (amount > fund.availableForClaims) {
     res.status(400).json({
       error: "insufficient_fund_balance",
-      message: `Баланс фонда ${fund.balance} ₽, требуется ${Math.round(amount)} ₽. Отклоните заявку и создайте заново.`,
+      message: `Доступно к выплате ${fund.availableForClaims} ₽ (баланс ${fund.balance} ₽ − резерв ${fund.reserve} ₽), требуется ${Math.round(amount)} ₽.`,
     });
     return;
   }

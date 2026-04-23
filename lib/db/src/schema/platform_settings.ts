@@ -37,6 +37,16 @@ export const platformSettingsTable = pgTable("platform_settings", {
   newUserProtectionCap: integer("new_user_protection_cap").default(25000).notNull(),
   newUserDealsThreshold: integer("new_user_deals_threshold").default(3).notNull(),
 
+  // ── Анти-фрод гарантийного фонда ────────────────────────────────────────
+  /** % от поступлений в фонд, который держится как неприкосновенный резерв (не выдаётся по claims) */
+  fundReserveRatioPct: integer("fund_reserve_ratio_pct").default(20).notNull(),
+  /** Максимальная сумма одной выплаты по claim, ₽ (0 = без лимита) */
+  maxClaimAmountSingleRub: integer("max_claim_amount_single_rub").default(150000).notNull(),
+  /** Максимум активных/одобренных claims одного пользователя за календарный месяц */
+  maxClaimsPerUserMonth: integer("max_claims_per_user_month").default(3).notNull(),
+  /** Лимит одной выплаты как % от maxProtectionLimit объявления (0 = выкл, 100 = можно весь лимит) */
+  maxClaimAmountPerListingPct: integer("max_claim_amount_per_listing_pct").default(100).notNull(),
+
   // ── Платное продвижение (₽) ───────────────────────────────────────────
   vipPrice7d: integer("vip_price_7d").default(199).notNull(),
   vipPrice14d: integer("vip_price_14d").default(349).notNull(),
