@@ -40,10 +40,10 @@ function getListingBadges(listing: Listing): Badge[] {
   }
 
   // ── Тип сделки ────────────────────────────────────────────────
+  // Зелёный бейдж только когда владелец подключил фонд. Если выключен — бейдж не показываем
+  // (его отсутствие само по себе сигнал; мотивацию подключить защиту даём в карточке вещи).
   if (l.ownerProtectionEnabled !== false) {
     out.push({ key: "safe", icon: ShieldCheck, label: "Безопасная сделка", className: "bg-green-50 text-green-700 border-green-200", tier: "default" });
-  } else {
-    out.push({ key: "free", icon: Tag, label: "Бесплатно", className: "bg-slate-50 text-slate-700 border-slate-200", tier: "default" });
   }
   const rating = typeof l.rating === "number" ? l.rating : 0;
   const reviewCount = typeof l.reviewCount === "number" ? l.reviewCount : 0;

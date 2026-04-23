@@ -589,11 +589,16 @@ export default function ListingDetail() {
                           </div>
                         </div>
                       )}
-                      {/* Fund warning for renter when owner disabled protection */}
-                      {!ownerProt && !isOwnerRole && isAuthenticated && (
-                        <div className="flex items-start gap-2 text-sm bg-amber-50 border border-amber-200 text-amber-800 p-3 rounded-xl">
-                          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-amber-600" />
-                          <p>Владелец не подключил Гарантийный фонд. В случае спора урегулирование — на ваше усмотрение.</p>
+                      {/* Free-сделка: короткий контекст. Цена и кнопка — на чекбоксе при бронировании */}
+                      {!ownerProt && !isOwnerRole && (
+                        <div className="flex items-start gap-2.5 bg-gradient-to-br from-primary/5 to-accent/5 border border-primary/20 p-3 rounded-xl">
+                          <ShieldCheck className="w-5 h-5 shrink-0 mt-0.5 text-primary" />
+                          <div>
+                            <p className="font-semibold text-foreground text-sm">Защитите сделку сами</p>
+                            <p className="text-xs text-muted-foreground leading-relaxed mt-0.5">
+                              Это объявление без Гарантийного фонда. При бронировании вы можете <b>включить защиту</b> — платформа возьмёт сделку под эскроу и возместит ущерб через арбитраж.
+                            </p>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -981,6 +986,14 @@ export default function ListingDetail() {
                       const breakdown = calculateTotalPrice(listing.pricePerDay, cat, totalDays, ownerProt, renterFundEnabled);
                       const { rent, renterFundContrib, serviceFee, taxFee, total, deposit, isFreeUpgrade, fundShare } = breakdown;
                       const platformFees = (isFreeUpgrade ? serviceFee + taxFee : 0) + renterFundContrib;
+                      // Полная цена защиты для Free-сделки (если арендатор её сейчас не включил):
+                      // включает не только взнос в фонд, но и сервис+налог.
+                      const upgradeFullCost = !ownerProt && !renterFundEnabled
+                        ? (() => {
+                            const b2 = calculateTotalPrice(listing.pricePerDay, cat, totalDays, ownerProt, true);
+                            return b2.total - rent;
+                          })()
+                        : 0;
                       return (
                         <div className="bg-primary/5 p-4 rounded-xl border border-primary/20 space-y-2 text-sm">
                           <div className="flex justify-between text-muted-foreground">
@@ -1051,19 +1064,47 @@ export default function ListingDetail() {
                             <span className="font-medium">{formatPrice(deposit)}</span>
                           </div>
 
-                          {/* Тонкая ссылка-чекбокс на защиту фонда — спрятано под опцию */}
-                          <label className="flex items-start gap-2 cursor-pointer pt-2 border-t border-primary/10 mt-1">
-                            <input
-                              type="checkbox"
-                              checked={renterFundEnabled}
-                              onChange={(e) => setRenterFundEnabled(e.target.checked)}
-                              className="mt-0.5 w-3.5 h-3.5 rounded accent-primary cursor-pointer shrink-0"
-                            />
-                            <span className="text-[11px] text-muted-foreground leading-snug">
-                              Защитить меня Гарантийным фондом
-                              {renterFundEnabled ? "" : ` (+${formatPrice(fundShare)})`}
-                            </span>
-                          </label>
+                          {/* Чекбокс защиты Гарантийным фондом —
+                              для Free-сделки выделяем заметным CTA, для Premium оставляем тонкой опцией */}
+                          {!ownerProt ? (
+                            <label className={`flex items-start gap-2.5 cursor-pointer mt-2 p-2.5 rounded-lg border-2 transition-colors ${
+                              renterFundEnabled
+                                ? "border-green-300 bg-green-50"
+                                : "border-primary/30 bg-primary/5 hover:bg-primary/10"
+                            }`}>
+                              <input
+                                type="checkbox"
+                                checked={renterFundEnabled}
+                                onChange={(e) => setRenterFundEnabled(e.target.checked)}
+                                className="mt-0.5 w-4 h-4 rounded accent-primary cursor-pointer shrink-0"
+                              />
+                              <span className="text-xs leading-snug">
+                                <span className={`font-semibold ${renterFundEnabled ? "text-green-800" : "text-foreground"}`}>
+                                  {renterFundEnabled
+                                    ? `Защита включена (+${formatPrice(platformFees)} к аренде)`
+                                    : `Включить защиту за ${formatPrice(upgradeFullCost)}`}
+                                </span>
+                                <span className={`block text-[11px] mt-0.5 ${renterFundEnabled ? "text-green-700" : "text-muted-foreground"}`}>
+                                  {renterFundEnabled
+                                    ? "Включает фонд возмещения, эскроу и арбитраж. Владелец получает 100% аренды."
+                                    : "Эскроу + фонд возмещения + арбитраж. Платите вы — владелец получает 100% аренды."}
+                                </span>
+                              </span>
+                            </label>
+                          ) : (
+                            <label className="flex items-start gap-2 cursor-pointer pt-2 border-t border-primary/10 mt-1">
+                              <input
+                                type="checkbox"
+                                checked={renterFundEnabled}
+                                onChange={(e) => setRenterFundEnabled(e.target.checked)}
+                                className="mt-0.5 w-3.5 h-3.5 rounded accent-primary cursor-pointer shrink-0"
+                              />
+                              <span className="text-[11px] text-muted-foreground leading-snug">
+                                Защитить меня Гарантийным фондом
+                                {renterFundEnabled ? "" : ` (+${formatPrice(fundShare)})`}
+                              </span>
+                            </label>
+                          )}
                         </div>
                       );
                     })()}
