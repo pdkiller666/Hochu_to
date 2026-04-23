@@ -69,7 +69,10 @@ router.get("/geoip", async (req, res) => {
   } catch {}
 
   if (isLocal) {
-    res.json({ regionSlug: "moscow", city: "Москва", approximate: true });
+    // На локальной разработке/превью настоящий IP клиента недоступен.
+    // НЕ возвращаем фолбэк-регион (это приводило к "вечной Москве" в кеше) —
+    // пусть фронт оставит регион пустым и предложит выбрать вручную.
+    res.json({ regionSlug: null, city: null, approximate: true, local: true });
     return;
   }
 

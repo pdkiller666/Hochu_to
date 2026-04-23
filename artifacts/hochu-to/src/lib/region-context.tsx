@@ -2,19 +2,24 @@ import { createContext, useContext, useState, useCallback, ReactNode } from "rea
 
 const GEO_CACHE_KEY = "hochu_to_geo_region";
 const GEO_CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
+// Версия формата кеша. Бамп = одноразовая инвалидация у всех клиентов.
+// v2 — после фикса "вечной Москвы" из-за фолбэка backend /api/geoip на local IP.
+const GEO_CACHE_VERSION = 2;
 
 export function getCachedGeoRegion(): string {
   try {
     const raw = localStorage.getItem(GEO_CACHE_KEY);
     if (!raw) return "";
-    const { slug, ts } = JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    const { slug, ts, v } = parsed;
+    if (v !== GEO_CACHE_VERSION) { localStorage.removeItem(GEO_CACHE_KEY); return ""; }
     if (Date.now() - ts > GEO_CACHE_TTL) { localStorage.removeItem(GEO_CACHE_KEY); return ""; }
     return slug ?? "";
   } catch { return ""; }
 }
 
 export function setCachedGeoRegion(slug: string) {
-  try { localStorage.setItem(GEO_CACHE_KEY, JSON.stringify({ slug, ts: Date.now() })); } catch {}
+  try { localStorage.setItem(GEO_CACHE_KEY, JSON.stringify({ slug, ts: Date.now(), v: GEO_CACHE_VERSION })); } catch {}
 }
 
 // Определяет регион по IP пользователя через наш бэкенд /api/geoip.

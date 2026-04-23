@@ -6,7 +6,7 @@ import { useAuthState, getToken, getAuthHeaders } from "@/lib/auth";
 import { useGetCurrentUser, useGetRegions } from "@workspace/api-client-react";
 import { AppNotification } from "@workspace/api-client-react";
 import { cn } from "@/lib/utils";
-import { useRegion, getCachedGeoRegion } from "@/lib/region-context";
+import { useRegion, getCachedGeoRegion, detectRegionByServerGeoIP } from "@/lib/region-context";
 import { useFavorites } from "@/lib/favorites-context";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "";
@@ -232,12 +232,27 @@ export function Header() {
     if (initialized.current) return;
     if (!regions?.length) return;
     if (isAuthenticated && !user) return; // ждём загрузки профиля
+
+    // Если в контексте уже стоит регион (из кеша при инициализации провайдера
+    // или выбран пользователем) — не трогаем, чтобы навигация не сбрасывала выбор.
+    if (selectedSlug) {
+      initialized.current = true;
+      return;
+    }
+
     const preferred = userRegionSlug || getCachedGeoRegion() || "";
     if (preferred) {
       setSelectedRegion(preferred);
       initialized.current = true;
+      return;
     }
-  }, [user, regions, userRegionSlug, isAuthenticated, setSelectedRegion]);
+
+    // Кеша нет, профиля нет — определяем по IP через бэкенд.
+    initialized.current = true;
+    detectRegionByServerGeoIP(regions).then(slug => {
+      if (slug) setSelectedRegion(slug);
+    });
+  }, [user, regions, userRegionSlug, isAuthenticated, selectedSlug, setSelectedRegion]);
 
   const selectedName = regions?.find(r => r.slug === selectedSlug)?.name ?? "Выберите регион";
 

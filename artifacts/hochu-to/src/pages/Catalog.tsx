@@ -5,7 +5,7 @@ import { useLocation, useSearch } from "wouter";
 import { useState, useEffect, useRef } from "react";
 import { Search, X, SlidersHorizontal, MapPin, Loader2, ChevronDown, ChevronUp, ArrowUpDown, ShieldCheck } from "lucide-react";
 import { getToken, getAuthHeaders } from "@/lib/auth";
-import { getCachedGeoRegion, setCachedGeoRegion, detectRegionByServerGeoIP } from "@/lib/region-context";
+import { getCachedGeoRegion, setCachedGeoRegion, detectRegionByServerGeoIP, useRegion } from "@/lib/region-context";
 import { readPersistedState, clearPersistedState } from "@/lib/use-persisted-state";
 
 const STORAGE_KEY = "catalog_filters";
@@ -85,8 +85,15 @@ export default function Catalog() {
   // Восстанавливаем сохранённые фильтры (если нет URL-параметров)
   const saved = readPersistedState<SavedFilters>(STORAGE_KEY, {});
 
+  const { setSelectedRegion: setHeaderRegion } = useRegion();
+
   const [category, setCategory] = useState(urlCategory || saved.category || "");
-  const [region, setRegion] = useState(urlRegion || getCachedGeoRegion() || "");
+  const [region, setRegionLocal] = useState(urlRegion || getCachedGeoRegion() || "");
+  // Обёртка: обновляем и локальный стейт, и контекст шапки одновременно.
+  const setRegion = (slug: string) => {
+    setRegionLocal(slug);
+    setHeaderRegion(slug);
+  };
   const [search, setSearch] = useState(urlSearch || saved.search || "");
   const [minPrice, setMinPrice] = useState(saved.minPrice || "");
   const [maxPrice, setMaxPrice] = useState(saved.maxPrice || "");
