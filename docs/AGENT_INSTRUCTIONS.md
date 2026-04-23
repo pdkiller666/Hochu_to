@@ -255,5 +255,5 @@ NODE_ENV=production pnpm --filter @workspace/api-server run build
 PORT=3000 BASE_PATH=/ NODE_ENV=production pnpm --filter @workspace/hochu-to run build
 
 # 8. Пуш на GitHub
-bash scripts/github-push.sh "описание изменений"
+bash scripts/github-push.sh "описание изменений" 
 ```
