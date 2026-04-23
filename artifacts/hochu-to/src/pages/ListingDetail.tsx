@@ -61,6 +61,15 @@ export default function ListingDetail() {
   const publicSettings = usePublicSettings();
   const contactPriceSingle = publicSettings?.contactPriceSingle ?? 0;
 
+  // Free-объявление: владелец отключил Гарантийный фонд. По умолчанию арендатор идёт по «Прямому расчёту».
+  const isFreeListing = (listing as any)?.ownerProtectionEnabled === false;
+  const [protectionInitialized, setProtectionInitialized] = useState(false);
+  useEffect(() => {
+    if (!listing || protectionInitialized) return;
+    if (isFreeListing) setProtectionEnabled(false);
+    setProtectionInitialized(true);
+  }, [listing, isFreeListing, protectionInitialized]);
+
   // Reviews state
   const [reviews, setReviews] = useState<ReviewData[]>([]);
   const [canReview, setCanReview] = useState<{ canReviewListing: boolean; bookingNumber?: string; bookingId?: number } | null>(null);
@@ -800,12 +809,16 @@ export default function ListingDetail() {
                           }
                           <div>
                             <p className={`font-bold text-sm ${protectionEnabled ? "text-primary" : "text-orange-700"}`}>
-                              {protectionEnabled ? "Безопасная сделка" : "Прямой расчёт"}
+                              {protectionEnabled
+                                ? (isFreeListing ? "Защищённая сделка (апгрейд)" : "Безопасная сделка")
+                                : "Прямой расчёт"}
                             </p>
                             <p className="text-xs text-muted-foreground leading-tight">
                               {protectionEnabled
-                                ? "Защита, гарантийный фонд, арбитраж"
-                                : "Без защиты — 150 ₽ за контакты"}
+                                ? (isFreeListing
+                                    ? "Гарантийный фонд + арбитраж — за ваш счёт"
+                                    : "Защита, гарантийный фонд, арбитраж")
+                                : `Без защиты — ${contactPriceSingle} ₽ за контакты`}
                             </p>
                           </div>
                         </div>
@@ -819,6 +832,27 @@ export default function ListingDetail() {
                           <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-all ${protectionEnabled ? "left-7" : "left-1"}`} />
                         </button>
                       </div>
+
+                      {/* ─── Пояснение апгрейда Free → Premium ─────────── */}
+                      {isFreeListing && protectionEnabled && (
+                        <div className="mt-3 pt-3 border-t border-primary/20 text-xs text-muted-foreground space-y-1.5">
+                          <p className="flex items-start gap-1.5">
+                            <Shield className="w-3.5 h-3.5 text-primary shrink-0 mt-0.5" />
+                            <span>
+                              Владелец выбрал <b>Free-тариф</b>, но вы можете провести сделку через
+                              Гарантийный фонд платформы. К сумме аренды добавится Shield Fee
+                              {publicSettings?.shieldFeePercent ? ` (${publicSettings.shieldFeePercent}%, минимум ${publicSettings.shieldFeeMin ?? 0} ₽)` : ""}.
+                            </span>
+                          </p>
+                          <p className="text-[11px]">Владельцу придёт уведомление о смене типа сделки.</p>
+                        </div>
+                      )}
+                      {isFreeListing && !protectionEnabled && (
+                        <div className="mt-3 pt-3 border-t border-orange-200 text-[11px] text-orange-700/90">
+                          Это Free-объявление: владелец работает без Гарантийного фонда. Вы можете
+                          включить защиту выше — комиссию заплатите вы.
+                        </div>
+                      )}
                     </div>
 
                     {/* ─── Календарь — всегда виден ──────────────────────── */}

@@ -261,7 +261,10 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
 
   // ─── Двойная Shield-модель — параметры из platform_settings ───────────────
   const settings = await getPlatformSettings();
-  const ownerProtEnabled = listing.ownerProtectionEnabled !== false;
+  // Если объявление Free, но арендатор выбрал защиту — это апгрейд до Premium-сделки.
+  // Полные комиссии и взнос в Гарантийный фонд начисляются как у обычного Premium.
+  const renterUpgradedFromFree = listing.ownerProtectionEnabled === false; // protectionEnabled=true в этой ветке
+  const ownerProtEnabled = listing.ownerProtectionEnabled !== false || renterUpgradedFromFree;
 
   // Free-тариф: если владелец отключил защиту — комиссии не удерживаются (получает 100%).
   const serviceFee = ownerProtEnabled
@@ -336,12 +339,30 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
     comment: message ?? undefined,
   });
 
+  // Аудит и отдельное уведомление при апгрейде Free → Premium на уровне сделки
+  if (renterUpgradedFromFree) {
+    await recordEvent({
+      bookingId: booking.id,
+      bookingNumber,
+      actorId: req.userId!,
+      actorRole: "renter",
+      eventType: "renter_upgraded_to_protection",
+      toStatus: "pending",
+      comment: `Арендатор апгрейднул Free-объявление до защищённой сделки. Shield Fee ${shieldFee} ₽, взнос в Гарантийный фонд ${riskCoverage} ₽`,
+    });
+  }
+
   // Notifications
-  const msgText = `${renterUser?.name ?? "Арендатор"} хочет взять вещь на ${days} ${days === 1 ? "день" : "дней"} (${startDate} — ${endDate})`;
+  const upgradeNote = renterUpgradedFromFree
+    ? ` Тип сделки изменён на «Защищённая» — действует Гарантийный фонд (${riskCoverage} ₽).`
+    : "";
+  const msgText = `${renterUser?.name ?? "Арендатор"} хочет взять вещь на ${days} ${days === 1 ? "день" : "дней"} (${startDate} — ${endDate}).${upgradeNote}`;
   await createNotification({
     userId: listing.ownerId,
     type: "booking_created",
-    title: `📬 Новая заявка — «${listing.title}»`,
+    title: renterUpgradedFromFree
+      ? `🛡️ Защищённая заявка — «${listing.title}»`
+      : `📬 Новая заявка — «${listing.title}»`,
     message: msgText,
     bookingId: booking.id,
     listingTitle: listing.title ?? undefined,
