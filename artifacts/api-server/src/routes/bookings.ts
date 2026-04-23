@@ -259,43 +259,56 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
   const pricePerDay = parseFloat(listing.pricePerDay as unknown as string);
   const rent = parseFloat((days * pricePerDay).toFixed(2));
 
-  // ─── Двойная Shield-модель — параметры из platform_settings ───────────────
+  // ─── Модель А: Один Гарантийный фонд, две независимые подписки ─────────────
+  // Каждая сторона платит долю ТОЛЬКО если сама согласилась участвовать.
+  // Edge case (Variant 3): если объявление Free, а арендатор хочет защиту →
+  // владелец получает 100% rent, арендатор оплачивает service+tax+свою долю фонда.
   const settings = await getPlatformSettings();
-  // Если объявление Free, но арендатор выбрал защиту — это апгрейд до Premium-сделки.
-  // Полные комиссии и взнос в Гарантийный фонд начисляются как у обычного Premium.
-  const renterUpgradedFromFree = listing.ownerProtectionEnabled === false; // protectionEnabled=true в этой ветке
-  const ownerProtEnabled = listing.ownerProtectionEnabled !== false || renterUpgradedFromFree;
+  const ownerOptedIn = listing.ownerProtectionEnabled !== false; // выбор владельца при публикации
+  const renterOptedIn = renterProtectionEnabled !== false;       // выбор арендатора при бронировании
+  const isFreeUpgrade = !ownerOptedIn; // в этой ветке protectionEnabled=true → апгрейд
 
-  // Free-тариф: если владелец отключил защиту — комиссии не удерживаются (получает 100%).
-  const serviceFee = ownerProtEnabled
-    ? parseFloat((rent * num(settings.serviceFeePercent) / 100).toFixed(2))
-    : 0;
-  const taxFee = ownerProtEnabled
-    ? parseFloat((rent * num(settings.taxFeePercent) / 100).toFixed(2))
-    : 0;
+  // Единая формула доли фонда для обеих сторон
+  const fundShare = Math.max(
+    parseFloat((rent * num(settings.shieldFeePercent) / 100).toFixed(2)),
+    settings.shieldFeeMin,
+  );
+  const ownerFundContrib = ownerOptedIn ? fundShare : 0;
+  const renterFundContrib = renterOptedIn ? fundShare : 0;
 
-  const shieldFee = ownerProtEnabled
-    ? Math.max(parseFloat((rent * num(settings.shieldFeePercent) / 100).toFixed(2)), settings.shieldFeeMin)
-    : 0;
-  const rawRiskCoverage = ownerProtEnabled
-    ? Math.max(parseFloat((rent * num(settings.riskCoveragePercent) / 100).toFixed(2)), settings.riskCoverageMin)
-    : 0;
-  const maxRisk = Math.max(0, parseFloat((rent - serviceFee - taxFee).toFixed(2)));
-  const riskCoverage = Math.min(rawRiskCoverage, maxRisk);
+  const serviceFeeAmt = parseFloat((rent * num(settings.serviceFeePercent) / 100).toFixed(2));
+  const taxFeeAmt = parseFloat((rent * num(settings.taxFeePercent) / 100).toFixed(2));
 
-  const ownerPayout = parseFloat((rent - serviceFee - taxFee - riskCoverage).toFixed(2));
+  let serviceFee: number;
+  let taxFee: number;
+  let totalPrice: number;
+  let ownerPayout: number;
+
+  if (isFreeUpgrade) {
+    // Variant 3: Free-объявление, арендатор апгрейдит до защищённой сделки.
+    // Владелец работает «в серую» (его обещанный 100%) — все операционные расходы платформы
+    // (эквайринг, эскроу, фонд) ложатся на инициатора защиты — арендатора.
+    serviceFee = serviceFeeAmt;
+    taxFee = taxFeeAmt;
+    ownerPayout = parseFloat((rent - ownerFundContrib).toFixed(2)); // ownerFundContrib=0
+    totalPrice = parseFloat((rent + serviceFee + taxFee + renterFundContrib).toFixed(2));
+  } else {
+    // Premium-объявление: service/tax удерживаются с владельца (стандартная схема).
+    // Арендатор доплачивает только свою долю фонда (если сам опт-инул).
+    serviceFee = serviceFeeAmt;
+    taxFee = taxFeeAmt;
+    ownerPayout = parseFloat((rent - serviceFee - taxFee - ownerFundContrib).toFixed(2));
+    totalPrice = parseFloat((rent + renterFundContrib).toFixed(2));
+  }
 
   const listingDeposit = listing.deposit ? parseFloat(listing.deposit as unknown as string) : null;
   const depositAmount = listingDeposit ?? Math.max(settings.depositMin, pricePerDay * num(settings.depositMultiplier));
 
-  // Итого для арендатора = аренда + Shield Fee (депозит — отдельно, возвратный)
-  const totalPrice = parseFloat((rent + shieldFee).toFixed(2));
-
-  // Обратная совместимость с полями БД:
-  // fundContribution → riskCoverage (удерживается с владельца)
-  // renterFundContribution → shieldFee (добавляется к оплате арендатора)
-  const fundContribution = riskCoverage;
-  const renterFundContrib = shieldFee;
+  // Mapping в существующие поля БД (для обратной совместимости):
+  //   fundContribution        ← взнос ВЛАДЕЛЬЦА в фонд
+  //   renterFundContribution  ← взнос АРЕНДАТОРА в фонд
+  const fundContribution = ownerFundContrib;
+  const renterFundContrib_db = renterFundContrib;
 
   const [booking] = await db.insert(bookingsTable).values({
     listingId,
@@ -309,11 +322,11 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
     serviceFee: serviceFee.toString(),
     taxFee: taxFee.toString(),
     fundContribution: fundContribution.toString(),
-    renterFundContribution: renterFundContrib.toString(),
+    renterFundContribution: renterFundContrib_db.toString(),
     depositAmount: depositAmount.toString(),
     ownerPayout: ownerPayout.toString(),
     protectionEnabled: true,
-    renterProtectionEnabled,
+    renterProtectionEnabled: renterOptedIn,
     status: "pending",
     message: message ?? null,
   }).returning();
@@ -340,7 +353,7 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
   });
 
   // Аудит и отдельное уведомление при апгрейде Free → Premium на уровне сделки
-  if (renterUpgradedFromFree) {
+  if (isFreeUpgrade) {
     await recordEvent({
       bookingId: booking.id,
       bookingNumber,
@@ -348,13 +361,13 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
       actorRole: "renter",
       eventType: "renter_upgraded_to_protection",
       toStatus: "pending",
-      comment: `Арендатор апгрейднул Free-объявление до защищённой сделки. Shield Fee ${shieldFee} ₽, взнос в Гарантийный фонд ${riskCoverage} ₽`,
+      comment: `Арендатор апгрейднул Free-объявление до защищённой сделки. Взнос арендатора в Гарантийный фонд: ${renterFundContrib} ₽. Сервис и налог (${serviceFee + taxFee} ₽) оплачены арендатором — владелец получает 100% (${rent} ₽).`,
     });
   }
 
   // Notifications
-  const upgradeNote = renterUpgradedFromFree
-    ? ` Тип сделки изменён на «Защищённая» — действует Гарантийный фонд (${riskCoverage} ₽).`
+  const upgradeNote = isFreeUpgrade
+    ? ` Тип сделки изменён на «Защищённая» — действует Гарантийный фонд платформы. Вы получите ${rent} ₽ (100% аренды) — все комиссии и страховку оплатил арендатор.`
     : "";
   const msgText = `${renterUser?.name ?? "Арендатор"} хочет взять вещь на ${days} ${days === 1 ? "день" : "дней"} (${startDate} — ${endDate}).${upgradeNote}`;
   await createNotification({
@@ -604,16 +617,39 @@ router.patch("/:id/reschedule", requireAuth, async (req: AuthRequest, res) => {
   const pricePerDay = Number(listing?.pricePerDay ?? 0);
   const rent = parseFloat((days * pricePerDay).toFixed(2));
 
-  // Для защищённых сделок пересчитываем с Shield Fee
+  // Пересчёт по Модели А: учитываем независимый опт-ин владельца и арендатора
   let totalPrice = rent;
-  let shieldFeeNew = 0;
+  let serviceFeeNew = 0;
+  let taxFeeNew = 0;
+  let ownerFundContribNew = 0;
+  let renterFundContribNew = 0;
+  let ownerPayoutNew = rent;
+
   if (booking.protectionEnabled) {
     const settings = await getPlatformSettings();
-    shieldFeeNew = Math.max(
+    const ownerOptedIn = listing?.ownerProtectionEnabled !== false;
+    const renterOptedIn = booking.renterProtectionEnabled !== false;
+    const isFreeUpgrade = !ownerOptedIn;
+
+    const fundShare = Math.max(
       parseFloat((rent * num(settings.shieldFeePercent) / 100).toFixed(2)),
       settings.shieldFeeMin,
     );
-    totalPrice = parseFloat((rent + shieldFeeNew).toFixed(2));
+    ownerFundContribNew = ownerOptedIn ? fundShare : 0;
+    renterFundContribNew = renterOptedIn ? fundShare : 0;
+
+    const svc = parseFloat((rent * num(settings.serviceFeePercent) / 100).toFixed(2));
+    const tax = parseFloat((rent * num(settings.taxFeePercent) / 100).toFixed(2));
+    serviceFeeNew = svc;
+    taxFeeNew = tax;
+
+    if (isFreeUpgrade) {
+      ownerPayoutNew = parseFloat((rent - ownerFundContribNew).toFixed(2));
+      totalPrice = parseFloat((rent + svc + tax + renterFundContribNew).toFixed(2));
+    } else {
+      ownerPayoutNew = parseFloat((rent - svc - tax - ownerFundContribNew).toFixed(2));
+      totalPrice = parseFloat((rent + renterFundContribNew).toFixed(2));
+    }
   }
 
   const [updated] = await db.update(bookingsTable)
@@ -623,7 +659,13 @@ router.patch("/:id/reschedule", requireAuth, async (req: AuthRequest, res) => {
       totalDays: days,
       totalPrice: String(totalPrice),
       rentAmount: String(rent),
-      ...(booking.protectionEnabled && { renterFundContribution: String(shieldFeeNew) }),
+      ...(booking.protectionEnabled && {
+        serviceFee: String(serviceFeeNew),
+        taxFee: String(taxFeeNew),
+        fundContribution: String(ownerFundContribNew),
+        renterFundContribution: String(renterFundContribNew),
+        ownerPayout: String(ownerPayoutNew),
+      }),
     })
     .where(eq(bookingsTable.id, id))
     .returning();

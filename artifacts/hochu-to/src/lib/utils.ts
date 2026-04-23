@@ -166,36 +166,51 @@ export function calcDeposit(pricePerDay: number, rates?: FeeRates): number {
 
 export interface PriceBreakdown {
   rent: number;
-  /** Взнос в Гарантийный фонд — добавляется к сумме арендатора (5% мин 100₽) */
-  shieldFee: number;
-  /** Сервисная комиссия — скрытая, удерживается из выплаты владельцу (10%) */
+  /** Единая доля фонда: max(rent×5%, 100). Для информации в UI */
+  fundShare: number;
+  /** Взнос АРЕНДАТОРА в Гарантийный фонд (0 если не опт-инул) */
+  renterFundContrib: number;
+  /** Взнос ВЛАДЕЛЬЦА в Гарантийный фонд (0 если Free-объявление) */
+  ownerFundContrib: number;
+  /** Сервисная комиссия (10% от rent). С кого берётся — зависит от типа объявления */
   serviceFee: number;
-  /** Налоговая компенсация — скрытая, удерживается из выплаты владельцу (6%) */
+  /** Налоговая компенсация (6% от rent). С кого берётся — зависит от типа объявления */
   taxFee: number;
-  /** Страховое покрытие — скрытое, удерживается из выплаты владельцу (5% мин 100₽) */
-  riskCoverage: number;
-  /** Сумма к оплате арендатором (без залога) = rent + shieldFee */
+  /** Сумма к оплате арендатором (без залога) */
   total: number;
-  /** Выплата владельцу = rent - serviceFee - taxFee - riskCoverage */
+  /** Выплата владельцу */
   ownerPayout: number;
-  /** Лимит защиты из фонда (скрытый от пользователей) */
+  /** TRUE = Free-объявление + арендатор выбрал защиту (Variant 3 — арендатор платит за всё) */
+  isFreeUpgrade: boolean;
+  /** Лимит защиты из фонда */
   maxProtectionLimit: number;
   /** Залог (возвратный) */
   deposit: number;
-  /** @deprecated Для обратной совместимости = shieldFee */
+  /** @deprecated Алиас renterFundContrib — для старых тултипов владельца */
+  shieldFee: number;
+  /** @deprecated Алиас ownerFundContrib — для старых тултипов */
+  riskCoverage: number;
+  /** @deprecated Для обратной совместимости */
   fundContribution: number;
-  /** @deprecated Для обратной совместимости = 0 */
+  /** @deprecated Для обратной совместимости */
   renterFundContribution: number;
-  /** @deprecated Для обратной совместимости = shieldFee */
+  /** @deprecated Для обратной совместимости */
   combinedServiceFee: number;
 }
 
+/**
+ * Модель А: Один Гарантийный фонд, две независимые подписки.
+ * Владелец и арендатор каждый сам решает — участвовать в фонде или нет.
+ *
+ * Edge case (Variant 3): Free-объявление + арендатор хочет защиту →
+ * владелец получает 100% rent, арендатор оплачивает service + tax + свою долю фонда.
+ */
 export function calculateTotalPrice(
   pricePerDay: number,
   itemCategory: ItemCategory | null | undefined,
   days: number,
   ownerProtectionEnabled = true,
-  _renterProtectionEnabled = false,
+  renterFundEnabled = true,
   completedDealsCount = 0,
   rates?: FeeRates,
 ): PriceBreakdown {
@@ -205,41 +220,66 @@ export function calculateTotalPrice(
   const servicePct = rateNum(rates, "serviceFeePercent");
   const taxPct = rateNum(rates, "taxFeePercent");
 
-  // Free тариф (Объявление): платформа НЕ удерживает ни сервисную, ни налоговую комиссию.
-  // Владелец получает 100% суммы аренды лично от арендатора (как на Авито).
-  const serviceFee = ownerProtectionEnabled
-    ? parseFloat((rent * servicePct / 100).toFixed(2))
-    : 0;
-  const taxFee = ownerProtectionEnabled
-    ? parseFloat((rent * taxPct / 100).toFixed(2))
-    : 0;
+  // Единая формула доли фонда — одинакова для обеих сторон
+  const fundShare = calcShieldFee(rent, rates); // max(rent×5%, 100)
 
-  const shieldFee = ownerProtectionEnabled ? calcShieldFee(rent, rates) : 0;
-  const rawRiskCoverage = ownerProtectionEnabled ? calcRiskCoverage(rent, rates) : 0;
-  const maxRisk = Math.max(0, parseFloat((rent - serviceFee - taxFee).toFixed(2)));
-  const riskCoverage = Math.min(rawRiskCoverage, maxRisk);
+  const ownerFundContrib = ownerProtectionEnabled ? fundShare : 0;
+  const renterFundContrib = renterFundEnabled ? fundShare : 0;
 
-  const maxProtectionLimit = ownerProtectionEnabled
+  const serviceFeeAmt = parseFloat((rent * servicePct / 100).toFixed(2));
+  const taxFeeAmt = parseFloat((rent * taxPct / 100).toFixed(2));
+
+  const isFreeUpgrade = !ownerProtectionEnabled && renterFundEnabled;
+
+  let serviceFee: number;
+  let taxFee: number;
+  let total: number;
+  let ownerPayout: number;
+
+  if (isFreeUpgrade) {
+    // Variant 3: Free + арендатор апгрейдит → арендатор платит за всё
+    serviceFee = serviceFeeAmt;
+    taxFee = taxFeeAmt;
+    total = parseFloat((rent + serviceFee + taxFee + renterFundContrib).toFixed(2));
+    ownerPayout = rent;
+  } else if (ownerProtectionEnabled) {
+    // Premium: service/tax удерживаются с владельца
+    serviceFee = serviceFeeAmt;
+    taxFee = taxFeeAmt;
+    total = parseFloat((rent + renterFundContrib).toFixed(2));
+    ownerPayout = parseFloat((rent - serviceFee - taxFee - ownerFundContrib).toFixed(2));
+  } else {
+    // Free + арендатор не хочет защиту → этот сценарий идёт через CONTACT_FEE-ветку
+    // на бэке. Возвращаем «голый» rent для превью на витрине владельца.
+    serviceFee = 0;
+    taxFee = 0;
+    total = rent;
+    ownerPayout = rent;
+  }
+
+  const maxProtectionLimit = (ownerProtectionEnabled || renterFundEnabled)
     ? calcMaxProtectionLimit(pricePerDay, cat, completedDealsCount, rates)
     : 0;
 
-  const total = parseFloat((rent + shieldFee).toFixed(2));
-  const ownerPayout = parseFloat((rent - serviceFee - taxFee - riskCoverage).toFixed(2));
   const deposit = calcDeposit(pricePerDay, rates);
 
   return {
     rent,
-    shieldFee,
+    fundShare,
+    renterFundContrib,
+    ownerFundContrib,
     serviceFee,
     taxFee,
-    riskCoverage,
     total,
     ownerPayout,
+    isFreeUpgrade,
     maxProtectionLimit,
     deposit,
-    // Обратная совместимость
-    fundContribution: shieldFee,
-    renterFundContribution: 0,
-    combinedServiceFee: shieldFee,
+    // Обратная совместимость со старыми компонентами
+    shieldFee: renterFundContrib,
+    riskCoverage: ownerFundContrib,
+    fundContribution: ownerFundContrib,
+    renterFundContribution: renterFundContrib,
+    combinedServiceFee: renterFundContrib,
   };
 }

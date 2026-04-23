@@ -66,7 +66,15 @@ export default function ListingDetail() {
   const [protectionInitialized, setProtectionInitialized] = useState(false);
   useEffect(() => {
     if (!listing || protectionInitialized) return;
-    if (isFreeListing) setProtectionEnabled(false);
+    if (isFreeListing) {
+      // На Free-объявлении: по умолчанию «Прямой расчёт» (без бронирования)
+      // и фонд арендатора выключен (если арендатор апгрейдит — пусть включит сам)
+      setProtectionEnabled(false);
+      setRenterFundEnabled(false);
+    } else {
+      // Premium: фонд по умолчанию включён, чтобы защитить арендатора
+      setRenterFundEnabled(true);
+    }
     setProtectionInitialized(true);
   }, [listing, isFreeListing, protectionInitialized]);
 
@@ -781,7 +789,7 @@ export default function ListingDetail() {
                           </div>
 
                           <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 mb-5 text-sm text-blue-800">
-                            <strong>Прямой расчёт:</strong> платите 150 ₽ и сразу получаете контакты владельца. Все договорённости — на ваше усмотрение.
+                            <strong>Прямой расчёт:</strong> платите {contactPriceSingle} ₽ и сразу получаете контакты владельца. Все договорённости — на ваше усмотрение.
                           </div>
 
                           <div className="flex gap-3">
@@ -936,39 +944,78 @@ export default function ListingDetail() {
                         )}
                         <div className="flex justify-between text-muted-foreground">
                           <span>Открытие контактов (на платформе)</span>
-                          <span>150 ₽</span>
+                          <span>{contactPriceSingle} ₽</span>
                         </div>
                         <div className="flex justify-between items-center font-bold border-t border-orange-200 pt-1.5 mt-1">
                           <span>Платёж сейчас</span>
-                          <span className="text-lg text-orange-700">150 ₽</span>
+                          <span className="text-lg text-orange-700">{contactPriceSingle} ₽</span>
                         </div>
                         <p className="text-xs text-orange-600 pt-1">Контакты владельца откроются сразу после оплаты</p>
                       </div>
                     ) : startDate && endDate && (() => {
                       const cat = ((listing as any).itemCategory ?? "tools") as ItemCategory;
                       const ownerProt = (listing as any).ownerProtectionEnabled !== false;
-                      const { rent, shieldFee, total, deposit } =
-                        calculateTotalPrice(listing.pricePerDay, cat, totalDays, ownerProt);
+                      const breakdown = calculateTotalPrice(listing.pricePerDay, cat, totalDays, ownerProt, renterFundEnabled);
+                      const { rent, renterFundContrib, serviceFee, taxFee, total, deposit, isFreeUpgrade, fundShare } = breakdown;
                       return (
                         <div className="bg-primary/5 p-4 rounded-xl border border-primary/20 space-y-2 text-sm">
                           <div className="flex justify-between text-muted-foreground">
                             <span>{totalDays} {totalDays === 1 ? "сутки" : "суток"} × {formatPrice(listing.pricePerDay)}</span>
                             <span>{formatPrice(rent)}</span>
                           </div>
-                          {ownerProt && shieldFee > 0 && (
+
+                          {/* Variant 3: Free + апгрейд → арендатор платит сервис и налог */}
+                          {isFreeUpgrade && serviceFee > 0 && (
+                            <div className="flex justify-between text-primary/80 text-xs">
+                              <span>Сервис платформы (эскроу + эквайринг)</span>
+                              <span>{formatPrice(serviceFee + taxFee)}</span>
+                            </div>
+                          )}
+
+                          {renterFundContrib > 0 && (
                             <div className="flex justify-between text-primary/80">
                               <span className="flex items-center gap-1.5">
                                 <ShieldCheck className="w-3.5 h-3.5" />
-                                Взнос в Гарантийный фонд
+                                Ваш взнос в Гарантийный фонд
                               </span>
-                              <span>{formatPrice(shieldFee)}</span>
+                              <span>{formatPrice(renterFundContrib)}</span>
                             </div>
                           )}
+
                           <div className="flex justify-between items-center font-bold border-t border-primary/20 pt-2 mt-1">
                             <span>Итого к оплате</span>
                             <span className="text-xl text-primary">{formatPrice(total)}</span>
                           </div>
-                          <p className="text-[11px] text-muted-foreground">Взнос в фонд покрывает ущерб и споры — платформа на вашей стороне</p>
+
+                          {/* ── Чекбокс: участие арендатора в фонде ───────── */}
+                          <div className="border-t border-primary/10 pt-2.5 mt-1.5">
+                            <label className="flex items-start gap-2 cursor-pointer group">
+                              <input
+                                type="checkbox"
+                                checked={renterFundEnabled}
+                                onChange={(e) => setRenterFundEnabled(e.target.checked)}
+                                className="mt-0.5 w-4 h-4 rounded accent-primary cursor-pointer shrink-0"
+                              />
+                              <span className="text-xs text-foreground leading-snug">
+                                <span className="font-semibold">Защитить меня через Гарантийный фонд</span>
+                                <span className="text-muted-foreground"> (+{formatPrice(fundShare)} к оплате)</span>
+                                <span className="block text-[11px] text-muted-foreground mt-0.5">
+                                  {renterFundEnabled
+                                    ? "Платформа возместит ущерб, если вещь окажется не такой как описана, или владелец нарушит договорённости."
+                                    : "Без защиты: платформа не вмешивается в споры. Только сама сделка через эскроу."}
+                                </span>
+                              </span>
+                            </label>
+                          </div>
+
+                          {isFreeUpgrade && (
+                            <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2 mt-1">
+                              ⓘ Владелец работает по тарифу <b>Free</b> и получит 100% аренды ({formatPrice(rent)} ₽).
+                              Все комиссии платформы (сервис {serviceFee} ₽ + налог {taxFee} ₽
+                              {renterFundContrib > 0 ? ` + страховка ${renterFundContrib} ₽` : ""}) оплачиваете вы.
+                            </p>
+                          )}
+
                           <div className="flex justify-between text-amber-700 text-xs pt-1 border-t border-primary/10">
                             <span>Залог (возвращается после сдачи вещи)</span>
                             <span className="font-medium">{formatPrice(deposit)}</span>
