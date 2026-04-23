@@ -193,7 +193,9 @@ export const CreateListingBody = zod.object({
   lat: zod.number().optional(),
   lng: zod.number().optional(),
   meetingAddress: zod.string().optional(),
-  itemCategory: zod.enum(["", "electronics", "tools", "leisure"]).optional(),
+  itemCategory: zod
+    .enum(["", "electronics", "tools", "leisure", "special_machinery"])
+    .optional(),
   ownerProtectionEnabled: zod.boolean().optional(),
   photos: zod.array(zod.string()).optional(),
   deposit: zod.number().optional(),
@@ -270,7 +272,9 @@ export const UpdateListingBody = zod.object({
   lat: zod.number().optional(),
   lng: zod.number().optional(),
   meetingAddress: zod.string().optional(),
-  itemCategory: zod.enum(["", "electronics", "tools", "leisure"]).optional(),
+  itemCategory: zod
+    .enum(["", "electronics", "tools", "leisure", "special_machinery"])
+    .optional(),
   ownerProtectionEnabled: zod.boolean().optional(),
   photos: zod.array(zod.string()).optional(),
   deposit: zod.number().optional(),

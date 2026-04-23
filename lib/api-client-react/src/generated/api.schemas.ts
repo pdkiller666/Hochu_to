@@ -250,6 +250,7 @@ export const CreateListingRequestItemCategory = {
   electronics: "electronics",
   tools: "tools",
   leisure: "leisure",
+  special_machinery: "special_machinery",
 } as const;
 
 export interface CreateListingRequest {

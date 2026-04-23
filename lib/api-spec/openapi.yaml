@@ -1020,7 +1020,7 @@ components:
           type: string
         itemCategory:
           type: string
-          enum: ["", electronics, tools, leisure]
+          enum: ["", electronics, tools, leisure, special_machinery]
         ownerProtectionEnabled:
           type: boolean
         photos:

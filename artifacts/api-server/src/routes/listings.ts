@@ -330,7 +330,7 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
     itemCategory, ownerProtectionEnabled, deposit, isAvailable,
   } = parsed.data as typeof parsed.data & {
     city?: string; lat?: number; lng?: number; meetingAddress?: string;
-    itemCategory?: "" | "electronics" | "tools" | "leisure";
+    itemCategory?: "" | "electronics" | "tools" | "leisure" | "special_machinery";
     ownerProtectionEnabled?: boolean;
     deposit?: number;
   };
@@ -391,7 +391,7 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
   const maxProtectionLimit = await calcMaxProtection(pricePerDay, itemCategory ?? null, completedDeals);
 
   // Детектор аномальной цены (>3× от среднего по категории)
-  const categoryAvg: Record<string, number> = { electronics: 2500, tools: 1000, leisure: 500 };
+  const categoryAvg: Record<string, number> = { electronics: 2500, tools: 1000, leisure: 500, special_machinery: 5000 };
   const avg = categoryAvg[itemCategory ?? "tools"] ?? 1000;
   const requiresManualVerification = pricePerDay > avg * 3;
 
@@ -539,7 +539,7 @@ router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
     newMaxProtection = await calcMaxProtection(ppd, cat, completedDeals);
   }
 
-  const categoryAvg: Record<string, number> = { electronics: 2500, tools: 1000, leisure: 500 };
+  const categoryAvg: Record<string, number> = { electronics: 2500, tools: 1000, leisure: 500, special_machinery: 5000 };
   const ppd = pricePerDay ?? parseFloat(existing.pricePerDay as unknown as string);
   const cat = itemCategory ?? existing.itemCategory ?? "tools";
   const newRequiresVerification = ppd > (categoryAvg[cat] ?? 1000) * 3;

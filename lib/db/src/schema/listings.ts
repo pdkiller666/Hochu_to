@@ -12,7 +12,7 @@ export const listingsTable = pgTable("listings", {
   /** Рыночная цена вещи — используется для калибровки лимита фонда (опционально) */
   marketValue: numeric("market_value", { precision: 12, scale: 2 }),
   categoryId: integer("category_id").notNull(),
-  /** Категория защиты фонда: electronics | tools | leisure */
+  /** Категория защиты фонда: electronics | tools | leisure | special_machinery */
   itemCategory: text("item_category"),
   /** Лимит выплаты из фонда (авторасчёт: pricePerDay * multiplier, кап для новых пользователей) */
   maxProtectionLimit: integer("max_protection_limit"),

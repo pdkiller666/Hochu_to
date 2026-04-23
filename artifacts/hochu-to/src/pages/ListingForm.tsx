@@ -209,7 +209,7 @@ export default function ListingForm() {
       lat: formData.lat ?? undefined,
       lng: formData.lng ?? undefined,
       meetingAddress: formData.meetingAddress.trim() || undefined,
-      itemCategory: itemCategory as "electronics" | "tools" | "leisure",
+      itemCategory: itemCategory as "electronics" | "tools" | "leisure" | "special_machinery",
       ownerProtectionEnabled: formData.ownerProtectionEnabled,
       deposit: depositValue,
       isAvailable: formData.isAvailable,
