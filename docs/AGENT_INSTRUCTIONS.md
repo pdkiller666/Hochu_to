@@ -89,6 +89,20 @@ node artifacts/api-server/dist/index.mjs             # запуск сервер
 > и контейнер не стартовал. Теперь шаг 0 выполняет `drizzle-kit push --force` и
 > создаёт все недостающие таблицы из `lib/db/src/schema/`.
 
+> **Замечание по `drizzle-kit push --force` на проде с данными (23.04.26):**
+> На уже заполненной БД push может выдать ошибку вида
+> `column "claim_status" of relation "bookings" contains null values` —
+> это происходит, когда новая колонка объявлена `NOT NULL` без `DEFAULT`,
+> а в существующих строках уже есть NULL. Эта ошибка **некритична** —
+> следующий шаг (ALTER TABLE … IF NOT EXISTS из `migrate-prod.mjs`) добавит
+> колонку как nullable, и контейнер стартует штатно. В логе после такой ошибки
+> должны быть строки `[migrate] Step 0: schema synced` → `[migrate] OK: ALTER TABLE …`
+> → `[migrate] Done` → `Server listening`.
+
+> **Если же добавляете в схему новый NOT NULL без DEFAULT** — обязательно
+> в первой миграции дайте дефолт или сделайте поле nullable, иначе drizzle push
+> упадёт окончательно на проде.
+
 ### Dockerfile — важные параметры:
 - Base: `node:20-slim`
 - pnpm версия: `9` (через corepack)
@@ -264,3 +278,51 @@ PORT=3000 BASE_PATH=/ NODE_ENV=production pnpm --filter @workspace/hochu-to run 
 # 8. Пуш на GitHub
 bash scripts/github-push.sh "описание изменений" 
 ```
+
+---
+
+## 11. Журнал релизов
+
+### 23.04.2026 — Stage 5 + Stage 6 в проде
+- **Stage 5 — Платные контакты UI:** компонент `ContactPurchaseModal`,
+  хук `usePublicSettings`, кнопка «Связаться — N ₽» на `ListingCard`
+  для Free-объявлений, динамическая цена контакта на `ListingDetail`,
+  новая вкладка «Баланс контактов» в `Dashboard` (баланс / пополнение /
+  список открытых контактов / история покупок).
+- **Stage 6 — Апгрейд Free → Premium прямо в брони:** на Free-объявлении
+  переключатель защиты по умолчанию выключен; включение = апгрейд до
+  Premium с полным расчётом fees, Shield Fee и взносом в Гарантийный фонд;
+  владельцу уходит уведомление со специальным заголовком 🛡️ + аудит-событие
+  `renter_upgraded_to_protection`.
+- **Bugfix шапки (PC):** на больших экранах содержимое шапки выталкивалось
+  вправо (горизонтальный скролл). Причина — `flex-1` у поисковой строки
+  без `min-w-0` не давал ей сжаться. Исправлено добавлением `min-w-0`
+  на flex-контейнеры и `overflow-x-clip` на корневой `<header>`.
+- **Деплой:** Amvera успешно пересобрал образ и стартовал контейнер
+  (`Server listening` в логах после `[migrate] Done`).
+
+### 23.04.2026 — Фикс миграций Amvera
+- В `lib/db/migrate-prod.mjs` добавлен Step 0: `drizzle-kit push --force`,
+  чтобы создавать таблицы на пустой БД. Step 1 (ALTER) сделан некритичным.
+- Коммит `821514b`.
+
+---
+
+## 12. Команда для пуша после каждой итерации
+
+После любых изменений в коде агент должен в конце ответа явно указывать
+команду для пуша:
+
+```bash
+GITHUB_TOKEN=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 bash scripts/github-push.sh "Stage X: краткое описание"
+```
+
+Если `GITHUB_TOKEN` лежит в Replit Secrets — короче:
+```bash
+bash scripts/github-push.sh "Stage X: краткое описание"
+```
+
+> **Почему агент не пушит сам:** Replit на main-агенте блокирует любые
+> destructive git-операции (включая `git push`). Чекпойнт-коммит создаётся
+> автоматически, но залить его на удалённый GitHub может только
+> пользователь вручную из Shell.

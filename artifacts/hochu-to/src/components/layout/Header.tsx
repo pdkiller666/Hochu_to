@@ -281,9 +281,9 @@ export function Header() {
   ];
 
   return (
-    <header className="sticky top-0 z-50 w-full bg-background/95 backdrop-blur-md border-b border-border/60 shadow-sm">
-      <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6">
-        <div className="flex items-center gap-3 h-16">
+    <header className="sticky top-0 z-50 w-full overflow-x-clip bg-background/95 backdrop-blur-md border-b border-border/60 shadow-sm">
+      <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 min-w-0">
+        <div className="flex items-center gap-2 lg:gap-3 h-16 min-w-0">
 
           {/* Logo */}
           <Link href="/" className="flex-shrink-0 flex items-center gap-2 group">
@@ -296,8 +296,8 @@ export function Header() {
           </Link>
 
           {/* Desktop Search Bar — center, takes most space */}
-          <div className="hidden md:flex flex-1 mx-2 items-center bg-muted/50 border border-border rounded-xl px-3 py-2 focus-within:ring-2 focus-within:ring-primary/30 focus-within:border-primary/50 transition-all">
-            <HeaderSearchBar className="w-full" />
+          <div className="hidden md:flex flex-1 min-w-0 mx-2 items-center bg-muted/50 border border-border rounded-xl px-3 py-2 focus-within:ring-2 focus-within:ring-primary/30 focus-within:border-primary/50 transition-all">
+            <HeaderSearchBar className="w-full min-w-0" />
           </div>
 
           {/* Desktop Region Selector */}
