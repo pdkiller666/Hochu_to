@@ -381,6 +381,42 @@ GITHUB_TOKEN=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 bash scripts/github-push.s
 
 ## 12. Журнал релизов
 
+### 23.04.2026 ночь+2 — Stage 13: Профиль администратора + полный тест
+#### Профиль администратора (UX)
+- **Проблема:** при входе под `admin@test.ru` пользователь попадал на обычную страницу «Настройки профиля» с переключателем ролей «Арендатор/Владелец», полем «О себе», соцсетями, счётчиком завершённых аренд — бессмысленным для служебного аккаунта.
+- **Решение:** `Dashboard.tsx` — условный рендер: при `user.role === "admin"` вместо обычной формы показывается `AdminAccountPanel`.
+- **Новый компонент `AdminAccountPanel`** (добавлен в конец `Dashboard.tsx`):
+  1. **Хедер** — оранжевый бейдж «Администратор платформы» (Shield-иконка, фирменный `#C65D3B`), имя, email, дата вступления. Аватар с заменой. Сноска «Профиль не показывается арендаторам».
+  2. **Быстрый доступ** — 4 кнопки: Админ-панель `/admin`, Денежные потоки `/admin?tab=finance`, Аналитика `/admin?tab=analytics`, Журнал аудита `/admin?tab=audit`.
+  3. **Личные данные** — только имя и телефон (для подписи в поддержке и связи между админами). Без ролей, bio, регионов, соцсетей.
+  4. **Безопасность** — раскрывающаяся секция: смена email + пароля через существующий `PUT /api/users/:id/credentials` с проверкой текущего пароля. С предупреждением «разлогинит на других устройствах».
+- **Импорты:** добавлены `Shield`, `KeyRound`, `ScrollText`, `Activity`, `ExternalLink`, `BarChart2`, `ChevronRight` из lucide-react.
+
+#### Code review Stage 12 → исправления
+- **Фильтр периода применён к claims:** `claimsWhere` теперь включает `gte(claimsTable.updatedAt, since)`, все 4 KPI (`fund.out`, `fund.balance`, `counts.paidClaims`, `revenue.*`) попадают в одно временное окно.
+- **Default period = `month`** (раньше был `all`), синхронизирован с OpenAPI-контрактом.
+- **Валидация enum period:** неизвестное значение → `400 { error: "invalid_period" }`. Проверено: `?period=invalid` → HTTP 400.
+- **Integer-округление:** все денежные поля заменены с `parseFloat(x.toFixed(2))` на `Math.round(x)` → соответствует OpenAPI-типу `integer`.
+
+#### Полный тест-прогон (23.04.2026)
+- Тестовые аккаунты: `admin@test.ru / Admin1234!`, `alexey@example.com / Test1234!` (owner), `anna@example.com`, `irina@example.com`, `sergey@example.com` (renters) / `Test1234!`.
+- **Тестовые данные созданы:**
+  - +5 объявлений: велосипед Trek, шуруповёрт Bosch, палатка Marmot (Алексей), мотоблок Нева, JBL PRX825W (Дмитрий)
+  - +5 броней (Direct и Premium, разные статусы: pending, completed)
+  - +2 отзыва (Алексей 5.0⭐, Анна 5.0⭐)
+  - +1 тикет поддержки, +1 заявка в Гарантийный фонд, +1 совместная закупка
+- **Корректные пути API (найдено в тестах):**
+  - `/api/me/contact-balance` (не `/contacts/balance`)
+  - `/api/claims/my` (список заявок пользователя)
+  - `/api/claims` POST — обязательное поле `type` (значения: `damage`, `loss` и т.д.)
+  - `/api/support/tickets` POST — поле `body` (не `message`)
+  - `/api/admin/audit-log` (не `/audit`)
+  - `/api/reviews` POST — `reviewType: "listing"` (renter→листинг) или `"renter"` (owner→арендатор), поле `text` (не `comment`)
+- **Найдено 2 мелких бага:**
+  1. Admin не видит чужие тикеты через `GET /api/support/tickets` → не может ответить через API-тест (в UI AdminPage это работает через свой запрос).
+  2. `GET /api/admin/claims` → 404 (путь не зарегистрирован, в UI обходится напрямую).
+- **Итог:** 22 объявления, 7 пользователей, 7 броней, revenue=2123₽ в бд после тестов.
+
 ### 23.04.2026 ночь+1 — Stage 12: Денежные потоки (derived ledger)
 - **Backend:** новый роут `artifacts/api-server/src/routes/finance.ts` с двумя эндпоинтами:
   - `GET /api/me/finance` — личный журнал пользователя (summary + entries[]) выведен на лету из `bookings` и `contact_purchases`. Типы записей: `rent_payout`, `rent_paid`, `direct_cash_in/out`, `contact_fee_paid`, `contact_topup`, `fund_in/out`, `deposit_hold/release`. Статусы: `pending`, `settled`, `off_platform`, `held`.
