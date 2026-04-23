@@ -22,6 +22,7 @@ import {
   Globe, Send, User, CalendarDays, Star, ShoppingBag, BadgeCheck,
   TrendingUp, TrendingDown, MessageSquare, Leaf, PiggyBank, Wind, MapPin, LifeBuoy,
   Wallet, Infinity as InfinityIcon, Gift,
+  Coins, ArrowDownToLine, ArrowUpFromLine, ShieldCheck, Banknote,
 } from "lucide-react";
 import { formatPrice } from "@/lib/utils";
 import { format } from "date-fns";
@@ -162,8 +163,8 @@ export default function Dashboard() {
   const search = useSearch();
   const initialTab = new URLSearchParams(search).get("tab");
 
-  type DashTab = "incoming" | "outgoing" | "listings" | "profile" | "history" | "support" | "contacts";
-  const validTabs: DashTab[] = ["incoming", "outgoing", "listings", "profile", "history", "support", "contacts"];
+  type DashTab = "incoming" | "outgoing" | "listings" | "profile" | "history" | "support" | "contacts" | "finance";
+  const validTabs: DashTab[] = ["incoming", "outgoing", "listings", "profile", "history", "support", "contacts", "finance"];
   const urlTab = initialTab && validTabs.includes(initialTab as DashTab) ? (initialTab as DashTab) : null;
   const [activeTab, setActiveTab] = usePersistedState<DashTab>("dashboard_tab", urlTab ?? "incoming");
   // URL-параметр tab всегда берёт приоритет над сохранённым значением
@@ -1340,6 +1341,7 @@ export default function Dashboard() {
       { id: "listings" as const, label: "Мои объявления", icon: LayoutGrid, badge: 0 },
     ] : []),
     { id: "history" as const, label: "История сделок", icon: BadgeCheck, badge: badgeHistory },
+    { id: "finance" as const, label: "Финансы", icon: Coins, badge: 0 },
     { id: "contacts" as const, label: "Баланс контактов", icon: Wallet, badge: 0 },
     { id: "support" as const, label: "Поддержка", icon: LifeBuoy, badge: 0 },
     { id: "profile" as const, label: "Настройки", icon: Settings, badge: 0 },
@@ -2101,6 +2103,11 @@ export default function Dashboard() {
               <ContactsBalanceSection token={token!} />
             )}
 
+            {/* ── FINANCE ── */}
+            {activeTab === "finance" && (
+              <FinanceSection token={token!} />
+            )}
+
             {/* ── SUPPORT ── */}
             {activeTab === "support" && (
               <div className="max-w-2xl w-full">
@@ -2747,6 +2754,231 @@ interface UnlockData {
   unlockedAt: string;
   expiresAt: string | null;
   active: boolean;
+}
+
+// ─── FINANCE SECTION ─────────────────────────────────────────────────────────
+
+type FinanceEntry = {
+  id: string;
+  date: string;
+  type: "rent_payout" | "rent_paid" | "direct_cash_in" | "direct_cash_out"
+    | "contact_fee_paid" | "contact_topup" | "fund_in" | "fund_out"
+    | "deposit_hold" | "deposit_release";
+  direction: "in" | "out";
+  amount: number;
+  status: "pending" | "settled" | "off_platform" | "held";
+  bookingId?: number;
+  bookingNumber?: string;
+  listingTitle?: string;
+  counterparty?: string;
+  description: string;
+};
+
+type FinanceData = {
+  summary: {
+    lifetimeEarned: number;
+    lifetimeSpent: number;
+    pendingPayout: number;
+    pendingDeposit: number;
+  };
+  entries: FinanceEntry[];
+};
+
+const ENTRY_LABELS: Record<FinanceEntry["type"], string> = {
+  rent_payout: "Выплата за аренду",
+  rent_paid: "Оплата аренды",
+  direct_cash_in: "Наличные от арендатора",
+  direct_cash_out: "Наличные владельцу",
+  contact_fee_paid: "Открытие контактов",
+  contact_topup: "Пополнение баланса контактов",
+  fund_in: "Гарантийный фонд",
+  fund_out: "Выплата из фонда",
+  deposit_hold: "Залог удержан",
+  deposit_release: "Залог возвращён",
+};
+
+const STATUS_LABELS: Record<FinanceEntry["status"], { label: string; cls: string }> = {
+  settled: { label: "Зачислено", cls: "bg-green-100 text-green-800" },
+  pending: { label: "Ожидает", cls: "bg-amber-100 text-amber-800" },
+  held: { label: "На удержании", cls: "bg-blue-100 text-blue-800" },
+  off_platform: { label: "Вне платформы", cls: "bg-stone-100 text-stone-700" },
+};
+
+function FinanceSection({ token }: { token: string }) {
+  const API_BASE = import.meta.env.VITE_API_URL ?? "";
+  const [data, setData] = useState<FinanceData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState<"all" | "in" | "out" | "pending">("all");
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await fetch(`${API_BASE}/api/me/finance`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!r.ok) throw new Error("fail");
+        const j: FinanceData = await r.json();
+        if (!cancelled) setData(j);
+      } catch {
+        if (!cancelled) setData({ summary: { lifetimeEarned: 0, lifetimeSpent: 0, pendingPayout: 0, pendingDeposit: 0 }, entries: [] });
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [token, API_BASE]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 className="w-6 h-6 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  const entries = data?.entries ?? [];
+  const filtered = entries.filter(e => {
+    if (filter === "all") return true;
+    if (filter === "pending") return e.status === "pending" || e.status === "held";
+    return e.direction === filter;
+  });
+  const summary = data?.summary ?? { lifetimeEarned: 0, lifetimeSpent: 0, pendingPayout: 0, pendingDeposit: 0 };
+
+  return (
+    <div className="w-full max-w-5xl">
+      <h2 className="text-xl font-bold flex items-center gap-2 mb-1">
+        <Coins className="w-5 h-5 text-primary" /> Финансы
+      </h2>
+      <p className="text-sm text-muted-foreground mb-5">
+        Полная детализация поступлений, расходов и удержаний по вашим сделкам.
+      </p>
+
+      {/* KPI cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+        <div className="bg-gradient-to-br from-green-50 to-emerald-50 border border-green-200 rounded-2xl p-4">
+          <div className="flex items-center gap-2 text-xs text-green-700 mb-1">
+            <ArrowDownToLine className="w-3.5 h-3.5" /> Заработано
+          </div>
+          <p className="text-2xl font-display font-black text-green-800">{formatPrice(summary.lifetimeEarned)}</p>
+          <p className="text-[11px] text-green-700/80 mt-1">за всё время</p>
+        </div>
+        <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-4">
+          <div className="flex items-center gap-2 text-xs text-amber-700 mb-1">
+            <Clock className="w-3.5 h-3.5" /> Ожидается выплата
+          </div>
+          <p className="text-2xl font-display font-black text-amber-800">{formatPrice(summary.pendingPayout)}</p>
+          <p className="text-[11px] text-amber-700/80 mt-1">после завершения сделок</p>
+        </div>
+        <div className="bg-gradient-to-br from-rose-50 to-pink-50 border border-rose-200 rounded-2xl p-4">
+          <div className="flex items-center gap-2 text-xs text-rose-700 mb-1">
+            <ArrowUpFromLine className="w-3.5 h-3.5" /> Потрачено
+          </div>
+          <p className="text-2xl font-display font-black text-rose-800">{formatPrice(summary.lifetimeSpent)}</p>
+          <p className="text-[11px] text-rose-700/80 mt-1">на платформе</p>
+        </div>
+        <div className="bg-gradient-to-br from-blue-50 to-sky-50 border border-blue-200 rounded-2xl p-4">
+          <div className="flex items-center gap-2 text-xs text-blue-700 mb-1">
+            <ShieldCheck className="w-3.5 h-3.5" /> Залог в удержании
+          </div>
+          <p className="text-2xl font-display font-black text-blue-800">{formatPrice(summary.pendingDeposit)}</p>
+          <p className="text-[11px] text-blue-700/80 mt-1">вернётся после возврата вещи</p>
+        </div>
+      </div>
+
+      {/* Filter */}
+      <div className="flex flex-wrap gap-2 mb-3">
+        {([
+          { key: "all", label: "Все" },
+          { key: "in", label: "Поступления" },
+          { key: "out", label: "Расходы" },
+          { key: "pending", label: "Ожидающие" },
+        ] as const).map(f => (
+          <button
+            key={f.key}
+            onClick={() => setFilter(f.key)}
+            className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+              filter === f.key ? "bg-primary text-white" : "bg-stone-100 text-stone-700 hover:bg-stone-200"
+            }`}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Transactions list */}
+      <div className="bg-white border border-border rounded-2xl overflow-hidden">
+        {filtered.length === 0 ? (
+          <div className="p-10 text-center text-muted-foreground">
+            <Banknote className="w-10 h-10 mx-auto mb-3 opacity-30" />
+            <p className="text-sm">Пока нет транзакций</p>
+            <p className="text-xs mt-1">Они появятся после первой сделки</p>
+          </div>
+        ) : (
+          <ul className="divide-y divide-border">
+            {filtered.map(e => {
+              const st = STATUS_LABELS[e.status];
+              const isIn = e.direction === "in";
+              return (
+                <li key={e.id} className="px-4 py-3 hover:bg-stone-50 transition-colors">
+                  <div className="flex items-start gap-3">
+                    <div className={`shrink-0 w-9 h-9 rounded-full flex items-center justify-center ${
+                      isIn ? "bg-green-100 text-green-700" : "bg-rose-100 text-rose-700"
+                    }`}>
+                      {isIn ? <ArrowDownToLine className="w-4 h-4" /> : <ArrowUpFromLine className="w-4 h-4" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="font-semibold text-sm truncate">
+                            {ENTRY_LABELS[e.type]}
+                            {e.listingTitle && (
+                              <span className="text-muted-foreground font-normal"> · {e.listingTitle}</span>
+                            )}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                            {e.description}
+                            {e.counterparty && <span className="ml-1">· {e.counterparty}</span>}
+                          </p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className={`font-bold text-sm ${isIn ? "text-green-700" : "text-rose-700"}`}>
+                            {isIn ? "+" : "−"}{formatPrice(e.amount)}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground mt-0.5">
+                            {format(new Date(e.date), "dd.MM.yy")}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 mt-1.5">
+                        <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full ${st.cls}`}>
+                          {st.label}
+                        </span>
+                        {e.bookingNumber && (
+                          <Link
+                            href={`/dashboard?booking=${e.bookingNumber}`}
+                            className="text-[10px] text-primary hover:underline"
+                          >
+                            {e.bookingNumber}
+                          </Link>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+
+      <p className="text-[11px] text-muted-foreground mt-3 leading-relaxed">
+        💡 <b>«На удержании»</b> — деньги зарезервированы платформой (эскроу/фонд) и будут переведены после завершения сделки.
+        <b> «Вне платформы»</b> — расчёт между арендатором и владельцем напрямую (наличные).
+        После подключения боевых платежей здесь появится экспорт чеков и история переводов.
+      </p>
+    </div>
+  );
 }
 
 function ContactsBalanceSection({ token }: { token: string }) {

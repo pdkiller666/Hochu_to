@@ -11,7 +11,7 @@ import {
   MessageSquare, AlertTriangle, ScrollText, Bell, Send,
   X, Pencil, ExternalLink, Trash2, RefreshCw, UserCheck,
   BarChart2, ArrowUpDown, Flag, Shield, Megaphone,
-  Coins, CreditCard, Save, RotateCcw,
+  Coins, CreditCard, Save, RotateCcw, Banknote, ArrowDownToLine, ArrowUpFromLine, PiggyBank,
 } from "lucide-react";
 import { formatPrice } from "@/lib/utils";
 import { format } from "date-fns";
@@ -1702,6 +1702,155 @@ function SettingsActionBar({ dirty, saving, onSave, onReset }: { dirty: boolean;
   );
 }
 
+// ─── Finance Tab (денежные потоки платформы) ─────────────────────────────────
+type AdminFinance = {
+  period: string;
+  revenue: { total: number; service: number; tax: number; contacts: number };
+  fund: { in: number; out: number; balance: number };
+  payouts: { pending: number; settled: number };
+  counts: { premiumBookings: number; directBookings: number; topups: number; paidClaims: number };
+  recent: Array<{
+    id: number;
+    date: string;
+    bookingNumber: string | null;
+    listingTitle: string | null;
+    kind: "premium" | "direct";
+    status: string;
+    totalPrice: number;
+    serviceFee: number;
+    taxFee: number;
+    fund: number;
+    ownerPayout: number;
+    renterName: string | null;
+    ownerName: string | null;
+  }>;
+};
+
+function FinanceTab() {
+  const [period, setPeriod] = useState<"today" | "week" | "month" | "all">("month");
+  const { data, loading } = useFetch<AdminFinance>(`${API}/api/admin/finance?period=${period}`, [period]);
+
+  if (loading) return <div className="text-stone-500">Загрузка…</div>;
+  if (!data) return <div className="text-stone-500">Нет данных</div>;
+
+  const periodLabel = period === "today" ? "Сегодня" : period === "week" ? "За неделю" : period === "month" ? "За месяц" : "За всё время";
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-stone-800">Денежные потоки платформы</h2>
+          <p className="text-sm text-stone-500">{periodLabel} — выручка, фонд и выплаты</p>
+        </div>
+        <div className="flex gap-1 bg-stone-100 p-1 rounded-lg">
+          {(["today","week","month","all"] as const).map(p => (
+            <button key={p} onClick={() => setPeriod(p)}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition ${
+                period === p ? "bg-white text-stone-800 shadow-sm" : "text-stone-500 hover:text-stone-700"
+              }`}>
+              {p === "today" ? "Сегодня" : p === "week" ? "Неделя" : p === "month" ? "Месяц" : "Всё"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* KPI grid */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="bg-gradient-to-br from-emerald-50 to-green-50 border border-emerald-200 rounded-xl p-5">
+          <div className="flex items-center gap-2 text-xs text-emerald-700 mb-1">
+            <Banknote className="w-3.5 h-3.5" /> Выручка платформы
+          </div>
+          <p className="text-2xl font-bold text-emerald-800">{formatPrice(data.revenue.total)}</p>
+          <p className="text-[11px] text-emerald-700/80 mt-1">сервис {formatPrice(data.revenue.service)} · налог {formatPrice(data.revenue.tax)} · контакты {formatPrice(data.revenue.contacts)}</p>
+        </div>
+        <div className="bg-gradient-to-br from-blue-50 to-sky-50 border border-blue-200 rounded-xl p-5">
+          <div className="flex items-center gap-2 text-xs text-blue-700 mb-1">
+            <PiggyBank className="w-3.5 h-3.5" /> Гарантийный фонд
+          </div>
+          <p className="text-2xl font-bold text-blue-800">{formatPrice(data.fund.balance)}</p>
+          <p className="text-[11px] text-blue-700/80 mt-1">взносы {formatPrice(data.fund.in)} − выплаты {formatPrice(data.fund.out)}</p>
+        </div>
+        <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-xl p-5">
+          <div className="flex items-center gap-2 text-xs text-amber-700 mb-1">
+            <Clock className="w-3.5 h-3.5" /> К выплате владельцам
+          </div>
+          <p className="text-2xl font-bold text-amber-800">{formatPrice(data.payouts.pending)}</p>
+          <p className="text-[11px] text-amber-700/80 mt-1">по подтверждённым сделкам</p>
+        </div>
+        <div className="bg-gradient-to-br from-violet-50 to-purple-50 border border-violet-200 rounded-xl p-5">
+          <div className="flex items-center gap-2 text-xs text-violet-700 mb-1">
+            <CheckCircle className="w-3.5 h-3.5" /> Выплачено владельцам
+          </div>
+          <p className="text-2xl font-bold text-violet-800">{formatPrice(data.payouts.settled)}</p>
+          <p className="text-[11px] text-violet-700/80 mt-1">по завершённым сделкам</p>
+        </div>
+      </div>
+
+      {/* Counts */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
+        <div className="bg-white border border-stone-200 rounded-lg p-3"><span className="text-stone-500">Защищённых сделок: </span><b>{data.counts.premiumBookings}</b></div>
+        <div className="bg-white border border-stone-200 rounded-lg p-3"><span className="text-stone-500">Прямых (контакты): </span><b>{data.counts.directBookings}</b></div>
+        <div className="bg-white border border-stone-200 rounded-lg p-3"><span className="text-stone-500">Пополнений баланса: </span><b>{data.counts.topups}</b></div>
+        <div className="bg-white border border-stone-200 rounded-lg p-3"><span className="text-stone-500">Выплат из фонда: </span><b>{data.counts.paidClaims}</b></div>
+      </div>
+
+      {/* Recent transactions */}
+      <div className="bg-white rounded-xl border border-stone-200 overflow-hidden">
+        <div className="p-4 border-b border-stone-200">
+          <h3 className="font-semibold text-stone-800">Последние сделки</h3>
+          <p className="text-xs text-stone-500 mt-0.5">Детализация по каждой брони</p>
+        </div>
+        {data.recent.length === 0 ? (
+          <div className="p-10 text-center text-stone-400 text-sm">Нет сделок за выбранный период</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-stone-50 text-stone-500 text-xs uppercase">
+                <tr>
+                  <th className="text-left px-4 py-2">Дата</th>
+                  <th className="text-left px-4 py-2">№</th>
+                  <th className="text-left px-4 py-2">Объявление</th>
+                  <th className="text-left px-4 py-2">Тип</th>
+                  <th className="text-left px-4 py-2">Статус</th>
+                  <th className="text-right px-4 py-2">Оплачено</th>
+                  <th className="text-right px-4 py-2">Сервис</th>
+                  <th className="text-right px-4 py-2">Налог</th>
+                  <th className="text-right px-4 py-2">Фонд</th>
+                  <th className="text-right px-4 py-2">Выплата владельцу</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-stone-100">
+                {data.recent.map(r => (
+                  <tr key={r.id} className="hover:bg-stone-50">
+                    <td className="px-4 py-2 text-stone-600 whitespace-nowrap">{format(new Date(r.date), "dd.MM.yy")}</td>
+                    <td className="px-4 py-2 text-xs text-stone-500 whitespace-nowrap">{r.bookingNumber ?? `#${r.id}`}</td>
+                    <td className="px-4 py-2 max-w-xs truncate">{r.listingTitle ?? "—"}</td>
+                    <td className="px-4 py-2">
+                      <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
+                        r.kind === "premium" ? "bg-blue-100 text-blue-800" : "bg-stone-100 text-stone-700"
+                      }`}>{r.kind === "premium" ? "Защищённая" : "Прямая"}</span>
+                    </td>
+                    <td className="px-4 py-2 text-xs text-stone-600">{STATUS_LABEL[r.status] ?? r.status}</td>
+                    <td className="px-4 py-2 text-right font-medium">{formatPrice(r.totalPrice)}</td>
+                    <td className="px-4 py-2 text-right text-stone-500">{r.serviceFee > 0 ? formatPrice(r.serviceFee) : "—"}</td>
+                    <td className="px-4 py-2 text-right text-stone-500">{r.taxFee > 0 ? formatPrice(r.taxFee) : "—"}</td>
+                    <td className="px-4 py-2 text-right text-blue-700">{r.fund > 0 ? formatPrice(r.fund) : "—"}</td>
+                    <td className="px-4 py-2 text-right font-semibold text-emerald-700">{r.ownerPayout > 0 ? formatPrice(r.ownerPayout) : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <p className="text-[11px] text-stone-400 leading-relaxed">
+        💡 Эти суммы рассчитываются на лету по существующим бронированиям. После подключения платёжного шлюза появятся живые транзакции и реестры выплат.
+      </p>
+    </div>
+  );
+}
+
 function EconomyTab() {
   const { data, set, dirty, save, reset, loading, saving } = useSettingsForm();
   if (loading) return <div className="text-stone-500">Загрузка…</div>;
@@ -2252,11 +2401,12 @@ function AnalyticsTab() {
 }
 
 // ─── Main AdminPage ────────────────────────────────────────────────────────────
-type Tab = "overview" | "analytics" | "users" | "listings" | "bookings" | "support" | "reports" | "claims" | "audit" | "economy" | "payments";
+type Tab = "overview" | "analytics" | "users" | "listings" | "bookings" | "support" | "reports" | "claims" | "audit" | "economy" | "payments" | "finance";
 
 const TABS: { id: Tab; label: string; icon: any }[] = [
   { id: "overview", label: "Обзор", icon: LayoutDashboard },
   { id: "analytics", label: "Аналитика", icon: BarChart2 },
+  { id: "finance", label: "Денежные потоки", icon: Banknote },
   { id: "users", label: "Пользователи", icon: Users },
   { id: "listings", label: "Объявления", icon: Package },
   { id: "bookings", label: "Бронирования", icon: CalendarDays },
@@ -2327,6 +2477,7 @@ export default function AdminPage() {
         {tab === "audit" && <AuditLogTab />}
         {tab === "economy" && <EconomyTab />}
         {tab === "payments" && <PaymentsTab />}
+        {tab === "finance" && <FinanceTab />}
       </div>
 
       <BroadcastModal open={broadcastOpen} onClose={() => setBroadcastOpen(false)} />

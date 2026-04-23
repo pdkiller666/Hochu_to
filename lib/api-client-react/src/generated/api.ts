@@ -17,6 +17,7 @@ import type {
 } from "@tanstack/react-query";
 
 import type {
+  AdminFinanceResponse,
   AuthResponse,
   Booking,
   Category,
@@ -27,6 +28,7 @@ import type {
   CreateReviewRequest,
   DateRange,
   ErrorResponse,
+  GetAdminFinanceParams,
   GetListingsParams,
   HealthStatus,
   JointPurchase,
@@ -45,6 +47,7 @@ import type {
   UpdateBookingStatusRequest,
   UpdateProfileRequest,
   User,
+  UserFinanceResponse,
   UserProfile,
 } from "./api.schemas";
 
@@ -2473,3 +2476,172 @@ export const useUpdateAdminSettings = <
 > => {
   return useMutation(getUpdateAdminSettingsMutationOptions(options));
 };
+
+/**
+ * @summary Личный финансовый журнал пользователя (derived ledger)
+ */
+export const getGetMyFinanceUrl = () => {
+  return `/api/me/finance`;
+};
+
+export const getMyFinance = async (
+  options?: RequestInit,
+): Promise<UserFinanceResponse> => {
+  return customFetch<UserFinanceResponse>(getGetMyFinanceUrl(), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetMyFinanceQueryKey = () => {
+  return [`/api/me/finance`] as const;
+};
+
+export const getGetMyFinanceQueryOptions = <
+  TData = Awaited<ReturnType<typeof getMyFinance>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getMyFinance>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetMyFinanceQueryKey();
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getMyFinance>>> = ({
+    signal,
+  }) => getMyFinance({ signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getMyFinance>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetMyFinanceQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getMyFinance>>
+>;
+export type GetMyFinanceQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Личный финансовый журнал пользователя (derived ledger)
+ */
+
+export function useGetMyFinance<
+  TData = Awaited<ReturnType<typeof getMyFinance>>,
+  TError = ErrorType<unknown>,
+>(options?: {
+  query?: UseQueryOptions<
+    Awaited<ReturnType<typeof getMyFinance>>,
+    TError,
+    TData
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetMyFinanceQueryOptions(options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+/**
+ * @summary Сводка денежных потоков платформы
+ */
+export const getGetAdminFinanceUrl = (params?: GetAdminFinanceParams) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? "null" : value.toString());
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0
+    ? `/api/admin/finance?${stringifiedParams}`
+    : `/api/admin/finance`;
+};
+
+export const getAdminFinance = async (
+  params?: GetAdminFinanceParams,
+  options?: RequestInit,
+): Promise<AdminFinanceResponse> => {
+  return customFetch<AdminFinanceResponse>(getGetAdminFinanceUrl(params), {
+    ...options,
+    method: "GET",
+  });
+};
+
+export const getGetAdminFinanceQueryKey = (params?: GetAdminFinanceParams) => {
+  return [`/api/admin/finance`, ...(params ? [params] : [])] as const;
+};
+
+export const getGetAdminFinanceQueryOptions = <
+  TData = Awaited<ReturnType<typeof getAdminFinance>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetAdminFinanceParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getAdminFinance>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+) => {
+  const { query: queryOptions, request: requestOptions } = options ?? {};
+
+  const queryKey = queryOptions?.queryKey ?? getGetAdminFinanceQueryKey(params);
+
+  const queryFn: QueryFunction<Awaited<ReturnType<typeof getAdminFinance>>> = ({
+    signal,
+  }) => getAdminFinance(params, { signal, ...requestOptions });
+
+  return { queryKey, queryFn, ...queryOptions } as UseQueryOptions<
+    Awaited<ReturnType<typeof getAdminFinance>>,
+    TError,
+    TData
+  > & { queryKey: QueryKey };
+};
+
+export type GetAdminFinanceQueryResult = NonNullable<
+  Awaited<ReturnType<typeof getAdminFinance>>
+>;
+export type GetAdminFinanceQueryError = ErrorType<unknown>;
+
+/**
+ * @summary Сводка денежных потоков платформы
+ */
+
+export function useGetAdminFinance<
+  TData = Awaited<ReturnType<typeof getAdminFinance>>,
+  TError = ErrorType<unknown>,
+>(
+  params?: GetAdminFinanceParams,
+  options?: {
+    query?: UseQueryOptions<
+      Awaited<ReturnType<typeof getAdminFinance>>,
+      TError,
+      TData
+    >;
+    request?: SecondParameter<typeof customFetch>;
+  },
+): UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+  const queryOptions = getGetAdminFinanceQueryOptions(params, options);
+
+  const query = useQuery(queryOptions) as UseQueryResult<TData, TError> & {
+    queryKey: QueryKey;
+  };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}

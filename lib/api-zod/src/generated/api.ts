@@ -793,3 +793,94 @@ export const UpdateAdminSettingsResponse = zod.object({
   updatedAt: zod.string().optional(),
   updatedBy: zod.number().nullish(),
 });
+
+/**
+ * @summary Личный финансовый журнал пользователя (derived ledger)
+ */
+export const GetMyFinanceResponse = zod.object({
+  summary: zod.object({
+    lifetimeEarned: zod.number(),
+    lifetimeSpent: zod.number(),
+    pendingPayout: zod.number(),
+    pendingDeposit: zod.number(),
+  }),
+  entries: zod.array(
+    zod.object({
+      id: zod.string(),
+      date: zod.date(),
+      type: zod.enum([
+        "rent_payout",
+        "rent_paid",
+        "direct_cash_in",
+        "direct_cash_out",
+        "contact_fee_paid",
+        "contact_topup",
+        "fund_in",
+        "fund_out",
+        "deposit_hold",
+        "deposit_release",
+      ]),
+      direction: zod.enum(["in", "out"]),
+      amount: zod.number(),
+      status: zod.enum(["pending", "settled", "off_platform", "held"]),
+      bookingId: zod.number().nullish(),
+      bookingNumber: zod.string().nullish(),
+      listingTitle: zod.string().nullish(),
+      counterparty: zod.string().nullish(),
+      description: zod.string(),
+    }),
+  ),
+});
+
+/**
+ * @summary Сводка денежных потоков платформы
+ */
+export const getAdminFinanceQueryPeriodDefault = `month`;
+
+export const GetAdminFinanceQueryParams = zod.object({
+  period: zod
+    .enum(["today", "week", "month", "all"])
+    .default(getAdminFinanceQueryPeriodDefault),
+});
+
+export const GetAdminFinanceResponse = zod.object({
+  period: zod.string(),
+  revenue: zod.object({
+    total: zod.number(),
+    service: zod.number(),
+    tax: zod.number(),
+    contacts: zod.number(),
+  }),
+  fund: zod.object({
+    in: zod.number(),
+    out: zod.number(),
+    balance: zod.number(),
+  }),
+  payouts: zod.object({
+    pending: zod.number(),
+    settled: zod.number(),
+  }),
+  counts: zod.object({
+    premiumBookings: zod.number(),
+    directBookings: zod.number(),
+    topups: zod.number(),
+    paidClaims: zod.number(),
+  }),
+  recent: zod.array(
+    zod.object({
+      id: zod.number(),
+      date: zod.date(),
+      bookingNumber: zod.string().nullish(),
+      listingTitle: zod.string().nullish(),
+      kind: zod.enum(["premium", "direct"]),
+      status: zod.string(),
+      totalPrice: zod.number(),
+      serviceFee: zod.number(),
+      taxFee: zod.number(),
+      fund: zod.number(),
+      ownerPayout: zod.number(),
+      renterName: zod.string().nullish(),
+      ownerName: zod.string().nullish(),
+    }),
+  ),
+});

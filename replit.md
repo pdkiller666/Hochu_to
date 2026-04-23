@@ -83,6 +83,8 @@ All routes prefixed with `/api`:
 - `GET /bookings/:id/messages` — Get chat messages for a booking (requires auth, must be owner or renter)
 - `POST /bookings/:id/messages` — Send a chat message (body: `{content}`)
 - `GET /messages/unread-counts` — Returns unread message counts per booking `{bookingId: count}`
+- `GET /me/finance` — Личный финансовый журнал (derived ledger): `{summary, entries[]}` из bookings + contact_purchases. Без миграций.
+- `GET /admin/finance?period=today|week|month|all` — Сводка денежных потоков платформы: revenue, fund, payouts, counts, recent[50].
 
 ## Database Schema
 

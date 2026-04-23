@@ -619,6 +619,39 @@ paths:
               schema:
                 $ref: "#/components/schemas/PlatformSettings"
 
+  /me/finance:
+    get:
+      operationId: getMyFinance
+      tags: [finance]
+      summary: Личный финансовый журнал пользователя (derived ledger)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserFinanceResponse"
+
+  /admin/finance:
+    get:
+      operationId: getAdminFinance
+      tags: [admin, finance]
+      summary: Сводка денежных потоков платформы
+      parameters:
+        - in: query
+          name: period
+          schema:
+            type: string
+            enum: [today, week, month, all]
+            default: month
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminFinanceResponse"
+
 components:
   schemas:
     HealthStatus:
@@ -1257,3 +1290,93 @@ components:
         - name
         - email
         - message
+
+    FinanceEntry:
+      type: object
+      properties:
+        id: { type: string }
+        date: { type: string, format: date-time }
+        type:
+          type: string
+          enum: [rent_payout, rent_paid, direct_cash_in, direct_cash_out, contact_fee_paid, contact_topup, fund_in, fund_out, deposit_hold, deposit_release]
+        direction: { type: string, enum: [in, out] }
+        amount: { type: integer }
+        status: { type: string, enum: [pending, settled, off_platform, held] }
+        bookingId: { type: integer, nullable: true }
+        bookingNumber: { type: string, nullable: true }
+        listingTitle: { type: string, nullable: true }
+        counterparty: { type: string, nullable: true }
+        description: { type: string }
+      required: [id, date, type, direction, amount, status, description]
+
+    FinanceSummary:
+      type: object
+      properties:
+        lifetimeEarned: { type: integer }
+        lifetimeSpent: { type: integer }
+        pendingPayout: { type: integer }
+        pendingDeposit: { type: integer }
+      required: [lifetimeEarned, lifetimeSpent, pendingPayout, pendingDeposit]
+
+    UserFinanceResponse:
+      type: object
+      properties:
+        summary: { $ref: "#/components/schemas/FinanceSummary" }
+        entries:
+          type: array
+          items: { $ref: "#/components/schemas/FinanceEntry" }
+      required: [summary, entries]
+
+    AdminFinanceResponse:
+      type: object
+      properties:
+        period: { type: string }
+        revenue:
+          type: object
+          properties:
+            total: { type: integer }
+            service: { type: integer }
+            tax: { type: integer }
+            contacts: { type: integer }
+          required: [total, service, tax, contacts]
+        fund:
+          type: object
+          properties:
+            in: { type: integer }
+            out: { type: integer }
+            balance: { type: integer }
+          required: [in, out, balance]
+        payouts:
+          type: object
+          properties:
+            pending: { type: integer }
+            settled: { type: integer }
+          required: [pending, settled]
+        counts:
+          type: object
+          properties:
+            premiumBookings: { type: integer }
+            directBookings: { type: integer }
+            topups: { type: integer }
+            paidClaims: { type: integer }
+          required: [premiumBookings, directBookings, topups, paidClaims]
+        recent:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: integer }
+              date: { type: string, format: date-time }
+              bookingNumber: { type: string, nullable: true }
+              listingTitle: { type: string, nullable: true }
+              kind: { type: string, enum: [premium, direct] }
+              status: { type: string }
+              totalPrice: { type: integer }
+              serviceFee: { type: integer }
+              taxFee: { type: integer }
+              fund: { type: integer }
+              ownerPayout: { type: integer }
+              renterName: { type: string, nullable: true }
+              ownerName: { type: string, nullable: true }
+            required: [id, date, kind, status, totalPrice, serviceFee, taxFee, fund, ownerPayout]
+      required: [period, revenue, fund, payouts, counts, recent]

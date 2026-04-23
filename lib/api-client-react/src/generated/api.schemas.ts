@@ -397,6 +397,124 @@ export interface ContactFormRequest {
   subject?: string;
 }
 
+export type FinanceEntryType =
+  (typeof FinanceEntryType)[keyof typeof FinanceEntryType];
+
+export const FinanceEntryType = {
+  rent_payout: "rent_payout",
+  rent_paid: "rent_paid",
+  direct_cash_in: "direct_cash_in",
+  direct_cash_out: "direct_cash_out",
+  contact_fee_paid: "contact_fee_paid",
+  contact_topup: "contact_topup",
+  fund_in: "fund_in",
+  fund_out: "fund_out",
+  deposit_hold: "deposit_hold",
+  deposit_release: "deposit_release",
+} as const;
+
+export type FinanceEntryDirection =
+  (typeof FinanceEntryDirection)[keyof typeof FinanceEntryDirection];
+
+export const FinanceEntryDirection = {
+  in: "in",
+  out: "out",
+} as const;
+
+export type FinanceEntryStatus =
+  (typeof FinanceEntryStatus)[keyof typeof FinanceEntryStatus];
+
+export const FinanceEntryStatus = {
+  pending: "pending",
+  settled: "settled",
+  off_platform: "off_platform",
+  held: "held",
+} as const;
+
+export interface FinanceEntry {
+  id: string;
+  date: string;
+  type: FinanceEntryType;
+  direction: FinanceEntryDirection;
+  amount: number;
+  status: FinanceEntryStatus;
+  bookingId?: number | null;
+  bookingNumber?: string | null;
+  listingTitle?: string | null;
+  counterparty?: string | null;
+  description: string;
+}
+
+export interface FinanceSummary {
+  lifetimeEarned: number;
+  lifetimeSpent: number;
+  pendingPayout: number;
+  pendingDeposit: number;
+}
+
+export interface UserFinanceResponse {
+  summary: FinanceSummary;
+  entries: FinanceEntry[];
+}
+
+export type AdminFinanceResponseRevenue = {
+  total: number;
+  service: number;
+  tax: number;
+  contacts: number;
+};
+
+export type AdminFinanceResponseFund = {
+  in: number;
+  out: number;
+  balance: number;
+};
+
+export type AdminFinanceResponsePayouts = {
+  pending: number;
+  settled: number;
+};
+
+export type AdminFinanceResponseCounts = {
+  premiumBookings: number;
+  directBookings: number;
+  topups: number;
+  paidClaims: number;
+};
+
+export type AdminFinanceResponseRecentItemKind =
+  (typeof AdminFinanceResponseRecentItemKind)[keyof typeof AdminFinanceResponseRecentItemKind];
+
+export const AdminFinanceResponseRecentItemKind = {
+  premium: "premium",
+  direct: "direct",
+} as const;
+
+export type AdminFinanceResponseRecentItem = {
+  id: number;
+  date: string;
+  bookingNumber?: string | null;
+  listingTitle?: string | null;
+  kind: AdminFinanceResponseRecentItemKind;
+  status: string;
+  totalPrice: number;
+  serviceFee: number;
+  taxFee: number;
+  fund: number;
+  ownerPayout: number;
+  renterName?: string | null;
+  ownerName?: string | null;
+};
+
+export interface AdminFinanceResponse {
+  period: string;
+  revenue: AdminFinanceResponseRevenue;
+  fund: AdminFinanceResponseFund;
+  payouts: AdminFinanceResponsePayouts;
+  counts: AdminFinanceResponseCounts;
+  recent: AdminFinanceResponseRecentItem[];
+}
+
 export type GetListingsParams = {
   category?: string;
   region?: string;
@@ -432,4 +550,18 @@ export type GetListingsSafeOnly =
 export const GetListingsSafeOnly = {
   true: "true",
   false: "false",
+} as const;
+
+export type GetAdminFinanceParams = {
+  period?: GetAdminFinancePeriod;
+};
+
+export type GetAdminFinancePeriod =
+  (typeof GetAdminFinancePeriod)[keyof typeof GetAdminFinancePeriod];
+
+export const GetAdminFinancePeriod = {
+  today: "today",
+  week: "week",
+  month: "month",
+  all: "all",
 } as const;
