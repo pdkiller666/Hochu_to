@@ -283,7 +283,7 @@ export function Header() {
   return (
     <header className="sticky top-0 z-50 w-full overflow-x-clip bg-background/95 backdrop-blur-md border-b border-border/60 shadow-sm">
       <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 min-w-0">
-        <div className="flex items-center gap-2 lg:gap-3 h-16 min-w-0">
+        <div className="flex items-center gap-2 h-16 min-w-0">
 
           {/* Logo */}
           <Link href="/" className="flex-shrink-0 flex items-center gap-2 group">
@@ -348,33 +348,33 @@ export function Header() {
           <div className="flex-1 md:hidden" />
 
           {/* Desktop Actions */}
-          <div className="hidden md:flex items-center gap-3 flex-shrink-0">
+          <div className="hidden md:flex items-center gap-1.5 lg:gap-2 flex-shrink-0">
             {isAuthenticated && user ? (
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1.5 lg:gap-2">
                 {/* Favorites Heart */}
                 <Link
                   href="/favorites"
-                  className="relative w-10 h-10 rounded-full bg-white border border-border flex items-center justify-center text-muted-foreground hover:border-rose-400 hover:text-rose-500 transition-all hover:shadow-md"
+                  className="relative w-9 h-9 rounded-full bg-white border border-border flex items-center justify-center text-muted-foreground hover:border-rose-400 hover:text-rose-500 transition-all hover:shadow-md flex-shrink-0"
                   title="Избранное"
                 >
-                  <Heart className="w-5 h-5" />
+                  <Heart className="w-4 h-4" />
                   {favCount > 0 && (
-                    <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center">
+                    <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] font-bold flex items-center justify-center">
                       {favCount > 9 ? "9+" : favCount}
                     </span>
                   )}
                 </Link>
 
                 {/* Notification Bell */}
-                <div className="relative" ref={notifRef}>
+                <div className="relative flex-shrink-0" ref={notifRef}>
                   <button
                     onClick={() => { setNotifOpen(v => !v); if (!notifOpen) fetchNotifications(); }}
-                    className="relative w-10 h-10 rounded-full bg-white border border-border flex items-center justify-center text-muted-foreground hover:border-primary hover:text-primary transition-all hover:shadow-md"
+                    className="relative w-9 h-9 rounded-full bg-white border border-border flex items-center justify-center text-muted-foreground hover:border-primary hover:text-primary transition-all hover:shadow-md"
                     title="Уведомления"
                   >
-                    <Bell className="w-5 h-5" />
+                    <Bell className="w-4 h-4" />
                     {unreadCount > 0 && (
-                      <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-destructive text-white text-[10px] font-bold flex items-center justify-center">
+                      <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-destructive text-white text-[9px] font-bold flex items-center justify-center">
                         {unreadCount > 9 ? "9+" : unreadCount}
                       </span>
                     )}
@@ -449,29 +449,37 @@ export function Header() {
                   </AnimatePresence>
                 </div>
 
-                <Link href="/dashboard" className="flex items-center gap-3 px-4 py-2 rounded-xl bg-white border border-border hover:border-primary transition-all group">
-                  <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold">
+                <Link
+                  href="/dashboard"
+                  className="flex items-center gap-2 xl:gap-3 px-2 xl:px-4 py-1.5 xl:py-2 rounded-xl bg-white border border-border hover:border-primary transition-all group flex-shrink-0 min-w-0"
+                  title={`${user.name} — ${user.role === "admin" ? "Администратор" : user.role === "owner" ? "Владелец" : "Арендатор"}`}
+                >
+                  <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold flex-shrink-0">
                     {user.name.charAt(0).toUpperCase()}
                   </div>
-                  <div className="flex flex-col">
-                    <span className="text-sm font-bold leading-none group-hover:text-primary transition-colors">{user.name}</span>
+                  <div className="hidden xl:flex flex-col min-w-0">
+                    <span className="text-sm font-bold leading-none group-hover:text-primary transition-colors truncate max-w-[140px]">{user.name}</span>
                     <span className="text-xs text-muted-foreground leading-none mt-1">
                       {user.role === "admin" ? "Администратор" : user.role === "owner" ? "Владелец" : "Арендатор"}
                     </span>
                   </div>
                 </Link>
                 {user.role === "admin" && (
-                  <Link href="/admin"
-                    className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#C65D3B]/10 text-[#C65D3B] hover:bg-[#C65D3B]/20 transition-colors">
-                    Панель
+                  <Link
+                    href="/admin"
+                    title="Админ-панель"
+                    className="flex items-center gap-1.5 px-2 lg:px-3 py-1.5 text-xs font-semibold rounded-lg bg-[#C65D3B]/10 text-[#C65D3B] hover:bg-[#C65D3B]/20 transition-colors flex-shrink-0"
+                  >
+                    <Shield className="w-4 h-4" />
+                    <span className="hidden xl:inline">Панель</span>
                   </Link>
                 )}
                 <button
                   onClick={logout}
-                  className="w-10 h-10 rounded-full hover:bg-destructive/10 text-muted-foreground hover:text-destructive flex items-center justify-center transition-colors"
+                  className="w-9 h-9 rounded-full hover:bg-destructive/10 text-muted-foreground hover:text-destructive flex items-center justify-center transition-colors flex-shrink-0"
                   title="Выйти"
                 >
-                  <LogOut className="w-5 h-5" />
+                  <LogOut className="w-4 h-4" />
                 </button>
               </div>
             ) : (
