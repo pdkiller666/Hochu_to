@@ -48,6 +48,11 @@ app.get("/api/health", (_req, res) => {
 });
 app.use("/api", routes);
 
+// 5b. JSON 404 для всех неизвестных /api/* — работает и в dev, и в production
+app.use("/api", (_req, res) => {
+  res.status(404).json({ error: "not_found", message: "API endpoint not found" });
+});
+
 // 6. РАЗДАЧА ФРОНТЕНДА
 if (process.env.NODE_ENV === "production") {
   const staticDir = path.resolve(__dirname, "public");

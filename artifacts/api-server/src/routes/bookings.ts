@@ -152,6 +152,18 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
 
   const { listingId, startDate: rawStart, endDate: rawEnd, message, protectionEnabled = true, renterProtectionEnabled = false } = parsed.data;
 
+  // ─── Валидация формата дат (если переданы) ──────────────────────────────
+  // Принимаем строго YYYY-MM-DD, иначе 400.
+  const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+  for (const [name, val] of [["startDate", rawStart], ["endDate", rawEnd]] as const) {
+    if (val !== undefined && val !== null && val !== "") {
+      if (!DATE_RE.test(val) || Number.isNaN(new Date(val).getTime())) {
+        res.status(400).json({ error: "invalid_date_format", message: `${name} должен быть в формате YYYY-MM-DD` });
+        return;
+      }
+    }
+  }
+
   // Цена открытия контакта берётся из настроек платформы (конфигурируется админом)
   const platformSettings = await getPlatformSettings();
   const CONTACT_FEE = platformSettings.contactPriceSingle;
@@ -166,11 +178,23 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
     return;
   }
 
+  // ─── Хелпер для валидации эффективных дат ───────────────────────────────
+  const todayStr = new Date().toISOString().split("T")[0];
+  const validateRange = (start: string, end: string): string | null => {
+    if (end < start) return "Дата окончания не может быть раньше даты начала";
+    if (start < todayStr) return "Нельзя забронировать на прошедшую дату";
+    return null;
+  };
+
   // ─── Сценарий Б: Прямой расчёт ───────────────────────────────────────────
   if (!protectionEnabled) {
-    const today = new Date().toISOString().split("T")[0];
-    const startDate = rawStart ?? today;
-    const endDate = rawEnd ?? today;
+    const startDate = rawStart ?? todayStr;
+    const endDate = rawEnd ?? startDate;
+    const dateErr = validateRange(startDate, endDate);
+    if (dateErr) {
+      res.status(400).json({ error: "invalid_dates", message: dateErr });
+      return;
+    }
 
     // Считаем фактическую стоимость аренды (арендатор платит напрямую владельцу)
     const daysB = startDate && endDate
@@ -241,6 +265,11 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
   }
   const startDate = rawStart;
   const endDate = rawEnd;
+  const dateErrA = validateRange(startDate, endDate);
+  if (dateErrA) {
+    res.status(400).json({ error: "invalid_dates", message: dateErrA });
+    return;
+  }
 
   const conflicts = await db.select().from(bookingsTable).where(
     and(
