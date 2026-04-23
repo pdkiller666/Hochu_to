@@ -39,6 +39,24 @@ TOKEN="${GITHUB_TOKEN:-$GITHUB_PERSONAL_ACCESS_TOKEN}"
 git push "https://pdkiller666:${TOKEN}@github.com/pdkiller666/Hochu_to.git" main
 ```
 
+> **Если скрипт ругается** `❌ Переменная GITHUB_TOKEN или GITHUB_PERSONAL_ACCESS_TOKEN не задана` —
+> значит токен не лежит в Replit Secrets. Быстрое решение в Shell:
+> ```bash
+> export GITHUB_PERSONAL_ACCESS_TOKEN=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
+> bash scripts/github-push.sh "описание"
+> ```
+> Лучше один раз добавить `GITHUB_PERSONAL_ACCESS_TOKEN` в Replit Secrets —
+> тогда переменная подхватится автоматически в любой новой Shell-сессии.
+
+### Проверить, что коммит реально на GitHub:
+```bash
+# Hash последнего коммита на удалённом main (репозиторий приватный — нужна авторизация)
+curl -s -u "pdkiller666:$GITHUB_PERSONAL_ACCESS_TOKEN" \
+  https://api.github.com/repos/pdkiller666/Hochu_to/commits/main | grep '"sha"' | head -1
+# Сравнить с локальным:
+git log -1 --pretty=%H
+```
+
 ---
 
 ## 3. База данных (Replit PostgreSQL)
@@ -282,6 +300,26 @@ bash scripts/github-push.sh "описание изменений"
 ---
 
 ## 11. Журнал релизов
+
+### 23.04.2026 (вечер) — Хотфиксы бронирования и шапки
+- **audit_log:** таблица отсутствовала в локальной БД — создана через
+  `pnpm --filter @workspace/db run push-force`. Аудит админ-действий
+  снова пишется.
+- **Header (lg breakpoint 1024–1279px):** на средних экранах админ-кнопки
+  выталкивали поиск. Уменьшены иконки (4×4), бейджи (16px), кнопка «Панель»
+  на lg сворачивается в иконку Shield, текст и аватар появляются с xl.
+- **Бронирование «Прямой расчёт» — критичный фикс:** Zod-схема
+  `CreateBookingBody` валидировала только `listingId/startDate/endDate/message`,
+  поля `protectionEnabled` и `renterProtectionEnabled` молча отбрасывались.
+  Из-за этого при выборе «Получить контакты» на Free-объявлении сервер
+  всегда создавал полноценную Premium-сделку с Shield Fee и фондом.
+  Поля добавлены в `lib/api-spec/openapi.yaml` →
+  `pnpm --filter @workspace/api-spec run codegen` → клиент и Zod обновлены.
+- **ListingDetail — отображение ошибок:** `handleBooking` теперь имеет
+  `onError`, выводит сообщение сервера в красном баннере над кнопкой submit.
+  Раньше любая 4xx-ошибка проглатывалась — пользователь видел «ничего не происходит».
+- **Коммиты:** `4f62a44` (header), `be2687b` (booking + audit_log + checklist),
+  `f66a320` (checkpoint). Все на GitHub `main`, Amvera по вебхуку перезаливает прод.
 
 ### 23.04.2026 — Stage 5 + Stage 6 в проде
 - **Stage 5 — Платные контакты UI:** компонент `ContactPurchaseModal`,
