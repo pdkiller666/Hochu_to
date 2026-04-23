@@ -230,6 +230,19 @@ export default function ListingForm() {
           toast({ title: "Успех", description: "Объявление добавлено" });
           setLocation("/dashboard");
         },
+        onError: (err: any) => {
+          const code = err?.response?.data?.error ?? err?.data?.error ?? "";
+          const msg = err?.response?.data?.message ?? err?.data?.message ?? "";
+          if (code === "free_disabled") {
+            toast({ title: "Бесплатные объявления отключены", description: "Администратор временно ограничил этот тариф.", variant: "destructive" });
+          } else if (code === "free_limit_reached") {
+            toast({ title: "Лимит Free-объявлений", description: msg, variant: "destructive" });
+          } else if (code === "phone_required") {
+            toast({ title: "Нужен телефон в профиле", description: "Укажите номер телефона в настройках профиля — арендаторы свяжутся с вами напрямую.", variant: "destructive" });
+          } else {
+            toast({ title: "Ошибка", description: msg || "Не удалось создать объявление", variant: "destructive" });
+          }
+        },
       });
     }
   };

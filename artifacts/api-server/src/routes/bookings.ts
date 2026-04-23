@@ -268,6 +268,15 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
   const renterOptedIn = renterProtectionEnabled !== false;       // выбор арендатора при бронировании
   const isFreeUpgrade = !ownerOptedIn; // в этой ветке protectionEnabled=true → апгрейд
 
+  // Апгрейд Free→Premium доступен только если разрешён в настройках
+  if (isFreeUpgrade && !settings.freeToPremiumUpgradeEnabled) {
+    res.status(403).json({
+      error: "upgrade_disabled",
+      message: "Апгрейд защиты на бесплатных объявлениях временно отключён",
+    });
+    return;
+  }
+
   // Единая формула доли фонда для обеих сторон
   const fundShare = Math.max(
     parseFloat((rent * num(settings.shieldFeePercent) / 100).toFixed(2)),

@@ -1,11 +1,12 @@
 import { Router } from "express";
 import { db, listingsTable, usersTable, categoriesTable, regionsTable, reviewsTable, bookingsTable } from "@workspace/db";
-import { eq, and, gte, lte, sql, or, desc } from "drizzle-orm";
+import { eq, and, gte, lte, sql, or, desc, count } from "drizzle-orm";
 import { requireAuth, AuthRequest } from "../middleware/auth.js";
 import { CreateListingBody } from "@workspace/api-zod";
 import fs from "fs";
 import path from "path";
 import { UPLOADS_DIR } from "../lib/uploadsDir.js";
+import { getPlatformSettings } from "../lib/platform-settings.js";
 
 const router = Router();
 
@@ -67,16 +68,29 @@ async function getListingWithDetails(id: number) {
   return listing;
 }
 
-/** Вычисляет лимит защитного фонда по категории с учётом опыта владельца */
-function calcMaxProtection(pricePerDay: number, itemCategory: string | null, completedDealsCount: number): number {
-  const multipliers: Record<string, number> = { electronics: 60, tools: 30, leisure: 15 };
-  const multiplier = multipliers[itemCategory ?? "tools"] ?? 30;
+/** Вычисляет лимит защитного фонда по категории с учётом опыта владельца.
+ *  Все числа берутся из platform_settings — ни одного хардкода. */
+async function calcMaxProtection(
+  pricePerDay: number,
+  itemCategory: string | null,
+  completedDealsCount: number,
+): Promise<number> {
+  const s = await getPlatformSettings();
+  const multipliers: Record<string, number> = {
+    electronics: s.protMultElectronics,
+    tools:       s.protMultTools,
+    leisure:     s.protMultLeisure,
+    special_machinery: s.protMultSpecialMachinery,
+  };
+  const multiplier = multipliers[itemCategory ?? "tools"] ?? s.protMultTools;
   const raw = pricePerDay * multiplier;
-  return completedDealsCount < 3 ? Math.min(raw, 25_000) : raw;
+  return completedDealsCount < s.newUserDealsThreshold ? Math.min(raw, s.newUserProtectionCap) : raw;
 }
 
 router.get("/", async (req, res) => {
-  const { category, region, minPrice, maxPrice, search, safeOnly, page = "1", limit = "12", sort = "new" } = req.query as Record<string, string>;
+  const settings = await getPlatformSettings();
+  const defaultSort = settings.defaultCatalogSort ?? "new";
+  const { category, region, minPrice, maxPrice, search, safeOnly, page = "1", limit = "12", sort = defaultSort } = req.query as Record<string, string>;
   const pageNum = Math.max(1, parseInt(page));
   const limitNum = Math.min(50, Math.max(1, parseInt(limit)));
   const offset = (pageNum - 1) * limitNum;
@@ -176,6 +190,11 @@ router.get("/", async (req, res) => {
     rawListings = await (baseQuery as any).orderBy(sql`${listingsTable.pricePerDay}::numeric ASC`).limit(limitNum).offset(offset);
   } else if (sort === "price_desc") {
     rawListings = await (baseQuery as any).orderBy(sql`${listingsTable.pricePerDay}::numeric DESC`).limit(limitNum).offset(offset);
+  } else if (sort === "protected_first") {
+    // Premium-объявления всегда выше Free, внутри группы — по дате создания (новые первее)
+    rawListings = await (baseQuery as any)
+      .orderBy(sql`${listingsTable.ownerProtectionEnabled} DESC`, desc(listingsTable.createdAt))
+      .limit(limitNum).offset(offset);
   } else {
     rawListings = await (baseQuery as any).orderBy(desc(listingsTable.createdAt)).limit(limitNum).offset(offset);
   }
@@ -316,10 +335,51 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
     deposit?: number;
   };
 
+  const cfg = await getPlatformSettings();
+  const isFree = ownerProtectionEnabled === false;
+
+  // ── Проверки Free-тарифа ────────────────────────────────────────────────
+  if (isFree) {
+    // 1. Глобальный переключатель
+    if (!cfg.freeListingsEnabled) {
+      res.status(403).json({ error: "free_disabled", message: "Бесплатные объявления временно отключены администратором" });
+      return;
+    }
+
+    // 2. Лимит активных Free-объявлений на одного владельца
+    const [{ activeCount }] = await db
+      .select({ activeCount: count() })
+      .from(listingsTable)
+      .where(and(
+        eq(listingsTable.ownerId, req.userId!),
+        eq(listingsTable.ownerProtectionEnabled, false),
+        eq(listingsTable.isAvailable, true),
+      ));
+    if (activeCount >= cfg.freeListingsMaxPerOwner) {
+      res.status(422).json({
+        error: "free_limit_reached",
+        message: `Лимит бесплатных объявлений: не более ${cfg.freeListingsMaxPerOwner} активных`,
+      });
+      return;
+    }
+
+    // 3. Требование верифицированного телефона
+    if (cfg.freeListingsRequirePhone) {
+      const [ownerRow] = await db.select({ phone: usersTable.phone }).from(usersTable).where(eq(usersTable.id, req.userId!)).limit(1);
+      if (!ownerRow?.phone) {
+        res.status(422).json({
+          error: "phone_required",
+          message: "Для бесплатного объявления укажите телефон в профиле — арендаторы свяжутся напрямую",
+        });
+        return;
+      }
+    }
+  }
+
   // Залог: сохраняем только при прямой аренде (ownerProtectionEnabled === false).
   // При безопасной сделке депозит рассчитывается автоматически в bookings из настроек платформы.
   const depositToSave =
-    ownerProtectionEnabled === false && typeof deposit === "number" && deposit > 0
+    isFree && typeof deposit === "number" && deposit > 0
       ? deposit.toFixed(2)
       : null;
 
@@ -328,7 +388,7 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
     .from(usersTable).where(eq(usersTable.id, req.userId!)).limit(1);
   const completedDeals = owner?.completedDealsCount ?? 0;
 
-  const maxProtectionLimit = calcMaxProtection(pricePerDay, itemCategory ?? null, completedDeals);
+  const maxProtectionLimit = await calcMaxProtection(pricePerDay, itemCategory ?? null, completedDeals);
 
   // Детектор аномальной цены (>3× от среднего по категории)
   const categoryAvg: Record<string, number> = { electronics: 2500, tools: 1000, leisure: 500 };
@@ -405,8 +465,15 @@ router.get("/:id", async (req, res) => {
     .from(reviewsTable)
     .where(eq(reviewsTable.listingId, id));
 
+  // Телефон владельца Free-объявления: скрываем если режим «after_payment»
+  // (арендатор должен купить доступ через /contacts/unlock, там и получит номер).
+  const listingSettings = await getPlatformSettings();
+  const isFreeDetail = listing.ownerProtectionEnabled === false;
+  const maskPhone = isFreeDetail && listingSettings.freeShowOwnerPhoneMode === "after_payment";
+
   res.json({
     ...listing,
+    ownerPhone: maskPhone ? null : listing.ownerPhone,
     pricePerDay: parseFloat(listing.pricePerDay as unknown as string),
     deposit: listing.deposit ? parseFloat(listing.deposit as unknown as string) : undefined,
     createdAt: listing.createdAt.toISOString(),
@@ -469,7 +536,7 @@ router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
     const completedDeals = owner?.completedDealsCount ?? 0;
     const ppd = pricePerDay ?? parseFloat(existing.pricePerDay as unknown as string);
     const cat = itemCategory ?? existing.itemCategory;
-    newMaxProtection = calcMaxProtection(ppd, cat, completedDeals);
+    newMaxProtection = await calcMaxProtection(ppd, cat, completedDeals);
   }
 
   const categoryAvg: Record<string, number> = { electronics: 2500, tools: 1000, leisure: 500 };
