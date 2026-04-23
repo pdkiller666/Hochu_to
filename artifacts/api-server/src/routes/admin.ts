@@ -12,6 +12,7 @@ import { eq, desc, or, sql, and, lt, gte } from "drizzle-orm";
 import { requireAuth, AuthRequest } from "../middleware/auth.js";
 import bcrypt from "bcryptjs";
 import { getPlatformSettings, updatePlatformSettings } from "../lib/platform-settings.js";
+import { seedTestListings } from "../lib/seed-test-listings.js";
 
 /**
  * Кириллично-безопасный поиск: PostgreSQL с locale=C игнорирует регистр кириллицы в ILIKE.
@@ -1142,6 +1143,19 @@ router.post("/seed", requireAuth, requireAdmin, async (_req, res) => {
     res.json({ ok: true, log });
   } catch (err: any) {
     console.error("Seed error:", err);
+    res.status(500).json({ ok: false, error: err?.message ?? String(err) });
+  }
+});
+
+// POST /api/admin/seed-test-listings — доливает по N (по умолчанию 15) объявлений в каждую категорию.
+// Идемпотентно: если в категории уже >=N тестовых, ничего не добавляет. Не трогает живые данные.
+router.post("/seed-test-listings", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+  try {
+    const perCategory = Number((req.body as any)?.perCategory) || 15;
+    const result = await seedTestListings({ perCategory });
+    res.json({ ok: true, ...result });
+  } catch (err: any) {
+    console.error("Seed test listings error:", err);
     res.status(500).json({ ok: false, error: err?.message ?? String(err) });
   }
 });
