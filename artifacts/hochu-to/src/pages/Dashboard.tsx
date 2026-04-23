@@ -23,6 +23,7 @@ import {
   TrendingUp, TrendingDown, MessageSquare, Leaf, PiggyBank, Wind, MapPin, LifeBuoy,
   Wallet, Infinity as InfinityIcon, Gift,
   Coins, ArrowDownToLine, ArrowUpFromLine, ShieldCheck, Banknote,
+  Shield, KeyRound, ScrollText, Activity, ExternalLink, BarChart2, ChevronRight,
 } from "lucide-react";
 import { formatPrice } from "@/lib/utils";
 import { format } from "date-fns";
@@ -2121,8 +2122,24 @@ export default function Dashboard() {
               </div>
             )}
 
-            {/* ── PROFILE / SETTINGS ── */}
-            {activeTab === "profile" && (
+            {/* ── PROFILE / SETTINGS — ADMIN VARIANT ── */}
+            {activeTab === "profile" && user.role === "admin" && (
+              <AdminAccountPanel
+                user={user}
+                avatarPreview={avatarPreview}
+                uploadingAvatar={uploadingAvatar}
+                onAvatarUpload={handleAvatarUpload}
+                profileForm={profileForm}
+                setProfileForm={setProfileForm}
+                handleProfileSave={handleProfileSave}
+                profileSaved={profileSaved}
+                isSaving={updateProfile.isPending}
+                authHeaders={authHeaders}
+              />
+            )}
+
+            {/* ── PROFILE / SETTINGS — RENTER/OWNER ── */}
+            {activeTab === "profile" && user.role !== "admin" && (
               <div className="max-w-2xl w-full">
                 <h2 className="text-xl font-bold flex items-center gap-2 mb-5">
                   <Settings className="w-5 h-5 text-primary" /> Настройки профиля
@@ -3226,5 +3243,246 @@ function TopupCard({
         {busy && <Loader2 className="w-4 h-4 animate-spin text-primary" />}
       </div>
     </button>
+  );
+}
+
+// ─── Admin Account Panel — отдельная панель для администратора ────────────────
+function AdminAccountPanel({
+  user,
+  avatarPreview,
+  uploadingAvatar,
+  onAvatarUpload,
+  profileForm,
+  setProfileForm,
+  handleProfileSave,
+  profileSaved,
+  isSaving,
+  authHeaders,
+}: {
+  user: any;
+  avatarPreview: string | null;
+  uploadingAvatar: boolean;
+  onAvatarUpload: (f: File) => void;
+  profileForm: any;
+  setProfileForm: (fn: (f: any) => any) => void;
+  handleProfileSave: (e: React.FormEvent) => Promise<void>;
+  profileSaved: boolean;
+  isSaving: boolean;
+  authHeaders: Record<string, string>;
+}) {
+  const [, navigate] = useLocation();
+  const [showSecurity, setShowSecurity] = useState(false);
+  const [secForm, setSecForm] = useState({ currentPassword: "", newEmail: "", newPassword: "", confirmPassword: "" });
+  const [secMsg, setSecMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const [secSaving, setSecSaving] = useState(false);
+  const apiBase = import.meta.env.VITE_API_URL ?? "";
+
+  async function handleSecuritySave(e: React.FormEvent) {
+    e.preventDefault();
+    setSecMsg(null);
+    if (secForm.newPassword && secForm.newPassword !== secForm.confirmPassword) {
+      setSecMsg({ type: "err", text: "Новый пароль и подтверждение не совпадают" });
+      return;
+    }
+    if (!secForm.currentPassword) {
+      setSecMsg({ type: "err", text: "Введите текущий пароль" });
+      return;
+    }
+    setSecSaving(true);
+    try {
+      const body: any = { currentPassword: secForm.currentPassword };
+      if (secForm.newEmail && secForm.newEmail !== user.email) body.newEmail = secForm.newEmail;
+      if (secForm.newPassword) body.newPassword = secForm.newPassword;
+      const r = await fetch(`${apiBase}/api/users/${user.id}/credentials`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...authHeaders },
+        body: JSON.stringify(body),
+      });
+      const data = await r.json();
+      if (!r.ok) {
+        setSecMsg({ type: "err", text: data.message ?? "Не удалось обновить" });
+      } else {
+        setSecMsg({ type: "ok", text: "Доступы обновлены. Используйте новые данные при следующем входе." });
+        setSecForm({ currentPassword: "", newEmail: "", newPassword: "", confirmPassword: "" });
+      }
+    } catch {
+      setSecMsg({ type: "err", text: "Ошибка соединения" });
+    } finally {
+      setSecSaving(false);
+    }
+  }
+
+  return (
+    <div className="max-w-3xl w-full space-y-5">
+      {/* Header — admin badge */}
+      <div className="rounded-2xl border border-[#C65D3B]/30 bg-gradient-to-br from-[#C65D3B]/8 via-white to-amber-50 p-6 shadow-sm">
+        <div className="flex flex-col sm:flex-row gap-5 items-center sm:items-start">
+          <div className="relative shrink-0 group">
+            <div className="w-24 h-24 rounded-2xl overflow-hidden bg-[#C65D3B]/10 border-2 border-[#C65D3B]/30 flex items-center justify-center">
+              {uploadingAvatar ? (
+                <Loader2 className="w-8 h-8 animate-spin text-[#C65D3B]" />
+              ) : (avatarPreview || user.avatar) ? (
+                <img
+                  src={avatarPreview || (user.avatar?.startsWith("http") ? user.avatar : `${apiBase}${user.avatar}`)}
+                  className="w-full h-full object-cover"
+                  alt={user.name}
+                />
+              ) : (
+                <Shield className="w-10 h-10 text-[#C65D3B]" />
+              )}
+            </div>
+            <label className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/40 rounded-2xl transition-all cursor-pointer">
+              <Camera className="w-6 h-6 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+              <input type="file" accept="image/*" className="hidden"
+                onChange={e => e.target.files?.[0] && onAvatarUpload(e.target.files[0])} />
+            </label>
+          </div>
+
+          <div className="flex-1 text-center sm:text-left">
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#C65D3B] text-white text-[11px] font-bold uppercase tracking-wider mb-2">
+              <Shield className="w-3 h-3" /> Администратор платформы
+            </div>
+            <h2 className="text-2xl font-bold text-stone-900">{user.name}</h2>
+            <p className="text-sm text-stone-600 mt-0.5">{user.email}</p>
+            <p className="text-xs text-stone-500 mt-2 flex items-center gap-1.5 justify-center sm:justify-start">
+              <CalendarDays className="w-3 h-3" />
+              На платформе с {format(new Date(user.createdAt), "d MMMM yyyy")}
+            </p>
+            <p className="text-[11px] text-stone-400 mt-2">
+              💡 Это служебный аккаунт. Профиль не показывается арендаторам и владельцам в каталоге.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Quick links to admin panel */}
+      <div className="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm">
+        <h3 className="text-sm font-bold text-stone-800 mb-3 flex items-center gap-2">
+          <Activity className="w-4 h-4 text-[#C65D3B]" /> Быстрый доступ
+        </h3>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {[
+            { label: "Админ-панель", icon: Shield, to: "/admin" },
+            { label: "Денежные потоки", icon: Banknote, to: "/admin?tab=finance" },
+            { label: "Аналитика", icon: BarChart2, to: "/admin?tab=analytics" },
+            { label: "Журнал аудита", icon: ScrollText, to: "/admin?tab=audit" },
+          ].map(l => (
+            <button key={l.to} onClick={() => navigate(l.to)}
+              className="flex flex-col items-center gap-1.5 p-3 rounded-xl border border-stone-200 hover:border-[#C65D3B]/40 hover:bg-stone-50 text-stone-700 hover:text-[#C65D3B] transition-all text-xs font-medium">
+              <l.icon className="w-5 h-5" />
+              <span className="leading-tight text-center">{l.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Personal contact info — minimal, only what matters for an admin */}
+      <div className="rounded-2xl border border-stone-200 bg-white p-6 shadow-sm">
+        <h3 className="text-sm font-bold text-stone-800 mb-1 flex items-center gap-2">
+          <User className="w-4 h-4 text-[#C65D3B]" /> Личные данные
+        </h3>
+        <p className="text-xs text-stone-500 mb-4">Используются для подписи сообщений в поддержке и связи с другими администраторами</p>
+
+        <form onSubmit={handleProfileSave} className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-stone-600 mb-1.5">Отображаемое имя</label>
+            <input type="text" required value={profileForm.name}
+              onChange={e => setProfileForm(f => ({ ...f, name: e.target.value }))}
+              className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C65D3B]/40 focus:border-[#C65D3B] text-stone-800" />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-stone-600 mb-1.5">Контактный телефон</label>
+            <div className="relative">
+              <PhoneCall className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
+              <input type="tel" value={profileForm.phone}
+                onChange={e => setProfileForm(f => ({ ...f, phone: e.target.value }))}
+                placeholder="+7 (999) 000-00-00"
+                className="w-full pl-10 pr-3 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C65D3B]/40 focus:border-[#C65D3B] text-stone-800" />
+            </div>
+            <p className="text-[11px] text-stone-400 mt-1">Виден только другим администраторам</p>
+          </div>
+
+          <button type="submit" disabled={isSaving}
+            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-[#C65D3B] hover:bg-[#A04A2D] text-white text-sm font-semibold transition disabled:opacity-50">
+            {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
+            {profileSaved ? "✓ Сохранено" : "Сохранить"}
+          </button>
+        </form>
+      </div>
+
+      {/* Security — change email/password */}
+      <div className="rounded-2xl border border-stone-200 bg-white shadow-sm overflow-hidden">
+        <button type="button" onClick={() => setShowSecurity(s => !s)}
+          className="w-full flex items-center justify-between p-5 hover:bg-stone-50 transition">
+          <div className="flex items-center gap-3 text-left">
+            <div className="w-9 h-9 rounded-lg bg-amber-100 flex items-center justify-center">
+              <KeyRound className="w-4 h-4 text-amber-700" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-stone-800">Безопасность аккаунта</h3>
+              <p className="text-xs text-stone-500">Смена email и пароля</p>
+            </div>
+          </div>
+          <ChevronRight className={`w-4 h-4 text-stone-400 transition-transform ${showSecurity ? "rotate-90" : ""}`} />
+        </button>
+
+        {showSecurity && (
+          <form onSubmit={handleSecuritySave} className="px-5 pb-5 pt-1 space-y-4 border-t border-stone-100">
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-[11px] text-amber-900 leading-relaxed">
+              ⚠️ Смена пароля разлогинит вас на других устройствах. Текущий пароль обязателен для подтверждения.
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-stone-600 mb-1.5">Текущий пароль *</label>
+              <input type="password" required value={secForm.currentPassword}
+                onChange={e => setSecForm(f => ({ ...f, currentPassword: e.target.value }))}
+                className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500 text-stone-800" />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-stone-600 mb-1.5">Новый email</label>
+                <input type="email" value={secForm.newEmail} placeholder={user.email}
+                  onChange={e => setSecForm(f => ({ ...f, newEmail: e.target.value }))}
+                  className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500 text-stone-800" />
+              </div>
+              <div className="hidden sm:block" />
+              <div>
+                <label className="block text-xs font-semibold text-stone-600 mb-1.5">Новый пароль</label>
+                <input type="password" minLength={6} value={secForm.newPassword}
+                  onChange={e => setSecForm(f => ({ ...f, newPassword: e.target.value }))}
+                  className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500 text-stone-800" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-stone-600 mb-1.5">Подтверждение</label>
+                <input type="password" minLength={6} value={secForm.confirmPassword}
+                  onChange={e => setSecForm(f => ({ ...f, confirmPassword: e.target.value }))}
+                  className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500 text-stone-800" />
+              </div>
+            </div>
+
+            {secMsg && (
+              <div className={`text-xs px-3 py-2 rounded-lg ${
+                secMsg.type === "ok" ? "bg-emerald-50 border border-emerald-200 text-emerald-800" : "bg-red-50 border border-red-200 text-red-700"
+              }`}>{secMsg.text}</div>
+            )}
+
+            <button type="submit" disabled={secSaving}
+              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-sm font-semibold transition disabled:opacity-50">
+              {secSaving && <Loader2 className="w-4 h-4 animate-spin" />}
+              Обновить доступы
+            </button>
+          </form>
+        )}
+      </div>
+
+      <div className="text-center pt-2">
+        <button onClick={() => navigate("/admin")}
+          className="inline-flex items-center gap-2 text-xs font-semibold text-[#C65D3B] hover:text-[#A04A2D] transition">
+          Открыть полную админ-панель <ExternalLink className="w-3 h-3" />
+        </button>
+      </div>
+    </div>
   );
 }
