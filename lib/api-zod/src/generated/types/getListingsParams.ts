@@ -5,6 +5,7 @@
  * Хочу_То — Rental Marketplace API
  * OpenAPI spec version: 0.1.0
  */
+import type { GetListingsQuality } from "./getListingsQuality";
 import type { GetListingsSafeOnly } from "./getListingsSafeOnly";
 import type { GetListingsSort } from "./getListingsSort";
 
@@ -22,6 +23,10 @@ export type GetListingsParams = {
    * Если "true" — только объявления с включённой защитой сделки
    */
   safeOnly?: GetListingsSafeOnly;
+  /**
+   * Если "true" — порог качества (есть ≥1 фото и описание ≥50 символов). Используется в маркетинговой карусели «Новинки» на главной.
+   */
+  quality?: GetListingsQuality;
   page?: number;
   limit?: number;
 };

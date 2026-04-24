@@ -95,6 +95,7 @@ export default function Home() {
         sort="new"
         catalogLink="/catalog"
         bgClassName="bg-white"
+        quality
       />
 
       {/* 3. Высокий рейтинг */}

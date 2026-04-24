@@ -121,6 +121,12 @@ export const GetListingsQueryParams = zod.object({
     .enum(["true", "false"])
     .optional()
     .describe('Если \"true\" — только объявления с включённой защитой сделки'),
+  quality: zod
+    .enum(["true", "false"])
+    .optional()
+    .describe(
+      'Если \"true\" — порог качества (есть ≥1 фото и описание ≥50 символов). Используется в маркетинговой карусели «Новинки» на главной.',
+    ),
   page: zod.coerce.number().default(getListingsQueryPageDefault),
   limit: zod.coerce.number().default(getListingsQueryLimitDefault),
 });

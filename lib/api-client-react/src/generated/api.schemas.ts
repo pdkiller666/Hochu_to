@@ -529,6 +529,10 @@ export type GetListingsParams = {
    * Если "true" — только объявления с включённой защитой сделки
    */
   safeOnly?: GetListingsSafeOnly;
+  /**
+   * Если "true" — порог качества (есть ≥1 фото и описание ≥50 символов). Используется в маркетинговой карусели «Новинки» на главной.
+   */
+  quality?: GetListingsQuality;
   page?: number;
   limit?: number;
 };
@@ -548,6 +552,14 @@ export type GetListingsSafeOnly =
   (typeof GetListingsSafeOnly)[keyof typeof GetListingsSafeOnly];
 
 export const GetListingsSafeOnly = {
+  true: "true",
+  false: "false",
+} as const;
+
+export type GetListingsQuality =
+  (typeof GetListingsQuality)[keyof typeof GetListingsQuality];
+
+export const GetListingsQuality = {
   true: "true",
   false: "false",
 } as const;

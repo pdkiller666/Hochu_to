@@ -196,6 +196,12 @@ paths:
           schema:
             type: string
             enum: ["true", "false"]
+        - name: quality
+          in: query
+          description: Если "true" — порог качества (есть ≥1 фото и описание ≥50 символов). Используется в маркетинговой карусели «Новинки» на главной.
+          schema:
+            type: string
+            enum: ["true", "false"]
         - name: page
           in: query
           schema:

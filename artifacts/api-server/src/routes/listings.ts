@@ -95,7 +95,7 @@ async function calcMaxProtection(
 router.get("/", async (req, res) => {
   const settings = await getPlatformSettings();
   const defaultSort = settings.defaultCatalogSort ?? "new";
-  const { category, region, minPrice, maxPrice, search, safeOnly, page = "1", limit = "12", sort = defaultSort } = req.query as Record<string, string>;
+  const { category, region, minPrice, maxPrice, search, safeOnly, quality, page = "1", limit = "12", sort = defaultSort } = req.query as Record<string, string>;
   const pageNum = Math.max(1, parseInt(page));
   const limitNum = Math.min(50, Math.max(1, parseInt(limit)));
   const offset = (pageNum - 1) * limitNum;
@@ -112,6 +112,13 @@ router.get("/", async (req, res) => {
   if (maxPrice) baseConditions.push(lte(listingsTable.pricePerDay, maxPrice));
   if (safeOnly === "true" || safeOnly === "1") {
     baseConditions.push(eq(listingsTable.ownerProtectionEnabled, true));
+  }
+  // quality=true — порог качества для маркетинговых блоков (например, «Новинки» на главной):
+  // только объявления с хотя бы одним фото и описанием ≥ 50 символов.
+  // В каталоге не применяется по умолчанию, чтобы пользователь мог видеть всё.
+  if (quality === "true" || quality === "1") {
+    baseConditions.push(sql`COALESCE(array_length(${listingsTable.photos}, 1), 0) >= 1`);
+    baseConditions.push(sql`COALESCE(char_length(${listingsTable.description}), 0) >= 50`);
   }
   if (search) {
     // ВАЖНО: на некоторых хостингах (включая Amvera) PostgreSQL запущен с locale=C,

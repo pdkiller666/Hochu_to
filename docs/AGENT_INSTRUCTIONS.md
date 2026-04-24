@@ -853,7 +853,20 @@ GITHUB_TOKEN=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 bash scripts/github-push.s
 - `GET /api/listings?sort=popular&limit=3` → объявление #22 «Звуковая система JBL» (VIP=true, Срочно=true, bookingCount=1, rating=0) на 1м месте — выше объявлений с rating=5 и таким же bookingCount.
 
 **Бэклог Stage 19 (по убыванию ROI):**
-- 19b — синхронизировать бейдж «Часто берут» с метрикой `bookingCount` (сейчас он опирается на `reviewCount ≥ 10`, что не совпадает с `sort=popular`).
+- 19b — синхронизировать бейдж «Часто берут» с метрикой `bookingCount` (сейчас он опирается на `reviewCount ≥ 10`, что не совпадает с `sort=popular`). **Зависит от 19e** (нужно `bookingCount` на каждом листинге).
 - 19c — гибридная метрика «Хитов» для холодного старта: `bookingCount × 5 + reviewCount × 2 + favoritesCount + views_30d`. Требует таблицу `listing_views`.
-- 19d — порог качества для «Новинок»: только объявления с фото и описанием ≥ 50 символов.
 - 19e — денормализация `bookingCount`/`avgRating`/`reviewCount` колонками в `listings` + триггеры → устранение N+1 запросов в каруселях.
+
+## Журнал — Stage 19d (Порог качества «Новинок», 24.04.2026)
+
+**Проблема:** карусель «Новинки» на главной показывала любое только что созданное объявление, в т.ч. без фото и с пустым описанием. Это снижало доверие к платформе на этапе первого знакомства пользователя.
+
+**Сделано:**
+- `artifacts/api-server/src/routes/listings.ts`: добавлен опциональный query-параметр `quality=true|1`. Когда установлен — добавляет в WHERE два условия: `COALESCE(array_length(photos, 1), 0) >= 1` и `COALESCE(char_length(description), 0) >= 50`.
+- `artifacts/hochu-to/src/components/ui/ListingCarouselSection.tsx`: новая опциональная пропа `quality?: boolean`, проброшена через `fetchListings()` и `useListings()`. Не активируется по умолчанию — только когда явно передана в карусели.
+- `artifacts/hochu-to/src/pages/Home.tsx`: «Новинки» получили `quality` (`<ListingCarouselSection quality />`). Остальные карусели остались без фильтра — их сорты сами по себе предполагают качественный контент (rating, popular, выгода).
+- В каталоге `/catalog` фильтр по умолчанию НЕ применяется, чтобы пользователь, специально выбравший «Новые», видел все объявления (в т.ч. свои недавно созданные).
+
+**Smoke:** на dev-БД с тестовыми данными — без `quality`: 7/20 объявлений в выдаче дефектные, с `quality=true`: 0/20 дефектных.
+
+**API-контракт:** параметр `quality` добавлен в `lib/api-spec/openapi.yaml` (`/listings`), регенерированы `api-client-react` и `api-zod` через `pnpm --filter @workspace/api-spec run codegen`. Тип — `string` enum `["true","false"]` для единообразия с существующим `safeOnly`.

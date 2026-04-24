@@ -17,11 +17,14 @@ interface ListingCarouselSectionProps {
   catalogLink?: string;
   limit?: number;
   bgClassName?: string;
+  /** Если true — добавляет фильтр quality=true (фото есть + описание ≥ 50 симв.). */
+  quality?: boolean;
 }
 
-async function fetchListings(sort: string, limit: number, region?: string): Promise<Listing[]> {
+async function fetchListings(sort: string, limit: number, region?: string, quality?: boolean): Promise<Listing[]> {
   const params = new URLSearchParams({ sort, limit: String(limit) });
   if (region) params.set("region", region);
+  if (quality) params.set("quality", "true");
   const res = await fetch(`${API_BASE}/api/listings?${params}`);
   if (!res.ok) return [];
   const data = await res.json();
@@ -30,7 +33,7 @@ async function fetchListings(sort: string, limit: number, region?: string): Prom
 
 type GeoMode = "regional" | "mixed" | "fallback" | "all";
 
-function useListings(sort: string, limit: number, region: string) {
+function useListings(sort: string, limit: number, region: string, quality?: boolean) {
   const [listings, setListings] = useState<Listing[]>([]);
   const [loading, setLoading] = useState(true);
   const [geoMode, setGeoMode] = useState<GeoMode>("all");
@@ -40,18 +43,18 @@ function useListings(sort: string, limit: number, region: string) {
 
     const run = async () => {
       if (!region) {
-        const all = await fetchListings(sort, limit);
+        const all = await fetchListings(sort, limit, undefined, quality);
         setListings(all);
         setGeoMode("all");
         return;
       }
 
       // 1. Пробуем региональные
-      const regional = await fetchListings(sort, limit, region);
+      const regional = await fetchListings(sort, limit, region, quality);
 
       if (regional.length === 0) {
         // Нет ни одного — полный фолбэк на все регионы
-        const all = await fetchListings(sort, limit);
+        const all = await fetchListings(sort, limit, undefined, quality);
         setListings(all);
         setGeoMode("fallback");
         return;
@@ -65,7 +68,7 @@ function useListings(sort: string, limit: number, region: string) {
       }
 
       // 2. Есть, но меньше limit — добираем из всех регионов
-      const all = await fetchListings(sort, limit);
+      const all = await fetchListings(sort, limit, undefined, quality);
       const regionalIds = new Set(regional.map((l) => l.id));
       const extra = all.filter((l) => !regionalIds.has(l.id));
       const combined = [...regional, ...extra].slice(0, limit);
@@ -76,7 +79,7 @@ function useListings(sort: string, limit: number, region: string) {
     run()
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [sort, limit, region]);
+  }, [sort, limit, region, quality]);
 
   return { listings, loading, geoMode };
 }
@@ -106,9 +109,10 @@ export function ListingCarouselSection({
   catalogLink,
   limit = 8,
   bgClassName = "bg-white",
+  quality,
 }: ListingCarouselSectionProps) {
   const { selectedRegion } = useRegion();
-  const { listings, loading, geoMode } = useListings(sort, limit, selectedRegion);
+  const { listings, loading, geoMode } = useListings(sort, limit, selectedRegion, quality);
 
   const seeAllLink = catalogLink
     ? selectedRegion && geoMode !== "fallback"
