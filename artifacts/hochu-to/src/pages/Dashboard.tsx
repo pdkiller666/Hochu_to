@@ -240,6 +240,9 @@ export default function Dashboard() {
   const [verifModalOpen, setVerifModalOpen] = useState(false);
   const [verifBody, setVerifBody] = useState("");
   const [verifSubmitting, setVerifSubmitting] = useState(false);
+  // Stage 20a — отслеживаем открытую заявку на верификацию (для отображения «Отозвать»)
+  const [verifPendingTicketId, setVerifPendingTicketId] = useState<number | null>(null);
+  const [verifCancelling, setVerifCancelling] = useState(false);
   const [credForm, setCredForm] = useState({ newEmail: "", currentPassword: "", newPassword: "", confirmPassword: "" });
   const [credSaved, setCredSaved] = useState(false);
   const [credError, setCredError] = useState("");
@@ -465,6 +468,30 @@ export default function Dashboard() {
       });
     }
   }, [user?.id]);
+
+  // Stage 20a — подгружаем открытую заявку на верификацию (для кнопки «Отозвать»).
+  // Только для владельцев, у которых ещё нет бейджа.
+  // code-review fix: добавлен user?.role в deps — на случай смены роли в сессии.
+  useEffect(() => {
+    if (!token) return;
+    if (!user || user.role !== "owner" || (user as any).isVerified) {
+      setVerifPendingTicketId(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const API_BASE = import.meta.env.VITE_API_URL ?? "";
+        const r = await fetch(`${API_BASE}/api/support/tickets`, { headers: { ...authHeaders.headers } });
+        if (!r.ok) return;
+        const tickets: Array<{ id: number; category: string; status: string }> = await r.json();
+        if (cancelled) return;
+        const pending = tickets.find(t => t.category === "verification_request" && (t.status === "open" || t.status === "in_progress"));
+        setVerifPendingTicketId(pending ? pending.id : null);
+      } catch {/* silent */}
+    })();
+    return () => { cancelled = true; };
+  }, [user?.id, user?.role, (user as any)?.isVerified, token]);
 
   if (userLoading) return (
     <Layout>
@@ -2292,21 +2319,26 @@ export default function Dashboard() {
                   </div>
                 </div>
 
-                {/* ── Stage 19g: Trust & Verification — статус «Проверенный владелец» ── */}
+                {/* ── Stage 19g + 20a: Trust & Verification — статус «Проверенный владелец» ── */}
                 {user.role === "owner" && (
-                  <div className={`border rounded-2xl p-5 mb-4 shadow-sm ${(user as any).isVerified ? "bg-violet-50 border-violet-200" : "bg-white border-border"}`}>
+                  <div className={`border rounded-2xl p-5 mb-4 shadow-sm ${(user as any).isVerified ? "bg-violet-50 border-violet-200" : verifPendingTicketId ? "bg-amber-50 border-amber-200" : "bg-white border-border"}`}>
                     <div className="flex items-start gap-3">
-                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${(user as any).isVerified ? "bg-violet-100" : "bg-stone-100"}`}>
-                        <Award className={`w-5 h-5 ${(user as any).isVerified ? "text-violet-600" : "text-stone-400"}`} />
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${(user as any).isVerified ? "bg-violet-100" : verifPendingTicketId ? "bg-amber-100" : "bg-stone-100"}`}>
+                        <Award className={`w-5 h-5 ${(user as any).isVerified ? "text-violet-600" : verifPendingTicketId ? "text-amber-600" : "text-stone-400"}`} />
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
                           <h3 className="font-bold text-base">
-                            {(user as any).isVerified ? "Проверенный владелец" : "Верификация владельца"}
+                            {(user as any).isVerified ? "Проверенный владелец" : verifPendingTicketId ? "Заявка на рассмотрении" : "Верификация владельца"}
                           </h3>
                           {(user as any).isVerified && (
                             <span className="text-xs px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 font-semibold">
                               ✓ активен
+                            </span>
+                          )}
+                          {!(user as any).isVerified && verifPendingTicketId && (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold">
+                              ⏳ ожидает админа
                             </span>
                           )}
                         </div>
@@ -2315,6 +2347,50 @@ export default function Dashboard() {
                             Ваш аккаунт верифицирован администрацией{(user as any).verifiedAt ? ` ${format(new Date((user as any).verifiedAt), "d MMMM yyyy")}` : ""}.
                             Бейдж «Проверенный владелец» отображается на всех ваших объявлениях и в профиле.
                           </p>
+                        ) : verifPendingTicketId ? (
+                          <>
+                            <p className="text-sm text-muted-foreground mt-1">
+                              Ваша заявка на верификацию ожидает рассмотрения. Ответ придёт в раздел «Поддержка».
+                            </p>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setActiveTab("support")}
+                                className="inline-flex items-center gap-2 px-4 py-2 bg-white border border-amber-300 text-amber-800 text-sm font-medium rounded-lg hover:bg-amber-50 transition"
+                              >
+                                Открыть «Поддержку»
+                              </button>
+                              <button
+                                type="button"
+                                disabled={verifCancelling}
+                                onClick={async () => {
+                                  if (!verifPendingTicketId) return;
+                                  if (!confirm("Отозвать заявку на верификацию? Вы сможете подать её снова в любой момент.")) return;
+                                  setVerifCancelling(true);
+                                  try {
+                                    const API_BASE = import.meta.env.VITE_API_URL ?? "";
+                                    const r = await fetch(`${API_BASE}/api/support/tickets/${verifPendingTicketId}/cancel`, {
+                                      method: "PATCH",
+                                      headers: { ...authHeaders.headers },
+                                    });
+                                    if (r.ok) {
+                                      setVerifPendingTicketId(null);
+                                      toast({ title: "Заявка отозвана", description: "Вы можете подать новую заявку в любой момент." });
+                                    } else {
+                                      const data = await r.json().catch(() => ({}));
+                                      toast({ title: "Ошибка", description: data.message ?? "Не удалось отозвать заявку", variant: "destructive" });
+                                    }
+                                  } finally {
+                                    setVerifCancelling(false);
+                                  }
+                                }}
+                                className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded-lg transition disabled:opacity-50"
+                              >
+                                {verifCancelling ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                                Отозвать заявку
+                              </button>
+                            </div>
+                          </>
                         ) : (
                           <>
                             <p className="text-sm text-muted-foreground mt-1">
@@ -2929,12 +3005,17 @@ export default function Dashboard() {
                       }),
                     });
                     if (r.ok) {
+                      const data = await r.json().catch(() => ({}));
+                      // Stage 20a — сразу запоминаем id заявки, чтобы показать «Отозвать»
+                      if (data?.id) setVerifPendingTicketId(data.id);
                       toast({ title: "Заявка отправлена", description: "Администратор рассмотрит её в ближайшее время. Ответ придёт в раздел «Поддержка»." });
                       setVerifModalOpen(false);
                       setVerifBody("");
                       setActiveTab("support");
                     } else if (r.status === 409) {
                       const data = await r.json().catch(() => ({}));
+                      // Stage 20a — у юзера уже есть заявка; запомним её id для «Отозвать»
+                      if (data?.ticketId) setVerifPendingTicketId(data.ticketId);
                       toast({ title: "Заявка уже подана", description: data.message ?? "Дождитесь ответа администратора в разделе «Поддержка».", variant: "destructive" });
                       setVerifModalOpen(false);
                       setActiveTab("support");

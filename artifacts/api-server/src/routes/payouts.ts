@@ -7,7 +7,7 @@ import {
   payoutRequestsTable,
 } from "@workspace/db";
 import { eq, and, desc, inArray, sql } from "drizzle-orm";
-import { requireAuth, AuthRequest } from "../middleware/auth.js";
+import { requireAuth, requireAdmin, AuthRequest } from "../middleware/auth.js";
 
 const router = Router();
 
@@ -18,11 +18,6 @@ const num = (v: unknown): number => {
 };
 
 const MIN_PAYOUT_RUB = 500;
-
-async function isAdmin(userId: number): Promise<boolean> {
-  const [u] = await db.select({ role: usersTable.role }).from(usersTable).where(eq(usersTable.id, userId)).limit(1);
-  return u?.role === "admin";
-}
 
 /**
  * Доступная к выводу сумма для владельца:
@@ -413,11 +408,7 @@ router.post("/me/payouts", requireAuth, async (req: AuthRequest, res) => {
 
 // ─── ADMIN / PAYOUTS ─────────────────────────────────────────────────────────
 
-router.get("/admin/payouts", requireAuth, async (req: AuthRequest, res) => {
-  if (!(await isAdmin(req.userId!))) {
-    res.status(403).json({ error: "forbidden" });
-    return;
-  }
+router.get("/admin/payouts", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
   const status = (req.query.status as string) || "all";
   const allowed = ["all", "pending", "approved", "paid", "rejected"];
   if (!allowed.includes(status)) {
@@ -450,11 +441,7 @@ router.get("/admin/payouts", requireAuth, async (req: AuthRequest, res) => {
   });
 });
 
-router.post("/admin/payouts/:id/approve", requireAuth, async (req: AuthRequest, res) => {
-  if (!(await isAdmin(req.userId!))) {
-    res.status(403).json({ error: "forbidden" });
-    return;
-  }
+router.post("/admin/payouts/:id/approve", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
   const id = Number(req.params.id);
   const adminNote = typeof req.body?.adminNote === "string" ? req.body.adminNote.slice(0, 500) : null;
 
@@ -474,11 +461,7 @@ router.post("/admin/payouts/:id/approve", requireAuth, async (req: AuthRequest, 
   res.json({ ok: true });
 });
 
-router.post("/admin/payouts/:id/mark-paid", requireAuth, async (req: AuthRequest, res) => {
-  if (!(await isAdmin(req.userId!))) {
-    res.status(403).json({ error: "forbidden" });
-    return;
-  }
+router.post("/admin/payouts/:id/mark-paid", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
   const id = Number(req.params.id);
   const b = (req.body ?? {}) as Record<string, unknown>;
   const paymentRef = typeof b.paymentRef === "string" ? b.paymentRef.trim() : "";
@@ -521,11 +504,7 @@ router.post("/admin/payouts/:id/mark-paid", requireAuth, async (req: AuthRequest
   res.json({ ok: true });
 });
 
-router.post("/admin/payouts/:id/reject", requireAuth, async (req: AuthRequest, res) => {
-  if (!(await isAdmin(req.userId!))) {
-    res.status(403).json({ error: "forbidden" });
-    return;
-  }
+router.post("/admin/payouts/:id/reject", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
   const id = Number(req.params.id);
   const b = (req.body ?? {}) as Record<string, unknown>;
   const rejectionReason = typeof b.rejectionReason === "string" ? b.rejectionReason.trim() : "";

@@ -185,4 +185,57 @@ router.post("/tickets/:id/reply", requireAuth, async (req: AuthRequest, res) => 
   res.status(201).json(msg);
 });
 
+// ─── PATCH /api/support/tickets/:id/cancel — отозвать СВОЮ заявку ────────────
+// Stage 20a — пользователь может закрыть свой собственный тикет (например,
+// заявку на верификацию владельца), пока он не обработан админом.
+// Закрывает только tickets со status IN ('open','in_progress') и принадлежащие пользователю.
+router.patch("/tickets/:id/cancel", requireAuth, async (req: AuthRequest, res) => {
+  const id = parseInt(req.params.id as string, 10);
+  if (!Number.isFinite(id)) {
+    res.status(400).json({ error: "bad_request", message: "Некорректный id" });
+    return;
+  }
+
+  // Stage 20a code-review fix: атомарный UPDATE с ownership + status guard в одном
+  // SQL'е защищает от race с админом (например, mark-resolved параллельно с cancel).
+  // Если UPDATE не вернул строку — определяем причину через отдельный SELECT.
+  const [updated] = await db
+    .update(supportTicketsTable)
+    .set({ status: "closed", closedAt: new Date(), updatedAt: new Date() })
+    .where(and(
+      eq(supportTicketsTable.id, id),
+      eq(supportTicketsTable.userId, req.userId!),
+      sql`${supportTicketsTable.status} IN ('open', 'in_progress')`,
+    ))
+    .returning();
+
+  if (!updated) {
+    // Различаем 404 (нет тикета или не его) vs 400 (уже закрыт/обработан)
+    const [ticket] = await db
+      .select({ status: supportTicketsTable.status })
+      .from(supportTicketsTable)
+      .where(and(eq(supportTicketsTable.id, id), eq(supportTicketsTable.userId, req.userId!)))
+      .limit(1);
+    if (!ticket) {
+      res.status(404).json({ error: "not_found", message: "Тикет не найден" });
+      return;
+    }
+    res.status(400).json({
+      error: "not_cancellable",
+      message: "Тикет уже закрыт или обработан",
+    });
+    return;
+  }
+
+  // Системное сообщение в ленту тикета (видно админу при открытии)
+  await db.insert(supportMessagesTable).values({
+    ticketId: id,
+    authorId: req.userId!,
+    body: "[Заявка отозвана пользователем]",
+    isAdmin: false,
+  });
+
+  res.json(updated);
+});
+
 export default router;

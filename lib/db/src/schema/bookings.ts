@@ -1,4 +1,4 @@
-import { pgTable, serial, integer, text, numeric, boolean, timestamp, pgEnum, varchar } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, text, numeric, boolean, timestamp, pgEnum, varchar, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -34,7 +34,18 @@ export const bookingsTable = pgTable("bookings", {
   /** Заявка на выплату, к которой привязана эта бронь (FK -> payout_requests.id) */
   payoutRequestId: integer("payout_request_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (t) => ({
+  // Stage 20a — индексы для аналитики Premium-фонда и статистики выплат.
+  // Используются в claims.ts (calcFundBalance), payouts.ts (calcAvailable),
+  // admin.ts (/stats, /analytics).
+  fundAnalyticsIdx: index("bookings_fund_analytics_idx").on(t.status, t.protectionEnabled, t.payoutSettledAt),
+  // Аналитика по дате создания (admin /analytics: bookings_by_day)
+  createdAtIdx: index("bookings_created_at_idx").on(t.createdAt),
+  // Поиск броней владельца по статусу (Dashboard, payouts.ts)
+  ownerStatusIdx: index("bookings_owner_status_idx").on(t.ownerId, t.status),
+  // Поиск броней арендатора по статусу (Dashboard)
+  renterStatusIdx: index("bookings_renter_status_idx").on(t.renterId, t.status),
+}));
 
 export const insertBookingSchema = createInsertSchema(bookingsTable).omit({ id: true, createdAt: true });
 export type InsertBooking = z.infer<typeof insertBookingSchema>;

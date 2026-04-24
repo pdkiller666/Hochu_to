@@ -1365,3 +1365,57 @@ GITHUB_TOKEN=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 bash scripts/github-push.s
 - Нет автоматического flow для KYC-документов — владелец прикладывает ссылки/фото уже после создания тикета через `POST /api/support/tickets/:id/messages`. Это сознательное решение раздела 11d (нет хранения PII без юридической оценки).
 - Trust Score (V6–V8) отложен до 100+ завершённых сделок и 50+ владельцев — иначе калибровка бессмысленна.
 - Бейдж не даёт материальных привилегий (скидок, пониженного депозита) — это сознательное решение, чтобы не создавать инцентив на накрутку верификации.
+
+## Журнал — Stage 20a (Приоритет 1: admin-RBAC + индексы + отзыв заявки на верификацию, 24.04.2026)
+
+**Контекст:** после Stage 19g нужны 3 короткие задачи для production hardening (см. roadmap user'а):
+A) admin-RBAC middleware (вместо ручной `isAdmin()` в каждом хендлере)
+B) индексы на `bookings`/`claims` для аналитики фонда
+C) UI «Отозвать заявку на верификацию» (чтобы владелец не ждал бесконечно)
+
+**Реализация:**
+
+### A) `requireAdmin` middleware (12 inline-проверок → 1 middleware)
+- Файл: `artifacts/api-server/src/middleware/auth.ts` — добавлен `requireAdmin(req, res, next)`. Использует `req.userRole` (уже выставляется `requireAuth`), без повторного запроса в БД. 403 + `{error:"forbidden", message:"Только для менеджеров портала"}`.
+- `admin.ts` — удалена локальная функция `requireAdmin` (была дублирующей), импорт из middleware.
+- `claims.ts` — заменены 7 inline-проверок (`if (!(await isAdmin(req.userId!))) {…403…}`) на `requireAdmin` в роут-сигнатуре. Локальный helper `isAdmin()` оставлен — он используется в `PATCH /:id` для **условной логики** (admin → меняет статус, non-admin → может только обновить evidence пока pending). Это единственное legitimate-место: middleware не подходит, потому что роут разрешён обоим.
+- `payouts.ts` — заменены 4 inline-проверки. Локальный helper `isAdmin()` удалён полностью (больше не используется).
+- **Smoke-тест:** owner→403, admin→200 на `/api/claims/fund-status`, `/api/admin/payouts`, `/api/admin/stats`. Без токена → 401.
+
+### B) Индексы для аналитики (Drizzle `(t) => ({...})`)
+- `bookings.ts`:
+  - `bookings_fund_analytics_idx (status, protection_enabled, payout_settled_at)` — `calcFundBalance()`, `calcAvailable()`, `/api/admin/stats`.
+  - `bookings_created_at_idx (created_at)` — `/api/admin/analytics` (bookings_by_day за 30 дней).
+  - `bookings_owner_status_idx (owner_id, status)` — Dashboard «мои сделки» владельца + payouts.
+  - `bookings_renter_status_idx (renter_id, status)` — Dashboard арендатора.
+- `claims.ts`:
+  - `claims_status_paid_idx (status, paid_at)` — `calcFundBalance()`, очередь заявок в админке.
+  - `claims_claimant_created_idx (claimant_id, created_at)` — Dashboard свои заявки.
+  - `claims_booking_idx (booking_id)` — частый JOIN в админке.
+- Применено через `pnpm --filter @workspace/db push`. Проверено в `pg_indexes`: 7 индексов созданы.
+- **Сейчас прирост незаметен** (мало данных), но даст большой эффект на проде когда `bookings`/`claims` вырастут до тысяч.
+
+### C) UI: отзыв заявки на верификацию
+- Backend: `PATCH /api/support/tickets/:id/cancel` — закрывает свой тикет (любая категория) если он в `open`/`in_progress`. Ownership-check (404 если чужая). Ставит `status='closed'` + `closedAt`. Дополнительно вставляет системное сообщение в ленту тикета (`[Заявка отозвана пользователем]` от `userId`) — админ видит в админке.
+- Frontend: в `Dashboard.tsx` (раздел «Профиль» → блок верификации):
+  - Новый state: `verifPendingTicketId: number | null` + `verifCancelling: boolean`.
+  - `useEffect` грузит `GET /api/support/tickets`, ищет первый с `category='verification_request' && status IN ('open','in_progress')`. Только для `role='owner' && !isVerified`.
+  - 3 состояния блока: верифицирован (фиолет), заявка на рассмотрении (амбер + ⏳ + 2 кнопки «Открыть Поддержку» / «Отозвать заявку»), нет заявки (белый + «Подать заявку»).
+  - После успешного POST на верификацию (как 201, так и 409 с `ticketId` в ответе) — сразу выставляем `verifPendingTicketId`, чтобы UI обновился без перезагрузки.
+  - После отзыва — `setVerifPendingTicketId(null)` + toast. Confirm перед PATCH.
+- **Smoke-тест:** create→409 на дубль→cancel→cancel повторно (400 not_cancellable)→create новой (201)→чужой не может отозвать (404).
+
+**Решённые вопросы:**
+- *Можно ли удалить локальный `isAdmin()` из `claims.ts`?* — Нет, остаётся для PATCH `/:id` (admin/user условная логика). Middleware заменяет только полные admin-only роуты.
+- *Зачем 4 индекса на `bookings` если уже есть PK на id?* — PK не помогает на `WHERE status=… AND payout_settled_at IS NULL` (full scan). Композитные индексы нужны именно для аналитических SQL'ей фонда и /admin/stats.
+- *Почему `cancel`-эндпоинт не привязан только к `verification_request`?* — Отзыв своего тикета — общий полезный паттерн. Если в будущем понадобится запрет для категорий `dispute` (где обе стороны должны участвовать) — добавим whitelist. Пока 400 only-if-not-open уже защищает.
+
+**Уроки Stage 20a:**
+1. **`req.userRole` после `requireAuth` — single source of truth для RBAC.** Не делать второй SELECT в каждом роуте, не парсить токен заново. Middleware — самое лёгкое решение из возможных.
+2. **Удаление inline-проверок безопасно только когда replace_all НЕ найдёт ложноположительных.** В нашем случае блок `if (!(await isAdmin(req.userId!))) {\n  res.status(403)…return;\n}` уникален — `replace_all` сработал. Если бы были вариации, пришлось бы делать по одному.
+3. **При добавлении новых эндпоинтов всегда сразу подмешивать в Dashboard `useEffect` для актуальности UI без F5.** Stage 19g имел кнопку «Подать заявку», но не имел обратной связи — пользователь не видел статус заявки до перезагрузки. Stage 20a исправил это.
+
+**Ограничения / следующие шаги:**
+- Cancel-эндпоинт работает на любую категорию тикета — если в Stage 20+ появятся споры (`dispute`), где отзыв арендатором не должен закрывать тикет, добавить whitelist категорий.
+- Индексы на `payout_requests` пока не добавлены — табличка маленькая, и selectivity её колонок (status, ownerId) пока низкая. Добавить когда будут реальные выплаты.
+- В админке нет отдельного фильтра «отозванные заявки» — `status='closed'` мерджится с обычными закрытыми. Добавить если админ попросит.

@@ -1,4 +1,4 @@
-import { pgTable, serial, integer, text, numeric, timestamp, pgEnum, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, text, numeric, timestamp, pgEnum, jsonb, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -33,7 +33,15 @@ export const claimsTable = pgTable("claims", {
   resolvedAt: timestamp("resolved_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+}, (t) => ({
+  // Stage 20a — индексы для аналитики фонда и админской очереди заявок.
+  // Используются в claims.ts (calcFundBalance, /analytics, /).
+  statusPaidIdx: index("claims_status_paid_idx").on(t.status, t.paidAt),
+  // Дашборд пользователя — его собственные заявки (по дате)
+  claimantCreatedIdx: index("claims_claimant_created_idx").on(t.claimantId, t.createdAt),
+  // Связь с бронями (часто JOIN'им claims по bookingId в админке)
+  bookingIdx: index("claims_booking_idx").on(t.bookingId),
+}));
 
 export const insertClaimSchema = createInsertSchema(claimsTable).omit({ id: true, createdAt: true, updatedAt: true, resolvedAt: true });
 export type ClaimResolution = "pending" | "admin_review" | "approved" | "paid" | "rejected";

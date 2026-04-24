@@ -9,7 +9,7 @@ import {
   reviewsTable, regionsTable, categoriesTable,
 } from "@workspace/db";
 import { eq, desc, or, sql, and, lt, gte } from "drizzle-orm";
-import { requireAuth, AuthRequest } from "../middleware/auth.js";
+import { requireAuth, requireAdmin, AuthRequest } from "../middleware/auth.js";
 import bcrypt from "bcryptjs";
 import { getPlatformSettings, updatePlatformSettings } from "../lib/platform-settings.js";
 import { seedTestListings } from "../lib/seed-test-listings.js";
@@ -31,14 +31,6 @@ function cyrillicLike(column: any, q: string): ReturnType<typeof or> {
 }
 
 const router = Router();
-
-function requireAdmin(req: AuthRequest, res: any, next: any) {
-  if (!req.userRole || req.userRole !== "admin") {
-    res.status(403).json({ error: "forbidden", message: "Только для менеджеров портала" });
-    return;
-  }
-  next();
-}
 
 // Helper: write audit log
 async function audit(adminId: number, entityType: string, entityId: number | null, action: string, detail?: string) {

@@ -45,3 +45,17 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
     res.status(401).json({ error: "unauthorized", message: "Недействительный токен" });
   }
 }
+
+/**
+ * RBAC middleware: разрешает доступ только пользователям с role='admin'.
+ * Должен ставиться ПОСЛЕ requireAuth (читает req.userRole, выставленный requireAuth).
+ *
+ * Пример:  router.get("/admin/x", requireAuth, requireAdmin, handler)
+ */
+export function requireAdmin(req: AuthRequest, res: Response, next: NextFunction) {
+  if (!req.userRole || req.userRole !== "admin") {
+    res.status(403).json({ error: "forbidden", message: "Только для менеджеров портала" });
+    return;
+  }
+  next();
+}
