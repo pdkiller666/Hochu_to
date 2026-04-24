@@ -193,25 +193,43 @@ router.get("/", async (req, res) => {
     .leftJoin(usersTable, eq(listingsTable.ownerId, usersTable.id))
     .where(whereClause);
 
+  // Платное продвижение должно работать во ВСЕХ выдачах, не только в дефолтной.
+  // Эти три SQL-условия префиксуются перед любой пользовательской сортировкой, чтобы
+  // оплаченные VIP/Срочно/Boost всегда стояли в топе своих групп.
+  const promoOrder = [
+    sql`(${listingsTable.isFeatured} = true AND ${listingsTable.featuredUntil} > NOW()) DESC`,
+    sql`(${listingsTable.isUrgent} = true AND ${listingsTable.urgentUntil} > NOW()) DESC`,
+    sql`(${listingsTable.boostedUntil} IS NOT NULL AND ${listingsTable.boostedUntil} > NOW()) DESC`,
+  ];
+
   let rawListings;
   if (needsJsSorting) {
-    rawListings = await (baseQuery as any).orderBy(desc(listingsTable.createdAt));
+    // JS-сортировка по rating/popular: тянем всё, тир сохраняем в JS-компараторе ниже.
+    rawListings = await (baseQuery as any).orderBy(...promoOrder, desc(listingsTable.createdAt));
   } else if (sort === "price_asc") {
-    rawListings = await (baseQuery as any).orderBy(sql`${listingsTable.pricePerDay}::numeric ASC`).limit(limitNum).offset(offset);
-  } else if (sort === "price_desc") {
-    rawListings = await (baseQuery as any).orderBy(sql`${listingsTable.pricePerDay}::numeric DESC`).limit(limitNum).offset(offset);
-  } else if (sort === "protected_first") {
-    // Premium-объявления всегда выше Free, внутри группы — по дате создания (новые первее)
     rawListings = await (baseQuery as any)
-      .orderBy(sql`${listingsTable.ownerProtectionEnabled} DESC`, desc(listingsTable.createdAt))
+      .orderBy(...promoOrder, sql`${listingsTable.pricePerDay}::numeric ASC`)
+      .limit(limitNum).offset(offset);
+  } else if (sort === "price_desc") {
+    rawListings = await (baseQuery as any)
+      .orderBy(...promoOrder, sql`${listingsTable.pricePerDay}::numeric DESC`)
+      .limit(limitNum).offset(offset);
+  } else if (sort === "protected_first") {
+    // Premium-объявления всегда выше Free, внутри группы — оплаченное продвижение, затем по дате
+    rawListings = await (baseQuery as any)
+      .orderBy(sql`${listingsTable.ownerProtectionEnabled} DESC`, ...promoOrder, desc(listingsTable.createdAt))
+      .limit(limitNum).offset(offset);
+  } else if (sort === "new") {
+    // Новинки: оплаченное продвижение → дата создания
+    rawListings = await (baseQuery as any)
+      .orderBy(...promoOrder, desc(listingsTable.createdAt))
       .limit(limitNum).offset(offset);
   } else {
     // Дефолт: VIP (активные) → Срочно (активные) → boosted (активные, поднятие на 24ч) → новые
     // GREATEST(boostedUntil, createdAt) даёт «эффективную дату»: только если boost ещё не истёк.
     rawListings = await (baseQuery as any)
       .orderBy(
-        sql`(${listingsTable.isFeatured} = true AND ${listingsTable.featuredUntil} > NOW()) DESC`,
-        sql`(${listingsTable.isUrgent} = true AND ${listingsTable.urgentUntil} > NOW()) DESC`,
+        ...promoOrder,
         sql`GREATEST(COALESCE(CASE WHEN ${listingsTable.boostedUntil} > NOW() THEN ${listingsTable.boostedUntil} END, ${listingsTable.createdAt}), ${listingsTable.createdAt}) DESC`,
       )
       .limit(limitNum).offset(offset);
@@ -250,16 +268,33 @@ router.get("/", async (req, res) => {
     };
   }));
 
-  // Apply JS-based sorting for rating and popular
+  // Apply JS-based sorting for rating and popular.
+  // Платный тир (VIP > Срочно > Boost) удерживается наверху и при JS-сортировке.
+  const nowMs = Date.now();
+  // Семантика «активно» строго совпадает с SQL-префиксом promoOrder:
+  //   VIP/Срочно — isX=true И XUntil > NOW(); Boost — boostedUntil > NOW().
+  // Если admin вручную поставил isFeatured=true без featuredUntil, тариф НЕ активен —
+  // так же, как в SQL-ветках (`isFeatured=true AND featuredUntil > NOW()`).
+  const promoTier = (l: any): number => {
+    if (l.isFeatured && l.featuredUntil && new Date(l.featuredUntil).getTime() > nowMs) return 3;
+    if (l.isUrgent && l.urgentUntil && new Date(l.urgentUntil).getTime() > nowMs) return 2;
+    if (l.boostedUntil && new Date(l.boostedUntil).getTime() > nowMs) return 1;
+    return 0;
+  };
+
   let sortedListings = listingsWithRating;
   if (sort === "rating") {
     sortedListings = [...listingsWithRating].sort((a, b) => {
+      const tA = promoTier(a), tB = promoTier(b);
+      if (tA !== tB) return tB - tA;
       if (b.rating !== a.rating) return b.rating - a.rating;
       return b.reviewCount - a.reviewCount;
     });
     sortedListings = sortedListings.slice(offset, offset + limitNum);
   } else if (sort === "popular") {
     sortedListings = [...listingsWithRating].sort((a, b) => {
+      const tA = promoTier(a), tB = promoTier(b);
+      if (tA !== tB) return tB - tA;
       if (b.bookingCount !== a.bookingCount) return b.bookingCount - a.bookingCount;
       return b.rating - a.rating;
     });

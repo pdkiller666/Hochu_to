@@ -837,3 +837,23 @@ GITHUB_TOKEN=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 bash scripts/github-push.s
 **Локальный прогон:** `inserted: 150`, по 15-20 объявлений в каждой из 10 категорий (некоторые категории уже имели объявления из основного seed). Повтор: `inserted: 0` ✅.
 
 **Для прода:** после деплоя коммита запустить `bash scripts/seed-test-listings-amvera.sh https://hochu.to.amvera.io 15`. Если на проде нет регионов — сначала вызвать `bash scripts/seed-amvera.sh ...`.
+
+**Кнопка в админке (24.04.2026):** в `AdminPage.tsx` → вкладка «Объявления» добавлена жёлтая плашка с кнопкой «Заполнить тестовыми». Использует `getAuthHeaders()` из `@/lib/auth` (ключ `hochu_to_auth_token`), на мобильном — кнопка во всю ширину, на ≥sm — справа от описания. После успеха показывает alert со сводкой и обновляет список (`setRev(v=>v+1)`).
+
+## Журнал — Stage 19a (Промо во всех каруселях, 24.04.2026)
+
+**Проблема:** платное продвижение (VIP/Срочно/Boost) работало только в дефолтной выдаче `/api/listings`. Маркетинговые карусели на главной (`Хиты` `sort=popular`, `Новинки` `sort=new`, `Высокий рейтинг` `sort=rating`, `Выгодные` `sort=price_asc`) использовали свои `orderBy` без префикса промо — оплаченное объявление в этих блоках терялось среди остальных. Это снижало мотивацию владельцев покупать продвижение.
+
+**Сделано в `artifacts/api-server/src/routes/listings.ts`:**
+- Объявлен общий префикс `promoOrder = [VIP активный DESC, Срочно активный DESC, Boost активный DESC]` (3 SQL-выражения).
+- Префикс добавлен **во все** SQL-ветки: `sort=new`, `price_asc`, `price_desc`, `protected_first`, дефолт. Для `protected_first` сначала идёт `ownerProtectionEnabled DESC`, затем `promoOrder`, затем `createdAt DESC`.
+- Для JS-сортировок (`rating`, `popular`) добавлена функция `promoTier(l)` (3=VIP, 2=Срочно, 1=Boost, 0=обычный). Компаратор сначала сравнивает `promoTier`, при равенстве — обычные критерии (rating/reviewCount, bookingCount/rating).
+
+**Smoke-тест:**
+- `GET /api/listings?sort=popular&limit=3` → объявление #22 «Звуковая система JBL» (VIP=true, Срочно=true, bookingCount=1, rating=0) на 1м месте — выше объявлений с rating=5 и таким же bookingCount.
+
+**Бэклог Stage 19 (по убыванию ROI):**
+- 19b — синхронизировать бейдж «Часто берут» с метрикой `bookingCount` (сейчас он опирается на `reviewCount ≥ 10`, что не совпадает с `sort=popular`).
+- 19c — гибридная метрика «Хитов» для холодного старта: `bookingCount × 5 + reviewCount × 2 + favoritesCount + views_30d`. Требует таблицу `listing_views`.
+- 19d — порог качества для «Новинок»: только объявления с фото и описанием ≥ 50 символов.
+- 19e — денормализация `bookingCount`/`avgRating`/`reviewCount` колонками в `listings` + триггеры → устранение N+1 запросов в каруселях.
