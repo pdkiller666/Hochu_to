@@ -930,14 +930,52 @@ function ListingsTab() {
   const [availableFilter, setAvailableFilter] = useState("");
   const [page, setPage] = useState(1); const [rev, setRev] = useState(0);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [seedingTest, setSeedingTest] = useState(false);
 
   useEffect(() => { const t = setTimeout(() => { setDq(q); setPage(1); }, 400); return () => clearTimeout(t); }, [q]);
 
   const url = `${API}/api/admin/listings?page=${page}&limit=20${dq ? `&q=${encodeURIComponent(dq)}` : ""}${availableFilter ? `&available=${availableFilter}` : ""}`;
   const { data, loading } = useFetch<{ listings: AdminListing[]; pagination: any }>(url, [rev, availableFilter]);
 
+  async function handleSeedTest() {
+    if (!confirm("Добавить по 15 тестовых объявлений в каждую категорию? Повторное нажатие ничего не дублирует.")) return;
+    setSeedingTest(true);
+    try {
+      const r = await fetch(`${API}/api/admin/seed-test-listings`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${localStorage.getItem("token") ?? ""}` },
+        body: JSON.stringify({ perCategory: 15 }),
+      });
+      const j = await r.json();
+      if (!r.ok || !j.ok) {
+        alert("Ошибка: " + (j.error || r.status));
+      } else {
+        alert(`Готово! Добавлено ${j.inserted} объявлений.\n\nПо категориям:\n` +
+          Object.entries(j.perCategory).map(([s, c]) => `${s}: ${c}`).join("\n"));
+        setRev(v => v + 1);
+      }
+    } catch (e: any) {
+      alert("Сбой: " + (e?.message ?? String(e)));
+    } finally {
+      setSeedingTest(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-amber-50 border border-amber-200">
+        <div className="text-sm">
+          <div className="font-bold text-amber-900">Тестовые данные для обкатки</div>
+          <div className="text-amber-800 text-xs">Добавит по 15 объявлений в каждую из 10 категорий с фото-ссылками. Можно нажимать повторно — дубликатов не будет.</div>
+        </div>
+        <button
+          onClick={handleSeedTest}
+          disabled={seedingTest}
+          className="px-4 py-2 rounded-lg bg-amber-600 text-white text-sm font-bold hover:bg-amber-700 transition disabled:opacity-50 whitespace-nowrap"
+        >
+          {seedingTest ? "Заполняем…" : "Заполнить тестовыми"}
+        </button>
+      </div>
       <div className="flex gap-3 flex-wrap">
         <div className="relative flex-1 min-w-48">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
