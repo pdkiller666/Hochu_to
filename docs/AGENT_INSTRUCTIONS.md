@@ -556,6 +556,153 @@ GITHUB_TOKEN=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 bash scripts/github-push.s
 
 > Решение пользователя по выбору варианта будет занесено в этот же раздел.
 
+**Решение от 24.04.2026:** выбран **Вариант B** (Бизнес-подписка для юрлиц) с расчётом на расширение до Pro в будущем. Дизайн и план реализации — в разделе 11c.
+
+---
+
+## 11c. Бизнес-подписка для юрлиц — фундамент и план развития (24.04.2026)
+
+> Перспективная фича. **Не реализовывать прежде ЮKassa.** Раздел зафиксирован для будущих сессий, чтобы при возврате к теме не пере-проектировать с нуля.
+
+### Цель и аудитория
+Дать юрлицам/ИП с парком техники (10+ единиц) экономический инструмент:
+- Снять лимит `free_listings_max_per_owner=10` (поднять до условного безлимита, например 500).
+- Снизить сервис-комиссию с 10% до 5% (используется уже существующая настройка `subscription_business_commission_percent=5`).
+- Бейдж «Партнёр платформы» на карточке и в профиле — социальное доказательство для арендатора.
+- Включённый пакет промо в месяц (например, 3 VIP × 7д + 5 Срочно × 3д) — даёт ощутимую материальную ценность сверх скидки на комиссию.
+
+**Цена:** `subscription_business_monthly=1990 ₽/мес` (уже в `platform_settings`).
+
+**Прогноз unit-economics:**
+- Точка безубыточности для платформы — владелец делает ≥40 тыс. ₽ оборота/мес (40 000 × 5% = 2000 ₽ потери комиссии vs 1990 ₽ подписки).
+- Для владельца выгодно при обороте ≥40 тыс. ₽/мес (раньше платил 4000 ₽ комиссии, теперь 2000 + 1990 = 3990 ₽; плюс получил пакет промо ~600 ₽ и бейдж).
+- Чистый recurring доход для платформы появляется на оборотах <40k₽/мес владельца (плата за бренд + лимит).
+
+### Архитектура (расширяемая под будущий Pro)
+
+#### 1. БД-схема (новые таблицы — НЕ накатывать до запуска ЮKassa)
+
+```ts
+// lib/db/src/schema/subscriptions.ts (будущий файл)
+export const subscriptionTierEnum = pgEnum("subscription_tier", ["business", "pro"]);
+//                                                                            ^ зарезервировано на будущее
+export const subscriptionStatusEnum = pgEnum("subscription_status",
+  ["active", "past_due", "cancelled", "expired"]);
+
+export const subscriptionsTable = pgTable("subscriptions", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => usersTable.id),
+  tier: subscriptionTierEnum("tier").notNull(),                  // первая версия — только "business"
+  status: subscriptionStatusEnum("status").notNull().default("active"),
+  startedAt: timestamp("started_at").notNull().defaultNow(),
+  expiresAt: timestamp("expires_at").notNull(),                  // конец оплаченного периода
+  cancelledAt: timestamp("cancelled_at"),                         // когда пользователь нажал «отменить»
+  autoRenew: boolean("auto_renew").notNull().default(true),
+  yookassaPaymentMethodId: text("yookassa_payment_method_id"),    // для рекуррента (см. ЮKassa save_payment_method)
+  pricePaidRub: integer("price_paid_rub").notNull(),              // зафиксированная цена на момент покупки
+});
+
+// История платежей (для аудита, биллинга, расследований)
+export const subscriptionPaymentsTable = pgTable("subscription_payments", {
+  id: serial("id").primaryKey(),
+  subscriptionId: integer("subscription_id").notNull().references(() => subscriptionsTable.id),
+  yookassaPaymentId: text("yookassa_payment_id").notNull().unique(),  // идемпотентность webhook'ов
+  amountRub: integer("amount_rub").notNull(),
+  status: text("status").notNull(),                               // succeeded / canceled / refunded
+  paidAt: timestamp("paid_at"),
+  periodStart: timestamp("period_start").notNull(),
+  periodEnd: timestamp("period_end").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+```
+
+**Индексы:**
+- `subscriptions(user_id, status)` — быстрая проверка «активна ли подписка у юзера».
+- `subscriptions(expires_at) WHERE status='active'` — для cron'а истечения.
+- `subscription_payments(subscription_id, period_start)` — биллинг-история.
+
+**Расширяемость под Pro:** enum `subscription_tier` уже включает `pro`. Добавление Pro = новый тариф в `platform_settings` + поле `tier='pro'` в `subscriptions` + ветка в логике применения скидки. Никаких миграций не требуется.
+
+#### 2. Поля в `platform_settings`
+**Уже есть** (используем как есть):
+- `subscription_business_monthly=1990` — цена.
+- `subscription_business_commission_percent=5` — пониженная комиссия.
+
+**Добавить** (под расширяемость):
+- `subscription_business_max_listings INT NOT NULL DEFAULT 500` — лимит объявлений для Бизнес.
+- `subscription_business_included_vip_count INT NOT NULL DEFAULT 3` — VIP в пакете.
+- `subscription_business_included_urgent_count INT NOT NULL DEFAULT 5` — Срочно в пакете.
+- `subscription_business_grace_period_days INT NOT NULL DEFAULT 3` — окно для повторной попытки списания (status='past_due' → 'expired').
+
+#### 3. API-слой (новый модуль `routes/subscriptions.ts`)
+```
+GET  /api/subscriptions/tiers                  публичный — описание тарифов с ценами из platform_settings
+GET  /api/subscriptions/me                     текущая подписка пользователя + остаток включённых промо
+POST /api/subscriptions/me/checkout            создать платёж в ЮKassa, вернуть confirmation_url (save_payment_method=true)
+POST /api/subscriptions/me/cancel              отменить авто-продление (доступ до конца оплаченного периода сохраняется)
+
+// Webhooks
+POST /api/subscriptions/yookassa-webhook       идемпотентно обработать события payment.succeeded / payment.canceled
+
+// Admin
+GET    /api/admin/subscriptions                список всех подписок с фильтрами (status, tier)
+PATCH  /api/admin/subscriptions/:id            ручное продление/смена статуса (для саппорта)
+```
+
+#### 4. Применение пониженной комиссии
+В `routes/bookings.ts` при расчёте платежа:
+```ts
+const ownerSubscription = await getActiveSubscription(listing.ownerId);  // helper с кэшем 60с
+const serviceFeePercent = ownerSubscription?.tier === "business"
+  ? settings.subscriptionBusinessCommissionPercent   // 5%
+  : settings.serviceFeePercent;                      // 10%
+```
+Helper `getActiveSubscription(userId)` — единственная точка проверки. Будущий Pro подключится через `tier === "pro" ? settings.subscriptionProCommissionPercent : ...` без изменения вызывающего кода.
+
+#### 5. UI
+- **Dashboard → новая вкладка «Подписка»**: текущий статус + дата окончания + кнопка «Оформить» / «Отменить».
+- **Профиль владельца**: бейдж «Партнёр платформы» (если `subscription.tier='business'` и `status='active'`).
+- **Карточка объявления**: бейдж «Партнёр» через тот же `BadgeRow` (новый тип в `getListingBadges`).
+- **Админка → новая вкладка «Подписки»**: список + поиск + ручное продление.
+
+#### 6. Cron-задачи (расширение `lib/scheduler.ts`)
+- **Ежедневно в 03:00:** `expireSubscriptions()` — все `status='active' AND expires_at < now()` → попытка списания через ЮKassa (если `auto_renew=true` и есть `payment_method_id`); неудача → `status='past_due'`; через `grace_period_days` неудач → `status='expired'`.
+- **За 3 дня до окончания:** уведомление пользователю «Подписка истекает через 3 дня».
+- **За 1 день и в день окончания:** аналогичные напоминания.
+
+### Поэтапный план реализации
+
+| Этап | Что | Зависит от |
+|------|-----|------------|
+| **M0 — Pre-req** | Запустить ЮKassa-интеграцию для уже существующих фич (контакты, промо). Проверить webhook, идемпотентность, save_payment_method. | — |
+| **M1 — Скелет** | Drizzle-схема (`subscriptions` + `subscription_payments`) + `db:push --force`. Расширить `platform_settings` 4 новыми полями. Helper `getActiveSubscription()` с кэшем. | M0 |
+| **M2 — Применение скидки** | Подключить helper в `routes/bookings.ts` (без UI). Smoke-тест: вручную вставить запись в `subscriptions` → бронь рассчитывается с 5% вместо 10%. | M1 |
+| **M3 — Покупка** | `POST /api/subscriptions/me/checkout` + webhook + UI вкладки «Подписка» в Dashboard + страница «Спасибо за оформление». | M2 |
+| **M4 — Бейдж** | Бейдж «Партнёр» в `BadgeRow`, профиле владельца, карточке. | M3 |
+| **M5 — Жизненный цикл** | Cron `expireSubscriptions` + уведомления + `cancel` endpoint + админ-вкладка. | M4 |
+| **M6 — Включённый пакет промо** | Поля `business_included_vip_count/included_urgent_count` начинают работать: при покупке промо для подписчика автоматически списываются «бесплатные» из пакета, потом платные. | M5 |
+
+### Точка расширения до Pro (когда наберётся ≥50 активных владельцев с 5+ объявлениями)
+- Добавить `subscription_pro_monthly` (уже в БД), `subscription_pro_commission_percent`, `subscription_pro_max_listings`, и т.д.
+- Один новый case в `getActiveSubscription()` логике скидок.
+- Один новый tier в UI вкладке «Подписка».
+- Никаких миграций схемы — всё через enum-значение `'pro'`, которое уже зарезервировано в `subscription_tier`.
+
+### Метрики для решения «вводить Pro или нет» (через 6 мес после Бизнеса)
+- Количество активных Бизнес-подписчиков ≥20 → подтверждение спроса на recurring-модель.
+- Запросы из саппорта/чата вида «есть ли тариф подешевле» ≥15 в месяц → есть аудитория Pro.
+- Средний оборот Бизнес-подписчика ≥30k₽/мес → unit-economics Pro (499 ₽) сходится при обороте ≥10k₽/мес.
+
+### Что НЕ делать сейчас
+- Не накатывать миграции `subscriptions/subscription_payments` до запуска ЮKassa.
+- Не показывать в публичном UI обещание «подписки скоро» без чёткой даты — токсично для доверия (см. ситуацию с «Совместными покупками — Скоро!»).
+- Не плодить tier'ов сверх `business` + зарезервированного `pro`.
+
+### Открытые вопросы для будущей сессии
+1. Бейдж «Партнёр платформы» — это тот же бейдж, что и для KYC-проверенных юрлиц через документы (УНН/ОГРН), или это два разных бейджа?
+2. Включённый пакет промо в подписке — fixed (3 VIP/мес) или «пул бонусных рублей» (500 ₽ на промо/мес, тратятся на любые промо)?
+3. Возврат при отмене посередине месяца — нет (доступ до конца периода) или pro-rata?
+
 ---
 
 ## 12. Журнал релизов
