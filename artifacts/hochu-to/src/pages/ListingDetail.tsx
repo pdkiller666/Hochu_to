@@ -1,7 +1,7 @@
 import { Layout } from "@/components/layout/Layout";
 import { useRoute } from "wouter";
 import { useGetListingById, useGetListingUnavailableDates, useCreateBooking, useGetCurrentUser } from "@workspace/api-client-react";
-import { Loader2, MapPin, Star, Shield, ShieldOff, ShieldCheck, Info, User, ChevronLeft, CheckCircle2, AlertTriangle, Settings, CalendarDays, X, Expand, Hash, MessageSquare, Phone, Heart } from "lucide-react";
+import { Loader2, MapPin, Star, Shield, ShieldOff, ShieldCheck, Info, User, ChevronLeft, CheckCircle2, AlertTriangle, Settings, CalendarDays, X, Expand, Hash, MessageSquare, Phone, Heart, Crown, Zap, Sparkles, Flame } from "lucide-react";
 import { formatPrice, calculateTotalPrice, calcDeposit, calcMaxProtectionLimit, type ItemCategory } from "@/lib/utils";
 import { useState, useEffect, useCallback } from "react";
 import { useAuthState, getToken } from "@/lib/auth";
@@ -18,6 +18,50 @@ import { ListingMap } from "@/components/ui/ListingMap";
 import { CollapsibleMap } from "@/components/ui/CollapsibleMap";
 import { ContactPurchaseModal } from "@/components/ui/ContactPurchaseModal";
 import { usePublicSettings } from "@/lib/use-public-settings";
+import PromoteListingModal from "@/components/PromoteListingModal";
+
+type ListingBadge = {
+  key: string;
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  className: string;
+};
+
+function getDetailBadges(l: any): ListingBadge[] {
+  const out: ListingBadge[] = [];
+  const now = Date.now();
+  if (l.isFeatured && (!l.featuredUntil || new Date(l.featuredUntil).getTime() > now)) {
+    out.push({ key: "vip", icon: Crown, label: "VIP", className: "bg-amber-100 text-amber-800 border-amber-300" });
+  }
+  if (l.isUrgent && (!l.urgentUntil || new Date(l.urgentUntil).getTime() > now)) {
+    out.push({ key: "urgent", icon: Zap, label: "Срочно", className: "bg-red-100 text-red-700 border-red-300" });
+  }
+  if (l.boostedUntil && new Date(l.boostedUntil).getTime() > now) {
+    out.push({ key: "boost", icon: Sparkles, label: "Топ", className: "bg-orange-100 text-orange-800 border-orange-300" });
+  }
+  const bookingCount = typeof l.bookingCount === "number" ? l.bookingCount : 0;
+  const rating = typeof l.rating === "number" ? l.rating : 0;
+  if (bookingCount >= 10 && rating < 4.5) {
+    out.push({ key: "popular", icon: Flame, label: "Часто берут", className: "bg-orange-50 text-orange-700 border-orange-200" });
+  }
+  return out;
+}
+
+function BadgeRow({ badges }: { badges: ListingBadge[] }) {
+  if (badges.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-1.5 mb-3">
+      {badges.map(b => {
+        const Icon = b.icon;
+        return (
+          <span key={b.key} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[11px] font-bold ${b.className}`}>
+            <Icon className="w-3 h-3" /> {b.label}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
 
 export default function ListingDetail() {
   const [, params] = useRoute("/listings/:id");
@@ -57,6 +101,7 @@ export default function ListingDetail() {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [mainImgError, setMainImgError] = useState(false);
+  const [promoteOpen, setPromoteOpen] = useState(false);
   const [contactModalOpen, setContactModalOpen] = useState(false);
   const [showFeeDetails, setShowFeeDetails] = useState(false);
   const [showFreeUpgradeDetails, setShowFreeUpgradeDetails] = useState(false);
@@ -274,6 +319,9 @@ export default function ListingDetail() {
                   <Heart className={`w-5 h-5 ${fav ? "fill-current" : ""}`} />
                 </button>
               </div>
+              <div className="mt-3">
+                <BadgeRow badges={getDetailBadges(listing)} />
+              </div>
             </div>
 
             {/* Photo Gallery */}
@@ -352,7 +400,7 @@ export default function ListingDetail() {
                   </span>
                 )}
               </div>
-              <div className="flex items-start justify-between gap-4 mb-4">
+              <div className="flex items-start justify-between gap-4 mb-3">
                 <h1 className="text-4xl font-bold">{listing.title}</h1>
                 <button
                   onClick={handleFavoriteClick}
@@ -366,6 +414,7 @@ export default function ListingDetail() {
                   <Heart className={`w-5 h-5 ${fav ? "fill-current" : ""}`} />
                 </button>
               </div>
+              <BadgeRow badges={getDetailBadges(listing)} />
 
               <div className="flex items-center gap-6 text-sm text-muted-foreground pb-6 border-b border-border">
                 <div
@@ -554,16 +603,26 @@ export default function ListingDetail() {
                   const ownerProt = (listing as any).ownerProtectionEnabled !== false;
                   const { ownerPayout } = calculateTotalPrice(listing.pricePerDay, cat, 1, ownerProt, false);
                   return (
-                    <div className="bg-green-50 border border-green-200 rounded-xl p-2.5 mb-2 text-xs">
-                      <p className="text-green-800">
-                        На карту: <strong className="text-green-900 text-sm">{formatPrice(ownerPayout)}</strong> с суток <span className="text-green-700">— чистыми</span>
-                      </p>
-                      <p className="text-[10.5px] text-green-700 leading-snug mt-1">
-                        {ownerProt
-                          ? "Эквайринг, чек, эскроу и поддержку при споре платформа берёт на себя — вы получаете готовую сумму без хлопот."
-                          : "Эквайринг и чек при оплате через платформу — на нас. Сумма указана после комиссий."}
-                      </p>
-                    </div>
+                    <>
+                      <div className="bg-green-50 border border-green-200 rounded-xl p-2.5 mb-2 text-xs">
+                        <p className="text-green-800">
+                          На карту: <strong className="text-green-900 text-sm">{formatPrice(ownerPayout)}</strong> с суток <span className="text-green-700">— чистыми</span>
+                        </p>
+                        <p className="text-[10.5px] text-green-700 leading-snug mt-1">
+                          {ownerProt
+                            ? "Эквайринг, чек, эскроу и поддержку при споре платформа берёт на себя — вы получаете готовую сумму без хлопот."
+                            : "Эквайринг и чек при оплате через платформу — на нас. Сумма указана после комиссий."}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setPromoteOpen(true)}
+                        className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-bold text-sm shadow-sm transition-colors"
+                        title="Продвинуть это объявление в каталоге"
+                      >
+                        <Sparkles className="w-4 h-4" /> Продвигать объявление
+                      </button>
+                    </>
                   );
                 })()}
                 {(() => {
@@ -1167,6 +1226,16 @@ export default function ListingDetail() {
 
         </div>
       </div>
+
+      {promoteOpen && listing && (
+        <PromoteListingModal
+          listingId={listing.id}
+          listingTitle={listing.title}
+          token={getToken() ?? ""}
+          apiBase={import.meta.env.VITE_API_URL ?? ""}
+          onClose={() => setPromoteOpen(false)}
+        />
+      )}
     </Layout>
   );
 }
