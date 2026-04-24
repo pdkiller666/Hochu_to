@@ -111,6 +111,13 @@ node artifacts/api-server/dist/index.mjs             # запуск сервер
 | `NODE_ENV` | `production` |
 | `ADMIN_EMAIL` | Email первого администратора |
 | `ADMIN_PASSWORD` | Пароль первого администратора |
+| `SESSION_SECRET` | Секрет JWT/сессий (≥32 символа, `openssl rand -hex 32`) |
+| `YOOKASSA_SHOP_ID` | ID магазина ЮKassa (Stage 21a, **обязателен** при `is_commercial_mode=true`) |
+| `YOOKASSA_SECRET_KEY` | Секретный ключ API ЮKassa (Stage 21a, обязателен в коммерческом режиме) |
+| `YOOKASSA_WEBHOOK_SECRET` | Секрет для верификации HMAC-SHA256 подписи вебхуков (Stage 21a, **обязателен в production** — иначе webhook отдаёт 401) |
+
+**Webhook URL для личного кабинета ЮKassa:** `https://<домен>/api/webhooks/yookassa`
+для событий `payment.succeeded` и `payment.canceled`.
 
 ---
 
@@ -418,14 +425,30 @@ GITHUB_TOKEN=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 bash scripts/github-push.s
 | 19e | **Денормализация счётчиков:** `bookingCount/reviewCount/avgRating/favoritesCount` колонки + idempotent backfill, убраны N+1 sub-queries; `popular`/`rating` теперь чистый SQL |
 | 19c | **Гибридная метрика «Хитов» + просмотры:** `listing_views(viewer_key, hour_bucket)` UNIQUE, hit-score `bookingCount × 5 + reviewCount × 2 + favoritesCount + views_30d`. `GET /:id` теперь отдаёт все 5 счётчиков (фикс контракта) |
 | 19f | **Бейджи и кнопка «Продвигать» на детальной карточке:** VIP/Срочно/Топ/«Часто берут» в обоих заголовках `/listings/:id`; кнопка «Продвигать объявление» в правом сайдбаре для владельца |
+| 20a | **СБП + payout-реквизиты владельцев:** базовая поддержка СБП-перечислений в `payout_requests` |
+| 20b | **Полировка СБП:** whitelist 25 банков, нормализация телефона `+7XXXXXXXXXX`, partial unique indexes от дублей реквизитов |
+| 20c | **Поля ЮKassa в админке:** `yookassa_secret_key` в `platform_settings` + UI-блок настройки + защита от утечки секрета в публичные GET |
+| 21a | **Soft Launch Toggle + YooKassa Core:** master-флаг `is_commercial_mode`, таблица `payments`, REST-клиент ЮKassa, webhook `/api/webhooks/yookassa`, BetaBanner, mock/real branching в promotions, soft-обнуление serviceFee/taxFee/fund для bookings/contacts при OFF. **Пост-review фиксы:** allowlist для master-toggle, listing_promotion создаётся только в webhook, выручка по `payments.succeeded`, детерм. Idempotence-Key, HMAC + timingSafeEqual + fail-closed, raw body, FOR UPDATE anti-replay |
 
 ### 🚧 Следующие приоритеты
 
-#### ЮKassa для платежей
-- [ ] SDK + webhook
-- [ ] Создание платежа на покупку контакта / промо / Premium-брони
-- [ ] Подтверждение и активация баланса
-> Требует `YOOKASSA_SHOP_ID` и `YOOKASSA_SECRET_KEY` в Replit Secrets и на Amvera.
+#### Stage 21b — ЮKassa для покупки контактов
+- [ ] `routes/contacts.ts`: при `isCommercialMode=true` — branching на real-payment вместо beta_free
+- [ ] Webhook handler для `target_type=contact_pack` (single / pack10 / unlimited30d → `contact_balances`)
+- [ ] UI ContactPurchaseModal: обработка `mode:"redirect"` (по аналогии с PromoteListingModal)
+
+#### Stage 21c — Холд бронирований Premium через ЮKassa
+- [ ] `routes/bookings.ts`: при `isCommercialMode=true` + защита включена — `createPayment({ capture: false })` на сумму брони + Shield Fee
+- [ ] Webhook: target_type=`booking_protection`, статус брони `pending → confirmed` только после `succeeded`
+- [ ] При завершении — `capturePayment` (списание); при отмене — `cancelPayment` (возврат хОлда)
+
+#### Реальные банковские выплаты
+- [ ] Замена ручного `mark-paid` на автомат через ЮKassa Payouts / банковский API
+- [ ] Применимо к `payout_requests` (выплаты владельцам) и `claims` (компенсации фонда)
+
+#### Подписки владельцев
+- [ ] Pro / Бизнес тарифы с пониженной комиссией
+- [ ] DB-таблица `subscriptions` + `POST /api/subscriptions/checkout`
 
 #### Реальные банковские выплаты
 - [ ] Замена ручного `mark-paid` на автомат через ЮKassa Payouts / банковский API
@@ -479,9 +502,12 @@ GITHUB_TOKEN=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 bash scripts/github-push.s
 - Настройка `joint_purchase_fee_percent=3` в БД **никогда не применяется в коде**.
 - Реальное наполнение БД: 1 тестовая запись от 23.04.2026.
 
-**Платежи (ЮKassa / СБП / CloudPayments)** — *настройки есть, кода нет*:
-- `platform_settings`: `yookassa_enabled`, `yookassa_shop_id`, `yookassa_test_mode`, `sbp_enabled`, `sbp_merchant_id`, `cloudpayments_enabled`. UI вкладки «Платежи» рисует эти поля.
-- НЕТ ни одной строки SDK / webhook / создания платежа / активации баланса. Все «оплаты» = ручной mark-paid админом или симуляция.
+**Платежи** — *Stage 21a реализована, 21b/c — в работе*:
+- ✅ **ЮKassa Core (Stage 21a)**: REST-клиент `lib/yookassa.ts` (createPayment с capture:true/false, getPayment, capturePayment, cancelPayment, HMAC-SHA256 webhook signature). Master-флаг `is_commercial_mode` в `platform_settings`. Таблица `payments` (id, user_id, amount_rub, status, yookassa_payment_id UNIQUE, target_type, target_id, provider, idempotency_key, metadata, paid_at). Webhook `POST /api/webhooks/yookassa` с FOR UPDATE anti-replay. Branching mock/real в `promotions.ts` — при OFF мгновенный мок (0₽, succeeded), при ON реальный платёж + redirect, активация только в webhook.
+- ✅ **Soft-обнуление при OFF**: `bookings.ts` зануляет serviceFee/taxFee/fund; `contacts.ts` мгновенный bypass `beta_free`; UI продолжает показывать опции защиты, но «0 ₽».
+- ❌ **Stage 21b — контакты через ЮKassa**: при `commercial=true` `contacts.ts` всё ещё bypass'ит. Нужно ввести real-branching с записью в `payments(target_type='contact_pack')` и активацией баланса в webhook.
+- ❌ **Stage 21c — холд брони через ЮKassa**: `bookings.ts` пока не вызывает `createPayment({ capture: false })`. Холд защищённой брони на время аренды + capture при завершении / cancel при отмене.
+- ❌ **СБП / CloudPayments**: настройки есть в `platform_settings`, но фактической интеграции нет (CloudPayments — вообще не в roadmap).
 - `payment_mode='self_employed'` (default) влияет только на тексты UI.
 
 **Подписки владельцев (Pro / Бизнес)** — *цены лежат, реализации нет*:
@@ -825,6 +851,31 @@ V6–V8 — Trust Score, делается после накопления дан
 ---
 
 ## 12. Журнал релизов
+
+### 24.04.2026 — Stage 21a: Soft Launch Toggle + YooKassa Core
+- **Цель:** подготовить публичный бета-запуск без риска для существующих флоу. Все пользовательские потоки (бронирования, контакты, claims, отзывы, цифровые акты, чаты) **визуально не меняются** — переопределяется только финансовая математика и платёжные шлюзы.
+- **Master-тумблер:** `platform_settings.is_commercial_mode boolean default false`. Через `publicSettings()` отдаётся во фронт под ключом `isCommercialMode`. Сохраняется в БД через `PUT /api/admin/settings` (есть в `allowed` и `BOOL_FIELDS`).
+- **Новая таблица `payments`** (`lib/db/src/schema/payments.ts`): id, user_id, amount_rub, status (pending/succeeded/canceled/refunded/failed), yookassa_payment_id UNIQUE, target_type (promotion/contact_pack/booking_protection), target_id, provider (yookassa/mock), idempotency_key, metadata jsonb, paid_at, timestamps. Применено через `pnpm --filter @workspace/db push --force`.
+- **REST-клиент `lib/yookassa.ts`:** Idempotence-Key (поддержка детерминированного ключа), `createPayment` (capture default `true`, опция `capture:false` для будущих холдов броней), `getPayment`, `capturePayment`, `cancelPayment`, `verifyWebhookSignature` (HMAC-SHA256 + timingSafeEqual). Реквизиты: ENV `YOOKASSA_SHOP_ID/SECRET_KEY` имеют приоритет над `platform_settings`.
+- **Бета-режим (OFF, по умолчанию):**
+  - `routes/bookings.ts` (POST + dates-change recompute) обнуляет serviceFee/taxFee/fundContribution/renterFundContribution.
+  - `routes/contacts.ts` (`POST /listings/:id/contact-purchase`) — мгновенный bypass без списания, `source: "beta_free"`, toast «В рамках бета-теста открытие контактов бесплатно!».
+  - `routes/promotions.ts` — мок-флоу: продвижение активируется мгновенно, в `payments` пишется `provider:"mock", status:"succeeded", amountRub:0`. Ответ `{mode:"instant"}`.
+  - На фронте — sticky `BetaBanner.tsx` (закрывается на 24ч через localStorage), скрыт на `/admin`. Подключён в `App.tsx`.
+- **Коммерческий режим (ON):**
+  - `routes/promotions.ts` — реальный платёж: создаётся pending-payment без `listing_promotion`, ЮKassa возвращает `confirmation_url`, ответ `{mode:"redirect", paymentUrl}`. **Запись `listing_promotion` создаётся только в webhook** при `succeeded`. Idempotence-Key детерминирован: `promo-payment-${payment.id}`.
+  - `routes/webhooks.ts` (`POST /api/webhooks/yookassa`) — верифицирует HMAC-подпись через **raw body** (`req.rawBody` из `express.json({ verify })`), подтверждает статус через `getPayment` (защита от подмены payload), внутри транзакции делает `SELECT ... FOR UPDATE` по `yookassa_payment_id` (anti-replay для параллельных вебхуков), создаёт `listing_promotion` + активирует флаги VIP/Срочно/Boost (`GREATEST(now, текущее) + interval days`).
+  - `/api/promotions/admin` — выручка считается строго по `payments(status='succeeded' AND target_type='promotion' AND provider='yookassa')`. Мок (0₽) и pending не учитываются.
+  - В админке (`pages/AdminPage.tsx` таб «Платежи») — крупный блок «Коммерческий режим (ИП + ЮKassa)» с тумблером и предупреждениями.
+- **Безопасность (пост-review фиксы):**
+  - HMAC-SHA256 + `timingSafeEqual` (защита от timing-атак).
+  - В production без `YOOKASSA_WEBHOOK_SECRET` — fail-closed (401), в dev — принимаем без подписи.
+  - Поддержка форматов заголовка: `sha256=<hex>` и `<hex>`.
+- **Новые ENV:** `YOOKASSA_SHOP_ID`, `YOOKASSA_SECRET_KEY`, `YOOKASSA_WEBHOOK_SECRET`. Webhook URL: `https://<домен>/api/webhooks/yookassa` для событий `payment.succeeded`, `payment.canceled`.
+- **Известные ограничения:**
+  - В webhook сейчас активируется только `target_type=promotion`. `contact_pack` (Stage 21b) и `booking_protection` (Stage 21c) — следующие итерации.
+  - `is_commercial_mode` — отдельный master-toggle, независимый от полей «ЮKassa включена» (Stage 20c).
+- **Файлы:** `lib/db/src/schema/{platform_settings.ts,payments.ts,index.ts}`, `artifacts/api-server/src/{app.ts,lib/yookassa.ts,lib/platform-settings.ts,routes/{bookings.ts,contacts.ts,promotions.ts,webhooks.ts,admin.ts,index.ts}}`, `artifacts/hochu-to/src/{App.tsx,components/{BetaBanner.tsx,PromoteListingModal.tsx},pages/AdminPage.tsx}`.
 
 ### 23.04.2026 утро+1 — Hotfix: «вечная Москва» в шапке региона
 - **Симптом:** в шапке региона постоянно появлялась «Москва» — даже после автоопределения геолокации (через кнопку или Catalog) при переходе на другую страницу регион снова сбрасывался на Москву.

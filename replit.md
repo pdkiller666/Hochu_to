@@ -129,7 +129,16 @@ bash scripts/setup-new-replit.sh
 ```
 Накатит схему + зальёт снапшот тестовых данных (`scripts/db-snapshots/dev-data.sql`).
 Подробности: `docs/AGENT_INSTRUCTIONS.md` раздел 5a.
-Обязательный секрет: `SESSION_SECRET` (≥32 символов). `DATABASE_URL` — auto.
+
+**Обязательные секреты:**
+- `SESSION_SECRET` — ≥32 символа (`openssl rand -hex 32`)
+- `DATABASE_URL` — Replit ставит автоматически
+
+**Опциональные (нужны только при `is_commercial_mode=true` — Stage 21a):**
+- `YOOKASSA_SHOP_ID`, `YOOKASSA_SECRET_KEY` — реквизиты ИП в ЮKassa
+- `YOOKASSA_WEBHOOK_SECRET` — обязателен в production (HMAC-SHA256 подпись вебхуков)
+
+В dev-режиме без коммерческого тумблера всё работает без этих секретов — продвижение и контакты идут по бесплатному мок-флоу.
 
 ## Demo Data
 
