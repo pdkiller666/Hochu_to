@@ -8,6 +8,7 @@ import {
 } from "@workspace/db";
 import { eq, and, desc, inArray, sql } from "drizzle-orm";
 import { requireAuth, requireAdmin, AuthRequest } from "../middleware/auth.js";
+import { isValidSbpBankId, normalizeSbpPhone } from "../lib/sbp-banks.js";
 
 const router = Router();
 
@@ -106,13 +107,13 @@ function validateMethod(body: unknown):
     return { ok: true, data: { type: "card", cardNumber, cardHolderName, bankName: bankName || undefined } };
   }
   if (b.type === "sbp") {
-    const sbpPhone = typeof b.sbpPhone === "string" ? b.sbpPhone.trim() : "";
-    const sbpBank = typeof b.sbpBank === "string" ? b.sbpBank.trim() : "";
+    // Stage 20b — нормализация телефона к +7XXXXXXXXXX и whitelist банков.
     const cardHolderName = typeof b.cardHolderName === "string" ? b.cardHolderName.trim() : "";
-    if (!/^\+?\d{10,15}$/.test(sbpPhone.replace(/[\s()-]/g, ""))) return { ok: false, message: "Неверный номер телефона" };
-    if (sbpBank.length < 2 || sbpBank.length > 100) return { ok: false, message: "Укажите банк-получатель" };
+    const sbpPhone = normalizeSbpPhone(b.sbpPhone);
+    if (!sbpPhone) return { ok: false, message: "Неверный номер телефона. Формат: +7 9XX XXX-XX-XX" };
+    if (!isValidSbpBankId(b.sbpBank)) return { ok: false, message: "Выберите банк-получатель из списка" };
     if (cardHolderName.length < 2 || cardHolderName.length > 100) return { ok: false, message: "Укажите ФИО получателя" };
-    return { ok: true, data: { type: "sbp", sbpPhone, sbpBank, cardHolderName } };
+    return { ok: true, data: { type: "sbp", sbpPhone, sbpBank: b.sbpBank, cardHolderName } };
   }
   return { ok: false, message: "Неизвестный тип реквизитов" };
 }
@@ -151,8 +152,26 @@ router.post("/me/payout-methods", requireAuth, async (req: AuthRequest, res) => 
     };
   }
 
-  const [created] = await db.insert(payoutMethodsTable).values(insertData).returning();
-  res.json({ method: created });
+  // Stage 20b — partial unique index ловит дубль (sbp: userId+phone+bank, card: userId+last4+holder).
+  // Возвращаем 409 с понятным сообщением, чтобы UI мог подсветить ошибку.
+  try {
+    const [created] = await db.insert(payoutMethodsTable).values(insertData).returning();
+    res.json({ method: created });
+  } catch (err: unknown) {
+    // drizzle 0.45 оборачивает pg-error в DrizzleQueryError; реальный код в .cause.code.
+    const e = err as { code?: string; cause?: { code?: string } };
+    const code = e?.cause?.code ?? e?.code;
+    if (code === "23505") {
+      res.status(409).json({
+        error: "duplicate_method",
+        message: data.type === "sbp"
+          ? "Такие СБП-реквизиты уже сохранены (тот же телефон и банк)"
+          : "Такая карта уже сохранена (те же 4 цифры и ФИО)",
+      });
+      return;
+    }
+    throw err;
+  }
 });
 
 router.patch("/me/payout-methods/:id/default", requireAuth, async (req: AuthRequest, res) => {

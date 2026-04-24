@@ -14,6 +14,7 @@ import {
   Coins, CreditCard, Save, RotateCcw, Banknote, ArrowDownToLine, ArrowUpFromLine, PiggyBank, Wallet,
 } from "lucide-react";
 import { formatPrice } from "@/lib/utils";
+import { getSbpBankName } from "@/lib/sbp-banks";
 import { format } from "date-fns";
 import {
   LineChart, Line, BarChart, Bar, XAxis, YAxis, Tooltip,
@@ -1731,7 +1732,7 @@ function ClaimsTab() {
                   <div className="bg-blue-50 border border-blue-200 rounded-lg p-2 text-xs text-blue-900">
                     💳 {claim.methodSnapshot.type === "card"
                       ? `Карта •••• ${claim.methodSnapshot.cardLast4 ?? "????"} · ${claim.methodSnapshot.cardHolderName ?? ""} · ${claim.methodSnapshot.bankName ?? ""}`
-                      : `СБП ${claim.methodSnapshot.sbpPhone ?? ""} · ${claim.methodSnapshot.sbpBank ?? ""}`}
+                      : `СБП ${claim.methodSnapshot.sbpPhone ?? ""} · ${getSbpBankName(claim.methodSnapshot.sbpBank)}`}
                   </div>
                 )}
 

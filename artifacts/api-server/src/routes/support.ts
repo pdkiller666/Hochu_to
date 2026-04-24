@@ -59,7 +59,9 @@ router.post("/tickets", requireAuth, async (req: AuthRequest, res) => {
       status: "open",
     }).returning();
   } catch (e: any) {
-    if (category === "verification_request" && e?.code === "23505") {
+    // drizzle 0.45 оборачивает pg-error в DrizzleQueryError → реальный код в e.cause.code
+    const code = e?.cause?.code ?? e?.code;
+    if (category === "verification_request" && code === "23505") {
       const [existing] = await db.select({ id: supportTicketsTable.id })
         .from(supportTicketsTable)
         .where(and(

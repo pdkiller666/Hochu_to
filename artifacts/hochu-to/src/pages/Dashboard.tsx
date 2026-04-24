@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import PromoteListingModal from "@/components/PromoteListingModal";
 import { formatPrice } from "@/lib/utils";
+import { SBP_BANKS, getSbpBankName, formatPhoneMask, extractCleanPhone } from "@/lib/sbp-banks";
 import { format } from "date-fns";
 import { StarRating } from "@/components/ui/StarRating";
 import { SupportSection } from "@/components/ui/SupportSection";
@@ -3506,7 +3507,7 @@ function PayoutsBlock({
               const m = r.methodSnapshot;
               const methodLabel = m.type === "card"
                 ? `Карта •••• ${m.cardLast4 ?? "****"}`
-                : m.type === "sbp" ? `СБП ${m.sbpBank ?? ""}` : "Реквизиты";
+                : m.type === "sbp" ? `СБП · ${getSbpBankName(m.sbpBank)}` : "Реквизиты";
               return (
                 <li key={r.id} className="px-3 py-2.5 flex items-center justify-between gap-3 flex-wrap">
                   <div className="min-w-0 flex-1">
@@ -3614,7 +3615,7 @@ function PayoutMethodsList({
                   <div className="font-semibold truncate">
                     {m.type === "card"
                       ? `Карта •••• ${m.cardLast4}`
-                      : `СБП ${m.sbpBank}`}
+                      : `СБП · ${getSbpBankName(m.sbpBank)}`}
                     {m.isDefault && <span className="ml-2 inline-flex items-center gap-1 text-[10px] font-bold uppercase text-amber-700"><StarIcon className="w-3 h-3 fill-amber-500 text-amber-500" /> по умолчанию</span>}
                   </div>
                   <div className="text-xs text-muted-foreground truncate">
@@ -3731,7 +3732,7 @@ function RequestPayoutModal({
             >
               {methods.map(m => (
                 <option key={m.id} value={m.id}>
-                  {m.type === "card" ? `Карта •••• ${m.cardLast4}` : `СБП ${m.sbpBank}`} — {m.cardHolderName}
+                  {m.type === "card" ? `Карта •••• ${m.cardLast4}` : `СБП · ${getSbpBankName(m.sbpBank)}`} — {m.cardHolderName}
                 </option>
               ))}
             </select>
@@ -3817,10 +3818,24 @@ function AddPayoutMethodModal({
   const submit = async () => {
     setBusy(true);
     setError(null);
+    // Stage 20b — клиент-side валидация СБП-телефона до отправки на сервер.
+    if (type === "sbp") {
+      const cleanPhone = extractCleanPhone(sbpPhone);
+      if (!cleanPhone) {
+        setError("Введите мобильный номер в формате +7 (9XX) XXX-XX-XX");
+        setBusy(false);
+        return;
+      }
+      if (!sbpBank) {
+        setError("Выберите банк-получатель");
+        setBusy(false);
+        return;
+      }
+    }
     try {
       const body = type === "card"
         ? { type: "card", cardNumber, cardHolderName: holderName, bankName: bankName || undefined }
-        : { type: "sbp", sbpPhone, sbpBank, cardHolderName: holderName };
+        : { type: "sbp", sbpPhone: extractCleanPhone(sbpPhone)!, sbpBank, cardHolderName: holderName };
       const r = await fetch(`${API_BASE}/api/me/payout-methods`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -3902,21 +3917,29 @@ function AddPayoutMethodModal({
                 <label className="block text-xs font-bold mb-1 text-muted-foreground">Телефон для СБП</label>
                 <input
                   type="tel"
+                  inputMode="tel"
                   value={sbpPhone}
-                  onChange={e => setSbpPhone(e.target.value)}
+                  onChange={e => setSbpPhone(formatPhoneMask(e.target.value))}
                   className="input-field w-full"
-                  placeholder="+7 999 000 00 00"
+                  placeholder="+7 (9XX) XXX-XX-XX"
+                  maxLength={18}
                 />
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  Только мобильный российский номер, привязанный к СБП.
+                </p>
               </div>
               <div>
                 <label className="block text-xs font-bold mb-1 text-muted-foreground">Банк-получатель</label>
-                <input
-                  type="text"
+                <select
                   value={sbpBank}
                   onChange={e => setSbpBank(e.target.value)}
                   className="input-field w-full"
-                  placeholder="Сбер, Тинькофф, Альфа..."
-                />
+                >
+                  <option value="">— выберите банк —</option>
+                  {SBP_BANKS.map(b => (
+                    <option key={b.id} value={b.id}>{b.name}</option>
+                  ))}
+                </select>
               </div>
             </>
           )}
