@@ -2720,6 +2720,36 @@ function PaymentsTab() {
   );
   return (
     <div className="space-y-6">
+      {/* Stage 21a — главный мастер-тумблер коммерческого режима */}
+      <div className={`rounded-xl border-2 p-6 ${data.isCommercialMode ? "bg-emerald-50 border-emerald-300" : "bg-amber-50 border-amber-300"}`}>
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div className="flex-1 min-w-[260px]">
+            <h2 className="text-lg font-bold text-stone-900 mb-1 flex items-center gap-2">
+              {data.isCommercialMode ? "🟢" : "🟡"} Коммерческий режим (ИП + ЮKassa)
+            </h2>
+            <p className="text-sm text-stone-700">
+              {data.isCommercialMode
+                ? "Активен боевой режим. Все сборы платформы списываются по полным тарифам, контакты и продвижение оплачиваются через ЮKassa."
+                : "Платформа работает в режиме бета-тестирования: все сборы и оплаты обнулены, контакты открываются мгновенно, продвижение бесплатно. Пользователи видят сверху страницы баннер «Бета-режим»."}
+            </p>
+          </div>
+          <Toggle
+            checked={!!data.isCommercialMode}
+            onChange={v => set("isCommercialMode", v)}
+            label={data.isCommercialMode ? "Включён" : "Выключен"}
+          />
+        </div>
+        {data.isCommercialMode ? (
+          <div className="mt-4 px-3 py-2 bg-white border border-emerald-300 rounded-lg text-xs text-emerald-900">
+            ⚠ Внимание: при включении этого режима все будущие операции (бронирования с защитой, покупки контактов и продвижения) будут проводиться через реальный платёжный шлюз. Перед активацией убедитесь, что заполнены реквизиты ЮKassa ниже.
+          </div>
+        ) : (
+          <div className="mt-4 px-3 py-2 bg-white border border-amber-300 rounded-lg text-xs text-amber-900">
+            🛡 Включите тумблер только когда ИП открыто, договор с ЮKassa подписан, реквизиты ниже заполнены и протестированы. Возврат к бета-режиму всегда доступен — деньги по уже созданным платежам не теряются.
+          </div>
+        )}
+      </div>
+
       <div className="bg-white rounded-xl border border-stone-200 p-6">
         <h2 className="text-lg font-semibold text-stone-800 mb-1">Налоговая модель</h2>
         <p className="text-sm text-stone-500 mb-4">Определяет ставку налога и формат чеков</p>

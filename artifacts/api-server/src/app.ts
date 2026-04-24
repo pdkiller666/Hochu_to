@@ -26,7 +26,12 @@ app.use(cors({
 // 3. Чтение кук ПЕРЕД роутами
 app.use(cookieParser()); 
 
-app.use(express.json());
+app.use(express.json({
+  // Stage 21a: сохраняем raw body для верификации подписи ЮKassa-вебхуков
+  verify: (req: any, _res, buf: Buffer) => {
+    if (buf && buf.length) req.rawBody = buf.toString("utf8");
+  },
+}));
 app.use(express.urlencoded({ extended: true }));
 
 // 4. Твой логгер pino

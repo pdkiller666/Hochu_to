@@ -21,3 +21,4 @@ export * from "./payout_methods";
 export * from "./payout_requests";
 export * from "./listing_promotions";
 export * from "./listing_views";
+export * from "./payments";

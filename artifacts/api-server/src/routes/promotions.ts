@@ -1,8 +1,10 @@
 import { Router, type Response } from "express";
 import { eq, desc, and, gt, sql } from "drizzle-orm";
-import { db, listingsTable, listingPromotionsTable } from "@workspace/db";
+import { db, listingsTable, listingPromotionsTable, paymentsTable } from "@workspace/db";
 import { requireAuth, type AuthRequest } from "../middleware/auth.js";
 import { getPlatformSettings } from "../lib/platform-settings.js";
+import { createPayment, YooKassaConfigError, YooKassaApiError } from "../lib/yookassa.js";
+import { logger } from "../lib/logger.js";
 
 const router = Router();
 
@@ -66,10 +68,69 @@ router.post("/listings/:id", requireAuth, async (req: AuthRequest, res: Response
     res.status(400).json({ error: "invalid_state", message: "Цена для этого пакета не настроена" });
     return;
   }
-
-  // Атомарно: продлеваем от GREATEST(текущий срок, NOW()) + N дней.
-  // Заворачиваем UPDATE listings + INSERT в listing_promotions в транзакцию.
   const days = planDef.days;
+
+  // ── Stage 21a: branching mock vs real YooKassa ─────────────────────────
+  const commercial = settings.isCommercialMode === true;
+
+  if (commercial) {
+    // Реальная оплата через ЮKassa: НЕ создаём listing_promotion (чтобы не
+    // загрязнять выручку и журнал успешных покупок). Создаём только pending-payment;
+    // фактическая запись listing_promotion и активация флагов произойдут в webhook
+    // (`/api/webhooks/yookassa`) после подтверждённого `succeeded`.
+    const [payment] = await db.insert(paymentsTable).values({
+      userId: req.userId!,
+      amountRub: Math.round(priceRub),
+      status: "pending",
+      targetType: "promotion",
+      targetId: null, // будет проставлен webhook'ом после создания promo
+      provider: "yookassa",
+      metadata: { type, plan: planDef.plan, days, listingId, listingTitle: listing.title },
+    }).returning();
+
+    // Детерминированный Idempotence-Key: при сетевом таймауте/ретрае ЮKassa
+    // вернёт тот же платёж, а не создаст дубль.
+    const idempotencyKey = `promo-payment-${payment.id}`;
+
+    try {
+      const origin =
+        (req.headers.origin as string | undefined) ||
+        `${req.protocol}://${req.get("host")}`;
+      const yk = await createPayment({
+        amountRub: Math.round(priceRub),
+        description: `Продвижение «${listing.title}» — ${type.toUpperCase()} ${planDef.plan}`,
+        returnUrl: `${origin}/dashboard?payment=${payment.id}`,
+        capture: true,
+        idempotencyKey,
+        metadata: {
+          appPaymentId: payment.id,
+          targetType: "promotion",
+          listingId,
+        },
+      });
+      await db.update(paymentsTable)
+        .set({ yookassaPaymentId: yk.payment.id, idempotencyKey: yk.idempotencyKey, updatedAt: new Date() })
+        .where(eq(paymentsTable.id, payment.id));
+      res.status(201).json({
+        mode: "redirect",
+        paymentId: payment.id,
+        yookassaPaymentId: yk.payment.id,
+        paymentUrl: yk.confirmationUrl,
+      });
+    } catch (e: any) {
+      logger.error({ err: e }, "YooKassa createPayment failed");
+      await db.update(paymentsTable).set({ status: "failed", updatedAt: new Date() }).where(eq(paymentsTable.id, payment.id));
+      const status = e instanceof YooKassaConfigError ? 503 : (e instanceof YooKassaApiError ? 502 : 500);
+      res.status(status).json({
+        error: e?.name ?? "yookassa_error",
+        message: e?.message ?? "Не удалось создать платёж",
+      });
+    }
+    return;
+  }
+
+  // ── MOCK FLOW: бета-режим — мгновенная активация без денег ─────────────
+  // Сохраняем тот же UX (карточка успеха в модалке), но помечаем как mock.
   const result = await db.transaction(async (tx) => {
     const set: Record<string, any> = {};
     if (type === "vip") {
@@ -94,14 +155,31 @@ router.post("/listings/:id", requireAuth, async (req: AuthRequest, res: Response
       type,
       plan: planDef.plan,
       days,
-      priceRub: Math.round(priceRub),
+      priceRub: 0, // в бета-режиме — бесплатно
       validUntil: newUntil!,
-      paymentRef: `MANUAL-${Date.now()}`,
+      paymentRef: `MOCK-${Date.now()}`,
     }).returning();
+
+    await tx.insert(paymentsTable).values({
+      userId: req.userId!,
+      amountRub: 0,
+      status: "succeeded",
+      targetType: "promotion",
+      targetId: promo.id,
+      provider: "mock",
+      paidAt: new Date(),
+      metadata: { type, plan: planDef.plan, days, listingId, betaFree: true, displayPriceRub: Math.round(priceRub) },
+    });
     return { promo, newUntil };
   });
 
-  res.status(201).json({ promotion: result.promo, validUntil: result.newUntil });
+  res.status(201).json({
+    mode: "mock",
+    promotion: result.promo,
+    validUntil: result.newUntil,
+    betaFree: true,
+    message: "В рамках бета-теста продвижение бесплатно. После запуска коммерческого режима активируется реальная оплата.",
+  });
 });
 
 // ─── GET /api/promotions/me — журнал моих покупок ─────────────────────
@@ -151,16 +229,26 @@ router.get("/admin", requireAuth, async (req: AuthRequest, res: Response) => {
     .orderBy(desc(listingPromotionsTable.paidAt))
     .limit(500);
 
-  const [{ total, count, activeNow }] = await db.select({
-    total: sql<string>`COALESCE(SUM(${listingPromotionsTable.priceRub}), 0)`,
+  // Активные промо считаем по listing_promotions, а выручку — строго по
+  // payments(status='succeeded', target_type='promotion'), чтобы не учитывать
+  // мок-режим (amountRub=0) и pending/failed попытки в коммерческом режиме.
+  const [{ count, activeNow }] = await db.select({
     count: sql<number>`COUNT(*)::int`,
     activeNow: sql<number>`SUM(CASE WHEN ${listingPromotionsTable.validUntil} > NOW() THEN 1 ELSE 0 END)::int`,
   }).from(listingPromotionsTable);
 
+  const [{ totalRealRub, totalRealCount }] = await db.select({
+    totalRealRub: sql<string>`COALESCE(SUM(${paymentsTable.amountRub}), 0)`,
+    totalRealCount: sql<number>`COUNT(*)::int`,
+  })
+    .from(paymentsTable)
+    .where(sql`${paymentsTable.status} = 'succeeded' AND ${paymentsTable.targetType} = 'promotion' AND ${paymentsTable.provider} = 'yookassa'`);
+
   res.json({
     promotions: rows,
     summary: {
-      totalRub: Number(total ?? 0),
+      totalRub: Number(totalRealRub ?? 0),
+      paidCount: totalRealCount ?? 0,
       count: count ?? 0,
       activeNow: activeNow ?? 0,
     },

@@ -250,10 +250,16 @@ router.post("/listings/:id/contact-purchase", requireAuth, async (req: AuthReque
 
   const balance = await ensureBalance(userId);
   const unlimited = isUnlimitedActive(balance);
-  let source: "balance" | "bonus" | "unlimited";
+  let source: "balance" | "bonus" | "unlimited" | "beta_free";
   let priceCharged = 0;
+  let betaFree = false;
 
-  if (unlimited) {
+  // ── Stage 21a: Soft-Launch override ──────────────────────────────────────
+  // Бета-режим: открываем контакт мгновенно, ничего не списывая с баланса.
+  if (settings.isCommercialMode !== true) {
+    source = "beta_free";
+    betaFree = true;
+  } else if (unlimited) {
     source = "unlimited";
   } else if ((balance.balance ?? 0) > 0) {
     source = balance.bonusGranted && balance.balance <= (settings.freeContactsBonus ?? 0) ? "bonus" : "balance";
@@ -300,6 +306,8 @@ router.post("/listings/:id/contact-purchase", requireAuth, async (req: AuthReque
     ownerName,
     source,
     priceCharged,
+    betaFree,
+    message: betaFree ? "В рамках бета-теста открытие контактов бесплатно!" : undefined,
     expiresAt: expiresAt ? expiresAt.toISOString() : null,
   });
 });

@@ -1532,3 +1532,105 @@ C) UI «Отозвать заявку на верификацию» (чтобы 
 - В `platform_settings` добавлена колонка `yookassa_secret_key`.
 - Создан UI-блок в Админ-панели для настройки платежей.
 - Реализована защита от утечки секретного ключа в публичные GET-запросы.
+
+### Stage 21a — Soft Launch Toggle + YooKassa Core (24.04.2026)
+
+**Цель**: подготовить публичный бета-запуск без риска для существующих флоу.
+Все пользовательские потоки (бронирования, контакты, claims, отзывы, цифровые
+акты, чаты) **визуально не меняются** — переопределяется только финансовая
+математика и платёжные шлюзы.
+
+**Master-тумблер**: `platform_settings.is_commercial_mode boolean default false`.
+Через `publicSettings()` выводится во фронт под ключом `isCommercialMode`.
+
+**Новая таблица `payments`** (`lib/db/src/schema/payments.ts`):
+- `id, user_id, amount_rub, status` (pending/succeeded/canceled/refunded/failed),
+  `yookassa_payment_id` UNIQUE, `target_type` (promotion/contact_pack/booking_protection),
+  `target_id`, `provider` (yookassa/mock), `idempotency_key`, `metadata jsonb`,
+  `paid_at`, timestamps.
+- Применено через `pnpm --filter @workspace/db push --force`.
+
+**Файлы и логика**:
+- `artifacts/api-server/src/lib/yookassa.ts` — REST-клиент с Idempotence-Key,
+  `createPayment` (capture default `true`, опция `capture:false` для будущих
+  холдов броней Premium), `getPayment`, `capturePayment`, `cancelPayment`,
+  `verifyWebhookSignature`. Реквизиты: ENV `YOOKASSA_SHOP_ID/SECRET_KEY` имеют
+  приоритет над `platform_settings`.
+- `routes/bookings.ts` — при `!isCommercialMode` в POST + dates-change recompute
+  обнуляются `serviceFee/taxFee/fundContribution/renterFundContribution`.
+- `routes/contacts.ts` — в `POST /listings/:id/contact-purchase` при OFF
+  мгновенный bypass без списания баланса, `source: "beta_free"`,
+  toast «В рамках бета-теста открытие контактов бесплатно!».
+- `routes/promotions.ts` — branching:
+  - **OFF/мок**: продвижение активируется мгновенно, в `payments` пишется
+    `provider:"mock", status:"succeeded", amountRub:0`. Ответ `{mode:"instant"}`.
+  - **ON/реальный**: insert pending-промо с `validUntil = epoch(0)` и
+    `paymentRef='PENDING'`, создаётся ЮKassa-платёж, в `payments` лог pending.
+    Ответ `{mode:"redirect", paymentUrl, paymentId}`. Активация флагов
+    VIP/Срочно/Boost — только по успешному вебхуку.
+- `routes/webhooks.ts` — `POST /api/webhooks/yookassa`: верифицирует подпись
+  (опц. `YOOKASSA_WEBHOOK_SECRET`), повторно дёргает `getPayment(id)`, обновляет
+  `payments.status`, в транзакции активирует `target_type=promotion`
+  (`validUntil = GREATEST(now, текущее) + interval days`, `paymentRef = ЮKassa id`).
+  Идемпотентен по `yookassa_payment_id`. Stage 21b/c добавит обработку
+  `contact_pack` и `booking_protection`.
+- `lib/platform-settings.ts` — `DEFAULTS.isCommercialMode = false`,
+  `publicSettings()` отдаёт `isCommercialMode` (без секретов).
+
+**Фронт**:
+- `components/BetaBanner.tsx` — sticky-баннер сверху, виден только при
+  `isCommercialMode === false`, скрыт на `/admin`. Закрытие на 24ч через
+  `localStorage.betaBannerDismissedAt`. Подключён в `App.tsx`.
+- `components/PromoteListingModal.tsx` — поддержка ответа `{mode:"redirect"}`:
+  `window.location.href = paymentUrl`.
+- `pages/AdminPage.tsx` (таб «Платежи») — добавлен крупный блок «Коммерческий
+  режим (ИП + ЮKassa)» с тумблером и предупреждениями: при ON начнут списываться
+  комиссии и реальные оплаты пойдут на счёт ИП.
+
+**Webhook URL**: `https://<домен>/api/webhooks/yookassa`. Прописать в личном
+кабинете ЮKassa для событий `payment.succeeded`, `payment.canceled`.
+
+**ENV-переменные (опц., приоритет над БД)**:
+- `YOOKASSA_SHOP_ID` — ID магазина ЮKassa.
+- `YOOKASSA_SECRET_KEY` — секретный ключ API.
+- `YOOKASSA_WEBHOOK_SECRET` — секрет для верификации вебхуков (если не задан,
+  принимаются все запросы — режим dev).
+
+**Ручная проверка** (Replit dev):
+- `GET /api/health` → 200.
+- `GET /api/settings` → возвращает `isCommercialMode: false`, `paymentMode`,
+  `yookassaEnabled`.
+- `GET /api/promotions/pricing` → JSON с тарифами VIP/Urgent/Boost.
+- `POST /api/webhooks/yookassa` (пустое тело) → 400 (нет `object.id`).
+- Фронт `/` → 200, баннер виден при OFF; `/admin` → 200, баннер скрыт.
+
+**Пост-review исправления (24.04.2026)**:
+1. **`isCommercialMode` теперь сохраняется**: добавлен в `allowed` и `BOOL_FIELDS`
+   `PUT /api/admin/settings` (`routes/admin.ts`). Без этого master-toggle в UI
+   менялся, но не применялся в БД.
+2. **Real-ветка `promotions.ts` больше не создаёт `listing_promotions` заранее**:
+   при `isCommercialMode=true` пишется только pending-payment, а сама запись
+   `listing_promotions` создаётся **в webhook** при `succeeded`. Это исключает
+   ситуации, когда неоплаченные/failed попытки выглядят оплаченными в журнале.
+3. **Сводка выручки `/api/promotions/admin`** теперь считается строго по
+   `payments.status='succeeded' AND target_type='promotion' AND provider='yookassa'`
+   — мок-режим (amountRub=0) и pending не учитываются.
+4. **Детерминированный Idempotence-Key**: `promo-payment-${payment.id}` — при
+   сетевом ретрае ЮKassa вернёт тот же платёж, дублей не будет.
+5. **HMAC webhook signature**: `verifyWebhookSignature` теперь использует
+   `crypto.createHmac("sha256", secret).update(rawBody)` + `timingSafeEqual`.
+   В production без `YOOKASSA_WEBHOOK_SECRET` — fail-closed (401).
+6. **Raw body для подписи**: `app.use(express.json({ verify }))` сохраняет
+   raw bytes в `req.rawBody`, webhook использует их вместо `JSON.stringify`
+   (который зависит от порядка ключей и пробелов).
+7. **Anti-replay через `SELECT ... FOR UPDATE`**: вся обработка статуса
+   обёрнута в транзакцию с row-level lock по `yookassa_payment_id`, что
+   защищает от двойного применения при параллельных вебхуках.
+
+**Известные ограничения**:
+- В обработке webhook сейчас активируется только `target_type=promotion`. Для
+  `contact_pack`/`booking_protection` будет Stage 21b/c.
+- Без `YOOKASSA_WEBHOOK_SECRET` верификация подписи отключена (dev-режим). На
+  проде ENV-переменная **обязательна**, иначе webhook возвращает 401.
+- Поле `is_commercial_mode` — отдельный master-toggle, независимый от полей
+  «ЮKassa включена» и связанных секретов из Stage 20c.

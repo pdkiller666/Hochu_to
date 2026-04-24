@@ -1207,6 +1207,8 @@ router.put("/settings", requireAuth, requireAdmin, async (req: AuthRequest, res)
     "contactPackRefundEnabled", "contactPackRefundWindowDays",
     "freeToPremiumUpgradeEnabled",
     "defaultCatalogSort", "minPremiumShareInResults", "showFormatBadges",
+    // ── Stage 21a: master-toggle коммерческого режима ───────────────────
+    "isCommercialMode",
   ] as const;
   const body = req.body ?? {};
   const patch: Record<string, any> = {};
@@ -1237,6 +1239,8 @@ router.put("/settings", requireAuth, requireAdmin, async (req: AuthRequest, res)
     // Stage 2
     "freeListingsEnabled", "freeListingsRequirePhone",
     "contactPackRefundEnabled", "freeToPremiumUpgradeEnabled", "showFormatBadges",
+    // Stage 21a
+    "isCommercialMode",
   ] as const;
   const NULLABLE_STR_FIELDS = [
     "yookassaShopId", "yookassaSecretKey", "sbpMerchantId", "cloudpaymentsPublicId",

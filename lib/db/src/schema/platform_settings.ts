@@ -102,6 +102,16 @@ export const platformSettingsTable = pgTable("platform_settings", {
   /** Показывать бейджи формата сделки на карточках */
   showFormatBadges: boolean("show_format_badges").default(true).notNull(),
 
+  // ── Soft-Launch / Бета-режим ───────────────────────────────────────────
+  /**
+   * Главный тумблер коммерческого режима.
+   * false (по умолчанию, бета) — все сборы платформы = 0₽, контакты открываются
+   * мгновенно без оплаты, продвижение покупается через мок-флоу. UI флоу не
+   * меняется визуально — пользователь видит те же опции, но «0 ₽».
+   * true — реальные деньги через ЮKassa с idempotency-key и capture:false для холдов.
+   */
+  isCommercialMode: boolean("is_commercial_mode").default(false).notNull(),
+
   // ── Платёжные системы ──────────────────────────────────────────────────
   /** Юр. модель: self_employed (НПД), ip, ooo */
   paymentMode: text("payment_mode").default("self_employed").notNull(),

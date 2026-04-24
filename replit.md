@@ -431,12 +431,36 @@ DB поле `boosted_until` (timestamp). Сортировка `?sort=new` уже
 - Dokan/WooCommerce multivendor шлюз
 - API для бизнес-подписки
 
+## Stage 21a — Soft Launch Toggle (24.04.2026)
+
+Подготовка к публичному бета-запуску. Введён master-тумблер `is_commercial_mode`
+в `platform_settings` (default `false`). Все пользовательские флоу (бронирования,
+claims, отзывы, акты, чаты) **визуально не изменились**, но переопределены на уровне
+финансовой математики и платёжных шлюзов:
+
+- **Бета-режим (`isCommercialMode = false`, по умолчанию)**:
+  - В `routes/bookings.ts` (создание + смена дат) `serviceFee/taxFee/fundContribution/renterFundContribution = 0`. UI продолжает показывать опции защиты, но «0 ₽».
+  - В `routes/contacts.ts` (`POST /listings/:id/contact-purchase`) — мгновенный bypass-unlock с `source: "beta_free"` и сообщением «В рамках бета-теста открытие контактов бесплатно!».
+  - В `routes/promotions.ts` — мок-флоу: продвижение активируется мгновенно, в `payments` записывается `provider: "mock", status: "succeeded", amountRub: 0`.
+  - На фронте — глобальный sticky-баннер `BetaBanner.tsx` (закрывается на сутки через localStorage), скрыт на `/admin`.
+- **Коммерческий режим (`isCommercialMode = true`)**:
+  - В `routes/promotions.ts` — реальный платёж через ЮKassa: создаётся pending-промо, через `lib/yookassa.ts` вызывается `POST /v3/payments` (Idempotence-Key, Basic auth, returnUrl). Активация флагов VIP/Срочно/Boost — только по успешному webhook.
+  - `POST /api/webhooks/yookassa` верифицирует событие через GET /payments/:id, обновляет `payments.status`, активирует target_type=`promotion`. Идемпотентен по `yookassa_payment_id`.
+  - Реквизиты ЮKassa берутся из ENV (`YOOKASSA_SHOP_ID`/`YOOKASSA_SECRET_KEY` приоритетно) или из `platform_settings` (заполняется в админке).
+
+Новые сущности:
+- Колонка `platform_settings.is_commercial_mode boolean default false`.
+- Таблица `payments` (id, user_id, amount_rub, status, yookassa_payment_id UNIQUE, target_type, target_id, provider, idempotency_key, metadata jsonb, paid_at, timestamps).
+- `lib/yookassa.ts` — REST-клиент: `createPayment` (capture default `true`, опция `false` для будущих холдов броней), `getPayment`, `capturePayment`, `cancelPayment`, `verifyWebhookSignature`.
+- В админке: блок «Коммерческий режим (ИП + ЮKassa)» в табе «Платежи» с предупреждениями.
+
 ## What Is NOT Yet Implemented (roadmap)
 
 - Цифровой Акт check-in/check-out (4 фото + видео + GPS)
 - Поток оплаты через СБП/QR + загрузка чека + подтверждение админом
 - Реальные выплаты из Shield-фонда (сейчас только статус)
-- ЮKassa-интеграция (Этап 2)
+- Stage 21b — ЮKassa для покупки контактов (single/pack10/unlimited30d)
+- Stage 21c — ЮKassa-холд (capture:false) для бронирований Premium с защитой
 - Trust Score (Этап 3)
 
 ## Future Scaling

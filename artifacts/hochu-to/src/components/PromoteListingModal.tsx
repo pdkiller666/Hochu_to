@@ -59,6 +59,11 @@ export default function PromoteListingModal({ listingId, listingTitle, token, ap
       });
       const j = await r.json();
       if (!r.ok) throw new Error(j?.message || "Ошибка покупки");
+      // Stage 21a: реальная ЮKassa возвращает paymentUrl — редиректим на форму оплаты.
+      if (j?.mode === "redirect" && j?.paymentUrl) {
+        window.location.href = j.paymentUrl;
+        return;
+      }
       setDone(j.validUntil);
       onSuccess?.();
     } catch (e: any) {
@@ -176,7 +181,7 @@ export default function PromoteListingModal({ listingId, listingTitle, token, ap
           )}
 
           <p className="text-xs text-muted-foreground text-center">
-            Демо-режим: средства списываются из виртуального баланса. Реальная оплата через ЮKassa подключается отдельным этапом.
+            В бета-режиме продвижение активируется бесплатно. После запуска коммерческого режима средства будут списываться через ЮKassa.
           </p>
         </div>
       </div>

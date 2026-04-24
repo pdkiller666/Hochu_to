@@ -1,0 +1,33 @@
+Task: Stage 21a - "Soft Launch" Toggle & YooKassa Core Integration
+
+We are preparing for a public Beta Launch. CRITICAL: DO NOT remove or simplify any existing user flows (bookings, claims, reviews, digital acts must remain exactly as they are). We are only overriding the financial math and payment gateways.
+
+1. Database Update:
+
+Add a boolean column is_commercial_mode (default: false) to the platform_settings table. Generate and apply the migration.
+
+2. Math & Flow Override (When is_commercial_mode is false):
+
+Bookings: In the price calculation logic, force serviceFee = 0, taxFee = 0, and fundContribution = 0. The UI must still show the protection options to the user, but they should cost 0 ₽. The visual flow stays the same.
+
+Contacts: Bypass the payment gateway completely. Instantly mark the contact as unlocked and show a UI success message/toast: "В рамках бета-теста открытие контактов бесплатно!".
+
+3. Admin UI:
+
+Add a prominent toggle in Admin -> Settings: "Коммерческий режим (ИП + ЮKassa)". Add a warning text explaining that turning this ON will activate real money transactions and YooKassa API.
+
+4. YooKassa Integration (Stage 21a):
+
+Create the universal payments table (id, user_id, amount_rub, status, yookassa_payment_id, target_type, target_id).
+
+Build the REST client in lib/yookassa.ts using the admin credentials. Implement Idempotency-Key for all requests and capture: false for booking holds.
+
+Routing: In your payment endpoints, add a check: if is_commercial_mode === true, execute the real YooKassa redirect. If false, execute a mock flow that instantly updates the payment status to succeeded and redirects back.
+
+5. Frontend Banner:
+
+Add a dismissible, global sticky banner at the top of the app (only visible if is_commercial_mode is false): "Платформа работает в режиме бета-тестирования. Все функции платформы бесплатны!".
+
+Once complete, update docs/AGENT_INSTRUCTIONS.md with Stage 21a details and push changes using github-push.sh.
+
+С этой логикой проект будет готов к сбору первого реального трафика. Жду новостей с нового аккаунта! Как только Агент закончит этот этап, мы сможем спокойно переключиться на модуль "Совместных покупок".

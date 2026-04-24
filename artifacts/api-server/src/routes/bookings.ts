@@ -315,16 +315,21 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
     return;
   }
 
-  // Единая формула доли фонда для обеих сторон
-  const fundShare = Math.max(
+  // ── Stage 21a: Soft-Launch override ────────────────────────────────────
+  // В бета-режиме (`is_commercial_mode = false`) UI показывает все опции защиты,
+  // но математика обнуляется — ничего не списываем, ничего не удерживаем.
+  const commercial = settings.isCommercialMode === true;
+
+  // Единая формула доли фонда для обеих сторон (только в коммерч. режиме)
+  const fundShare = commercial ? Math.max(
     parseFloat((rent * num(settings.shieldFeePercent) / 100).toFixed(2)),
     settings.shieldFeeMin,
-  );
-  const ownerFundContrib = ownerOptedIn ? fundShare : 0;
-  const renterFundContrib = renterOptedIn ? fundShare : 0;
+  ) : 0;
+  const ownerFundContrib = (commercial && ownerOptedIn) ? fundShare : 0;
+  const renterFundContrib = (commercial && renterOptedIn) ? fundShare : 0;
 
-  const serviceFeeAmt = parseFloat((rent * num(settings.serviceFeePercent) / 100).toFixed(2));
-  const taxFeeAmt = parseFloat((rent * num(settings.taxFeePercent) / 100).toFixed(2));
+  const serviceFeeAmt = commercial ? parseFloat((rent * num(settings.serviceFeePercent) / 100).toFixed(2)) : 0;
+  const taxFeeAmt = commercial ? parseFloat((rent * num(settings.taxFeePercent) / 100).toFixed(2)) : 0;
 
   let serviceFee: number;
   let taxFee: number;
@@ -690,16 +695,18 @@ router.patch("/:id/reschedule", requireAuth, async (req: AuthRequest, res) => {
     const ownerOptedIn = listing?.ownerProtectionEnabled !== false;
     const renterOptedIn = booking.renterProtectionEnabled !== false;
     const isFreeUpgrade = !ownerOptedIn;
+    // Stage 21a soft-launch override
+    const commercial = settings.isCommercialMode === true;
 
-    const fundShare = Math.max(
+    const fundShare = commercial ? Math.max(
       parseFloat((rent * num(settings.shieldFeePercent) / 100).toFixed(2)),
       settings.shieldFeeMin,
-    );
-    ownerFundContribNew = ownerOptedIn ? fundShare : 0;
-    renterFundContribNew = renterOptedIn ? fundShare : 0;
+    ) : 0;
+    ownerFundContribNew = (commercial && ownerOptedIn) ? fundShare : 0;
+    renterFundContribNew = (commercial && renterOptedIn) ? fundShare : 0;
 
-    const svc = parseFloat((rent * num(settings.serviceFeePercent) / 100).toFixed(2));
-    const tax = parseFloat((rent * num(settings.taxFeePercent) / 100).toFixed(2));
+    const svc = commercial ? parseFloat((rent * num(settings.serviceFeePercent) / 100).toFixed(2)) : 0;
+    const tax = commercial ? parseFloat((rent * num(settings.taxFeePercent) / 100).toFixed(2)) : 0;
     serviceFeeNew = svc;
     taxFeeNew = tax;
 

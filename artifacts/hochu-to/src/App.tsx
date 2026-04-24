@@ -27,6 +27,7 @@ import Contacts from "@/pages/Contacts";
 import Privacy from "@/pages/Privacy";
 import Favorites from "@/pages/Favorites";
 import AdminPage from "@/pages/AdminPage";
+import BetaBanner from "@/components/BetaBanner";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -106,6 +107,7 @@ function App() {
         <FavoritesProvider>
           <TooltipProvider>
             <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+              <BetaBanner />
               <Router />
             </WouterRouter>
             <Toaster />
