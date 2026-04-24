@@ -159,8 +159,6 @@ router.get("/", async (req, res) => {
 
   const total = totalResult?.count ?? 0;
 
-  const needsJsSorting = sort === "rating" || sort === "popular";
-
   const baseQuery = db
     .select({
       id: listingsTable.id,
@@ -192,6 +190,11 @@ router.get("/", async (req, res) => {
       isUrgent: listingsTable.isUrgent,
       urgentUntil: listingsTable.urgentUntil,
       boostedUntil: listingsTable.boostedUntil,
+      // Stage 19e: денормализованные счётчики — берём прямо из таблицы, без N+1
+      bookingCount: listingsTable.bookingCount,
+      reviewCount: listingsTable.reviewCount,
+      avgRating: listingsTable.avgRating,
+      favoritesCount: listingsTable.favoritesCount,
       createdAt: listingsTable.createdAt,
     })
     .from(listingsTable)
@@ -209,11 +212,10 @@ router.get("/", async (req, res) => {
     sql`(${listingsTable.boostedUntil} IS NOT NULL AND ${listingsTable.boostedUntil} > NOW()) DESC`,
   ];
 
+  // Stage 19e: всё SQL — больше нет JS-сортировки и N+1 sub-queries.
+  // popular/rating используют денормализованные колонки.
   let rawListings;
-  if (needsJsSorting) {
-    // JS-сортировка по rating/popular: тянем всё, тир сохраняем в JS-компараторе ниже.
-    rawListings = await (baseQuery as any).orderBy(...promoOrder, desc(listingsTable.createdAt));
-  } else if (sort === "price_asc") {
+  if (sort === "price_asc") {
     rawListings = await (baseQuery as any)
       .orderBy(...promoOrder, sql`${listingsTable.pricePerDay}::numeric ASC`)
       .limit(limitNum).offset(offset);
@@ -231,6 +233,26 @@ router.get("/", async (req, res) => {
     rawListings = await (baseQuery as any)
       .orderBy(...promoOrder, desc(listingsTable.createdAt))
       .limit(limitNum).offset(offset);
+  } else if (sort === "rating") {
+    // По рейтингу: промо → средний рейтинг → кол-во отзывов → дата
+    rawListings = await (baseQuery as any)
+      .orderBy(
+        ...promoOrder,
+        desc(listingsTable.avgRating),
+        desc(listingsTable.reviewCount),
+        desc(listingsTable.createdAt),
+      )
+      .limit(limitNum).offset(offset);
+  } else if (sort === "popular") {
+    // Популярные: промо → кол-во состоявшихся броней → рейтинг → дата
+    rawListings = await (baseQuery as any)
+      .orderBy(
+        ...promoOrder,
+        desc(listingsTable.bookingCount),
+        desc(listingsTable.avgRating),
+        desc(listingsTable.createdAt),
+      )
+      .limit(limitNum).offset(offset);
   } else {
     // Дефолт: VIP (активные) → Срочно (активные) → boosted (активные, поднятие на 24ч) → новые
     // GREATEST(boostedUntil, createdAt) даёт «эффективную дату»: только если boost ещё не истёк.
@@ -242,71 +264,17 @@ router.get("/", async (req, res) => {
       .limit(limitNum).offset(offset);
   }
 
-  // Enrich with rating (and optionally booking count for popular sort)
-  const listingsWithRating = await Promise.all(rawListings.map(async (l: any) => {
-    const [ratingResult] = await db
-      .select({
-        avg: sql<number>`COALESCE(AVG(${reviewsTable.rating}), 0)::float`,
-        count: sql<number>`COUNT(*)::int`,
-      })
-      .from(reviewsTable)
-      .where(eq(reviewsTable.listingId, l.id));
-
-    let bookingCount = 0;
-    if (sort === "popular") {
-      const [bookingResult] = await db
-        .select({ count: sql<number>`COUNT(*)::int` })
-        .from(bookingsTable)
-        .where(and(
-          eq(bookingsTable.listingId, l.id),
-          sql`${bookingsTable.status} IN ('confirmed','active','completed')`
-        ));
-      bookingCount = bookingResult?.count ?? 0;
-    }
-
-    return {
-      ...l,
-      pricePerDay: parseFloat(l.pricePerDay as unknown as string),
-      deposit: l.deposit ? parseFloat(l.deposit as unknown as string) : undefined,
-      createdAt: l.createdAt.toISOString(),
-      rating: ratingResult?.avg ?? 0,
-      reviewCount: ratingResult?.count ?? 0,
-      bookingCount,
-    };
+  // Stage 19e: enrichment теперь чисто формат — никаких доп. запросов в БД.
+  const sortedListings = rawListings.map((l: any) => ({
+    ...l,
+    pricePerDay: parseFloat(l.pricePerDay as unknown as string),
+    deposit: l.deposit ? parseFloat(l.deposit as unknown as string) : undefined,
+    createdAt: l.createdAt.toISOString(),
+    rating: l.avgRating ? parseFloat(l.avgRating as unknown as string) : 0,
+    reviewCount: l.reviewCount ?? 0,
+    bookingCount: l.bookingCount ?? 0,
+    favoritesCount: l.favoritesCount ?? 0,
   }));
-
-  // Apply JS-based sorting for rating and popular.
-  // Платный тир (VIP > Срочно > Boost) удерживается наверху и при JS-сортировке.
-  const nowMs = Date.now();
-  // Семантика «активно» строго совпадает с SQL-префиксом promoOrder:
-  //   VIP/Срочно — isX=true И XUntil > NOW(); Boost — boostedUntil > NOW().
-  // Если admin вручную поставил isFeatured=true без featuredUntil, тариф НЕ активен —
-  // так же, как в SQL-ветках (`isFeatured=true AND featuredUntil > NOW()`).
-  const promoTier = (l: any): number => {
-    if (l.isFeatured && l.featuredUntil && new Date(l.featuredUntil).getTime() > nowMs) return 3;
-    if (l.isUrgent && l.urgentUntil && new Date(l.urgentUntil).getTime() > nowMs) return 2;
-    if (l.boostedUntil && new Date(l.boostedUntil).getTime() > nowMs) return 1;
-    return 0;
-  };
-
-  let sortedListings = listingsWithRating;
-  if (sort === "rating") {
-    sortedListings = [...listingsWithRating].sort((a, b) => {
-      const tA = promoTier(a), tB = promoTier(b);
-      if (tA !== tB) return tB - tA;
-      if (b.rating !== a.rating) return b.rating - a.rating;
-      return b.reviewCount - a.reviewCount;
-    });
-    sortedListings = sortedListings.slice(offset, offset + limitNum);
-  } else if (sort === "popular") {
-    sortedListings = [...listingsWithRating].sort((a, b) => {
-      const tA = promoTier(a), tB = promoTier(b);
-      if (tA !== tB) return tB - tA;
-      if (b.bookingCount !== a.bookingCount) return b.bookingCount - a.bookingCount;
-      return b.rating - a.rating;
-    });
-    sortedListings = sortedListings.slice(offset, offset + limitNum);
-  }
 
   // Fallback: если выбран регион и в нём ничего не найдено — выдаём объявления из других регионов
   // (как на Авито: "В вашем регионе ничего не найдено, но смотрите похожие в других регионах")
@@ -338,6 +306,10 @@ router.get("/", async (req, res) => {
         ownerName: usersTable.name,
         ownerAvatar: usersTable.avatar,
         ownerPhone: usersTable.phone,
+        bookingCount: listingsTable.bookingCount,
+        reviewCount: listingsTable.reviewCount,
+        avgRating: listingsTable.avgRating,
+        favoritesCount: listingsTable.favoritesCount,
         createdAt: listingsTable.createdAt,
       })
       .from(listingsTable)
@@ -348,23 +320,15 @@ router.get("/", async (req, res) => {
       .orderBy(desc(listingsTable.createdAt))
       .limit(12);
 
-    otherRegionsListings = await Promise.all(otherRegionsRaw.map(async (l: any) => {
-      const [ratingResult] = await db
-        .select({
-          avg: sql<number>`COALESCE(AVG(${reviewsTable.rating}), 0)::float`,
-          count: sql<number>`COUNT(*)::int`,
-        })
-        .from(reviewsTable)
-        .where(eq(reviewsTable.listingId, l.id));
-      return {
-        ...l,
-        pricePerDay: parseFloat(l.pricePerDay as unknown as string),
-        deposit: l.deposit ? parseFloat(l.deposit as unknown as string) : undefined,
-        createdAt: l.createdAt.toISOString(),
-        rating: ratingResult?.avg ?? 0,
-        reviewCount: ratingResult?.count ?? 0,
-        bookingCount: 0,
-      };
+    otherRegionsListings = otherRegionsRaw.map((l: any) => ({
+      ...l,
+      pricePerDay: parseFloat(l.pricePerDay as unknown as string),
+      deposit: l.deposit ? parseFloat(l.deposit as unknown as string) : undefined,
+      createdAt: l.createdAt.toISOString(),
+      rating: l.avgRating ? parseFloat(l.avgRating as unknown as string) : 0,
+      reviewCount: l.reviewCount ?? 0,
+      bookingCount: l.bookingCount ?? 0,
+      favoritesCount: l.favoritesCount ?? 0,
     }));
   }
 

@@ -3,6 +3,7 @@ import { db, favoritesTable, listingsTable, usersTable, categoriesTable, regions
 import { eq, and, inArray } from "drizzle-orm";
 import { requireAuth, type AuthRequest } from "../middleware/auth.js";
 import { sql } from "drizzle-orm";
+import { applyFavoritesCountDelta } from "../lib/listing-counters.js";
 
 const router = Router();
 
@@ -68,6 +69,10 @@ router.post("/:listingId", requireAuth, async (req: AuthRequest, res) => {
       .values({ userId: req.userId!, listingId })
       .onConflictDoNothing()
       .returning();
+    // Stage 19e: инкремент только если действительно добавили (а не дубликат)
+    if (row) {
+      await applyFavoritesCountDelta(listingId, +1);
+    }
     res.json({ success: true, favoriteId: row?.id ?? null });
   } catch {
     res.status(500).json({ error: "failed to add favorite" });
@@ -79,9 +84,14 @@ router.delete("/:listingId", requireAuth, async (req: AuthRequest, res) => {
   const listingId = parseInt(req.params.listingId as string);
   if (isNaN(listingId)) { res.status(400).json({ error: "invalid listing id" }); return; }
 
-  await db
+  const deleted = await db
     .delete(favoritesTable)
-    .where(and(eq(favoritesTable.userId, req.userId!), eq(favoritesTable.listingId, listingId)));
+    .where(and(eq(favoritesTable.userId, req.userId!), eq(favoritesTable.listingId, listingId)))
+    .returning({ id: favoritesTable.id });
+  // Stage 19e: декремент только если строка реально удалилась
+  if (deleted.length > 0) {
+    await applyFavoritesCountDelta(listingId, -1);
+  }
   res.json({ success: true });
 });
 

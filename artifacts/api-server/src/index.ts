@@ -2,6 +2,7 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { startScheduler } from "./lib/scheduler";
 import { ensurePlatformSettings } from "./lib/platform-settings";
+import { backfillListingCounters } from "./lib/backfill-counters";
 import { db, usersTable } from "@workspace/db";
 import { sql, eq } from "drizzle-orm";
 import bcrypt from "bcryptjs";
@@ -53,6 +54,11 @@ app.listen(port, async (err) => {
     logger.info({ settingsId: settings.id, paymentMode: settings.paymentMode }, "Platform settings ready");
   } catch (e) {
     logger.error({ err: e }, "Failed to initialize platform settings");
+  }
+  try {
+    await backfillListingCounters();
+  } catch (e) {
+    logger.error({ err: e }, "Failed to backfill listing counters");
   }
   startScheduler();
 });

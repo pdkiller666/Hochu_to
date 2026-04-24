@@ -870,3 +870,27 @@ GITHUB_TOKEN=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 bash scripts/github-push.s
 **Smoke:** на dev-БД с тестовыми данными — без `quality`: 7/20 объявлений в выдаче дефектные, с `quality=true`: 0/20 дефектных.
 
 **API-контракт:** параметр `quality` добавлен в `lib/api-spec/openapi.yaml` (`/listings`), регенерированы `api-client-react` и `api-zod` через `pnpm --filter @workspace/api-spec run codegen`. Тип — `string` enum `["true","false"]` для единообразия с существующим `safeOnly`.
+
+## Журнал — Stage 19e (Денормализация счётчиков объявлений, 24.04.2026)
+
+**Проблема:** `/api/listings` для каждого объявления делал N+1 sub-queries — отдельный SELECT AVG/COUNT по `reviews` (всегда), и ещё один SELECT COUNT по `bookings` для `sort=popular`. На 50 объявлениях в выдаче — до 100+ круговых походов в БД на один запрос. Кроме того, `sort=popular` и `sort=rating` сортировались в JS, что ломало пагинацию и не давало масштабироваться.
+
+**Сделано:**
+- `lib/db/src/schema/listings.ts`: добавлены 4 денормализованные колонки — `bookingCount integer DEFAULT 0 NOT NULL`, `reviewCount integer DEFAULT 0 NOT NULL`, `avgRating numeric(3,2) DEFAULT 0 NOT NULL`, `favoritesCount integer DEFAULT 0 NOT NULL`. Применено через `pnpm --filter @workspace/db run push-force`.
+- `artifacts/api-server/src/lib/backfill-counters.ts`: идемпотентный бэкфилл из `bookings`/`reviews`/`favorites`. Использует `NOT EXISTS` (не `NOT IN` — иначе NULL в `listing_id` ломает обнуление). Запускается на старте сервера в `index.ts`. Время на dev: 29 мс.
+- `artifacts/api-server/src/lib/listing-counters.ts`: хелперы — `bookingCounts(status)`, `bookingCountDelta(from,to)`, `applyBookingCountDelta`, `recomputeListingRating`, `applyFavoritesCountDelta`. Семантика «активной» брони: `confirmed | active | return_pending | completed` (pending/rejected/cancelled НЕ считаются).
+- `routes/bookings.ts`:
+  - **Прямой контакт** (POST: status=confirmed создаётся сразу) → `+1` к bookingCount.
+  - **PUT /:id** → атомарный переход `UPDATE WHERE id=:id AND status=:fromStatus RETURNING …`. Если RETURNING пустой → 409 (race condition с другим запросом, дельта НЕ применяется). Дельта `bookingCountDelta(from,to)`.
+- `routes/reviews.ts`: после insert отзыва вызывается `recomputeListingRating(listingId)` (один SQL `SELECT AVG/COUNT` + `UPDATE listings`).
+- `routes/favorites.ts`: insert (с `onConflictDoNothing`) → `+1` только если строка реально создана (проверяется `returning()`); delete → `-1` только если строка реально удалилась.
+- `routes/listings.ts`: **убраны N+1 Promise.all блоки** для main query и для fallback «других регионов». `sort=popular` и `sort=rating` переписаны на чистый SQL: `popular` → `…promoOrder, bookingCount DESC, avgRating DESC, createdAt DESC`; `rating` → `…promoOrder, avgRating DESC, reviewCount DESC, createdAt DESC`. Денормализованные колонки добавлены в SELECT, форматирование тривиальное (без доп. запросов).
+- **Stage 19b**: `artifacts/hochu-to/src/components/ui/ListingCard.tsx` — бейдж «Часто берут» теперь срабатывает по `bookingCount >= 10 && rating < 4.5` (раньше — по `reviewCount >= 10`). Это синхронизирует визуальный сигнал с реальной популярностью объявления.
+
+**Производительность:** запрос `/api/listings?sort=popular&limit=12` теперь делает ровно 2 SQL-запроса (count + main), вместо 12 main + 12*2 = 36 sub-queries.
+
+**Code review (architect) — 2 итерации:**
+1. Race condition в PUT /api/bookings/:id: `fromStatus` читался отдельным SELECT. Исправлено атомарным `UPDATE WHERE id=… AND status=fromStatus` с возвратом 409 при конфликте.
+2. Backfill использовал `NOT IN`, что некорректно при NULL в подзапросе — заменено на `NOT EXISTS` + `WHERE listing_id IS NOT NULL` в группирующих SELECT.
+
+**Бэклог Stage 19:** 19c (гибридная метрика «Хитов» — требует таблицу `listing_views`).

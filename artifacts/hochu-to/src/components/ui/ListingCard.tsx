@@ -47,10 +47,13 @@ function getListingBadges(listing: Listing): Badge[] {
   }
   const rating = typeof l.rating === "number" ? l.rating : 0;
   const reviewCount = typeof l.reviewCount === "number" ? l.reviewCount : 0;
+  // Stage 19b: «Часто берут» теперь считается по реальным состоявшимся сделкам
+  // (bookingCount, денормализованная колонка), а не по числу отзывов.
+  const bookingCount = typeof (l as any).bookingCount === "number" ? (l as any).bookingCount : 0;
   if (rating >= 4.5 && reviewCount >= 3) {
     out.push({ key: "rating", icon: Star, label: "Высокий рейтинг", className: "bg-amber-50 text-amber-700 border-amber-200", tier: "earned" });
   }
-  if (reviewCount >= 10 && rating < 4.5) {
+  if (bookingCount >= 10 && rating < 4.5) {
     out.push({ key: "popular", icon: Flame, label: "Часто берут", className: "bg-orange-50 text-orange-700 border-orange-200", tier: "earned" });
   }
   if (l.createdAt) {

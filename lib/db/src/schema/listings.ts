@@ -38,6 +38,18 @@ export const listingsTable = pgTable("listings", {
   /** Поднятие на 24ч — boostedUntil > now() работает как «свежее createdAt». */
   boostedUntil: timestamp("boosted_until"),
 
+  // ── Денормализованные счётчики (Stage 19e) ─────────────────────────────
+  // Поддерживаются в коде на изменении броней / отзывов / избранного.
+  // Используются /api/listings для сортировок и бейджей без N+1 sub-queries.
+  /** Кол-во броней со статусом confirmed/active/return_pending/completed. */
+  bookingCount: integer("booking_count").default(0).notNull(),
+  /** Кол-во отзывов на это объявление. */
+  reviewCount: integer("review_count").default(0).notNull(),
+  /** Средний рейтинг отзывов (0..5, два знака после точки). 0 если нет отзывов. */
+  avgRating: numeric("avg_rating", { precision: 3, scale: 2 }).default("0").notNull(),
+  /** Сколько раз добавлено в избранное. */
+  favoritesCount: integer("favorites_count").default(0).notNull(),
+
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

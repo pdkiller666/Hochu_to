@@ -5,6 +5,7 @@ import { requireAuth, AuthRequest } from "../middleware/auth.js";
 import { CreateBookingBody } from "@workspace/api-zod";
 import { createNotification } from "../lib/notifications.js";
 import { getPlatformSettings, num } from "../lib/platform-settings.js";
+import { applyBookingCountDelta, bookingCountDelta, bookingCounts } from "../lib/listing-counters.js";
 
 const router = Router();
 
@@ -224,6 +225,11 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
     const bookingNumber = generateBookingNumber(booking.id);
     await db.update(bookingsTable).set({ bookingNumber }).where(eq(bookingsTable.id, booking.id));
     booking.bookingNumber = bookingNumber;
+
+    // Прямой контакт создаётся сразу со статусом 'confirmed' → +1 к bookingCount
+    if (bookingCounts(booking.status)) {
+      await applyBookingCountDelta(booking.listingId, +1);
+    }
 
     const [renterUser] = await db.select({ name: usersTable.name }).from(usersTable)
       .where(eq(usersTable.id, req.userId!)).limit(1);
@@ -506,10 +512,23 @@ router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
     return;
   }
 
+  // Stage 19e: атомарный переход — UPDATE WHERE id=... AND status=fromStatus.
+  // Если параллельный запрос уже сменил статус, RETURNING вернёт 0 строк, и мы
+  // отдадим 409, не применяя ложную дельту bookingCount.
   const [updated] = await db.update(bookingsTable).set({
     status,
     ...(status === "rejected" && { ownerComment: ownerComment?.trim() || null }),
-  }).where(eq(bookingsTable.id, id)).returning();
+  }).where(and(eq(bookingsTable.id, id), eq(bookingsTable.status, fromStatus))).returning();
+  if (!updated) {
+    res.status(409).json({
+      error: "status_conflict",
+      message: "Статус уже изменён в другом запросе. Перезагрузите страницу.",
+    });
+    return;
+  }
+
+  // Stage 19e: синхронизируем bookingCount при смене статуса.
+  await applyBookingCountDelta(updated.listingId, bookingCountDelta(fromStatus, status));
 
   // Завершена сделка — увеличиваем счётчик у обеих сторон
   if (status === "completed") {

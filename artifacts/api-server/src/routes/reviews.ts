@@ -2,6 +2,7 @@ import { Router } from "express";
 import { db, reviewsTable, usersTable, bookingsTable, listingsTable } from "@workspace/db";
 import { eq, and, sql } from "drizzle-orm";
 import { requireAuth, AuthRequest } from "../middleware/auth.js";
+import { recomputeListingRating } from "../lib/listing-counters.js";
 
 const router = Router();
 
@@ -124,6 +125,11 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
     rating,
     text: text ?? null,
   }).returning();
+
+  // Stage 19e: пересчёт avgRating/reviewCount для объявления
+  if (review.listingId) {
+    await recomputeListingRating(review.listingId);
+  }
 
   const [author] = await db.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1);
   const [reviewee] = await db.select().from(usersTable)
