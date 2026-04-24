@@ -1197,7 +1197,7 @@ router.put("/settings", requireAuth, requireAdmin, async (req: AuthRequest, res)
     "subscriptionProMonthly", "subscriptionBusinessMonthly", "subscriptionBusinessCommissionPercent",
     "jointPurchaseFeePercent",
     "paymentMode",
-    "yookassaEnabled", "yookassaShopId", "yookassaTestMode",
+    "yookassaEnabled", "yookassaShopId", "yookassaSecretKey", "yookassaTestMode",
     "sbpEnabled", "sbpMerchantId",
     "cloudpaymentsEnabled", "cloudpaymentsPublicId",
     // ── Stage 2: Free + контакты + витрина ──────────────────────────────
@@ -1239,7 +1239,7 @@ router.put("/settings", requireAuth, requireAdmin, async (req: AuthRequest, res)
     "contactPackRefundEnabled", "freeToPremiumUpgradeEnabled", "showFormatBadges",
   ] as const;
   const NULLABLE_STR_FIELDS = [
-    "yookassaShopId", "sbpMerchantId", "cloudpaymentsPublicId",
+    "yookassaShopId", "yookassaSecretKey", "sbpMerchantId", "cloudpaymentsPublicId",
   ] as const;
 
   for (const k of PERCENT_FIELDS) {

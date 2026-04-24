@@ -107,6 +107,7 @@ export const platformSettingsTable = pgTable("platform_settings", {
   paymentMode: text("payment_mode").default("self_employed").notNull(),
   yookassaEnabled: boolean("yookassa_enabled").default(false).notNull(),
   yookassaShopId: text("yookassa_shop_id"),
+  yookassaSecretKey: text("yookassa_secret_key"),
   yookassaTestMode: boolean("yookassa_test_mode").default(true).notNull(),
   sbpEnabled: boolean("sbp_enabled").default(false).notNull(),
   sbpMerchantId: text("sbp_merchant_id"),

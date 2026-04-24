@@ -1481,3 +1481,41 @@ C) UI «Отозвать заявку на верификацию» (чтобы 
 - Список из 25 банков покрывает ~95% юзеров; если пользователь в маленьком региональном банке — выберет «Другой» и обсудит с админом в тикете. Если поток таких случаев станет заметным — подключим публичный реестр СБП с НСПК (https://qr.nspk.ru/).
 - Card-last4 + holder совместимо с миром (нет нормализации `Иванов И.` vs `Иванов Иван`) — если юзер впишет одно и то же ФИО разными способами, partial unique не сработает. Это не критично — юзер может удалить мусор сам.
 - Реальная отправка денег по СБП всё ещё ручная (админ нажимает `mark-paid` после реального банковского перевода). Автоматизация — это отдельный stage с подключением ЮKassa Payouts или прямого банковского API.
+
+## Журнал — Stage 20c (Поля ЮKassa в админке, 24.04.2026)
+
+**Контекст:** пользователь захотел подключение ЮKassa, но ключей у него ещё нет — попросил «сделай поля где потом заполнять». Это подготовительный мини-стейдж перед реальной интеграцией (Stage 21+).
+
+**Реализация:**
+1. Schema `lib/db/src/schema/platform_settings.ts` — добавлено поле `yookassaSecretKey: text("yookassa_secret_key")` (nullable). Применено через `pnpm --filter @workspace/db push`.
+2. `routes/admin.ts`:
+   - Список `allowed` (line ~1199) — добавлен `"yookassaSecretKey"` (PUT принимает).
+   - Список `NULLABLE_STR_FIELDS` (line ~1244) — добавлен `"yookassaSecretKey"` (валидация: max 255, пустая строка → null).
+3. `pages/AdminPage.tsx`:
+   - Сет `NULLABLE_STR` (line ~2244) — добавлен `"yookassaSecretKey"` (frontend нормализация).
+   - UI блок ЮKassa полностью переработан: вместо однострочной подсказки «Секреты в env» теперь активная ссылка на ЛК ЮKassa (`https://yookassa.ru/my/merchant/integration/api-keys`), 2 поля в grid (Shop ID `type=text` + Secret Key `type=password` `autoComplete=off`, моноширинный font), плюс переключатель тест-режима. Жёлтое предупреждение `⚠ Включено без полных реквизитов` если `yookassaEnabled=true` но один из ключей пуст.
+   - Заменена нижняя плашка `bg-amber-50` («секреты не редактируются») на `bg-stone-50` с реалистичной пометкой: «секреты хранятся в БД, в продакшене ENV `YOOKASSA_SECRET_KEY` приоритетнее БД» — заложен будущий fallback-механизм для Stage 21+.
+
+**Защита от утечки секрета:**
+`publicSettings(s)` в `lib/platform-settings.ts` — explicit whitelist по полям. Чтобы добавить новое поле в публичный endpoint `GET /api/settings`, его нужно явно вписать в функцию. `yookassaSecretKey` туда автоматически НЕ попадает.
+
+**Smoke-тесты (curl + jq):**
+- `psql` — колонка `yookassa_secret_key text` создана ✅
+- `GET /api/admin/settings` (admin token) — возвращает `yookassaSecretKey` ✅
+- `PUT /api/admin/settings -d '{"yookassaSecretKey":"test_TXxYdummykey..."}'` → 200, значение сохранено ✅
+- `GET /api/settings` (без auth) — `has("yookassaSecretKey") === false` ✅ (нет утечки)
+- `PUT -d '{"yookassaSecretKey":null}'` — очистка работает ✅
+
+**Что НЕ сделано (для следующего стейджа):**
+- Реальный ЮKassa REST клиент (`lib/yookassa.ts`).
+- Таблица `payments` для tracking платежей.
+- Webhook receiver `POST /api/webhooks/yookassa`.
+- Refactor `routes/promotions.ts` POST на webhook-driven activation.
+- Frontend redirect-flow в `PromoteListingModal`.
+
+Когда юзер сообщит, что ключи заполнены — продолжим со Stage 21a. Заготовка плана уже есть в `.local/session_plan.md`, но НЕ выполняем до получения сигнала.
+
+**Уроки:**
+1. **Хранение секретов в БД vs ENV.** Идеологически в env безопаснее (не попадает в дампы БД, легче ротировать), но в админ-UI редактировать удобнее. Компромисс: код будущего YK-клиента должен брать `process.env.YOOKASSA_SECRET_KEY ?? settings.yookassaSecretKey` — ENV override. В дев-режиме юзер заполняет в админке, в проде задаёт ENV.
+2. **Whitelist publicSettings — single source of truth.** Любой новый секрет/чувствительное поле в `platform_settings` НЕ требует дополнительной защиты — он автоматически не попадает в публичный endpoint, пока его явно не добавят в `publicSettings()`. Это правильный default.
+3. **`type=password` + `autoComplete=off`** в input для секрета — звёздочки + браузер не запоминает в form-history. Базовый UX-минимум.

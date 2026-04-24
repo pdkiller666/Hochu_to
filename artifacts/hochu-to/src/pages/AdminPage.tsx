@@ -2238,7 +2238,7 @@ function useSettingsForm() {
       "serviceFeePercent","taxFeePercent","shieldFeePercent","riskCoveragePercent",
       "subscriptionBusinessCommissionPercent","jointPurchaseFeePercent","depositMultiplier",
     ]);
-    const NULLABLE_STR = new Set(["yookassaShopId","sbpMerchantId","cloudpaymentsPublicId"]);
+    const NULLABLE_STR = new Set(["yookassaShopId","yookassaSecretKey","sbpMerchantId","cloudpaymentsPublicId"]);
     const payload: Record<string, any> = {};
     for (const [k, v] of Object.entries(data)) {
       if (k === "id" || k === "updatedAt" || k === "updatedBy") continue;
@@ -2738,19 +2738,38 @@ function PaymentsTab() {
         <div className="flex items-center justify-between mb-4">
           <div>
             <h2 className="text-lg font-semibold text-stone-800">ЮKassa</h2>
-            <p className="text-sm text-stone-500">Карты, СБП, ЮMoney. Секреты — в переменных окружения сервера</p>
+            <p className="text-sm text-stone-500">
+              Карты, СБП, ЮMoney. Ключи — из{" "}
+              <a href="https://yookassa.ru/my/merchant/integration/api-keys" target="_blank" rel="noopener noreferrer"
+                 className="text-[#C65D3B] underline hover:no-underline">личного кабинета ЮKassa</a>
+              {" "}(Магазины → ваш магазин → Интеграция → API ключи)
+            </p>
           </div>
           <Toggle checked={!!data.yookassaEnabled} onChange={v => set("yookassaEnabled", v)} label={data.yookassaEnabled ? "Вкл" : "Выкл"} />
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <SettingsField label="Shop ID" hint="Публичный идентификатор магазина">
-            <input type="text" value={data.yookassaShopId ?? ""} onChange={e => set("yookassaShopId", e.target.value || null)}
+          <SettingsField label="Shop ID" hint="Публичный идентификатор магазина (обычно 6 цифр)">
+            <input type="text" inputMode="numeric" placeholder="123456"
+              value={data.yookassaShopId ?? ""}
+              onChange={e => set("yookassaShopId", e.target.value || null)}
               className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C65D3B] text-stone-800" />
           </SettingsField>
+          <SettingsField label="Secret Key" hint="Секретный ключ магазина (test_… или live_…)">
+            <input type="password" autoComplete="off"
+              placeholder={data.yookassaSecretKey ? "•••••••• (сохранён)" : "test_xxxxxxxxxxxxxxxxxxxxxx"}
+              value={data.yookassaSecretKey ?? ""}
+              onChange={e => set("yookassaSecretKey", e.target.value || null)}
+              className="w-full px-3 py-2 border border-stone-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#C65D3B] text-stone-800 font-mono text-sm" />
+          </SettingsField>
           <div className="flex items-end">
-            <Toggle checked={!!data.yookassaTestMode} onChange={v => set("yookassaTestMode", v)} label="Тестовый режим" />
+            <Toggle checked={!!data.yookassaTestMode} onChange={v => set("yookassaTestMode", v)} label="Тестовый режим (без реальных списаний)" />
           </div>
         </div>
+        {data.yookassaEnabled && (!data.yookassaShopId || !data.yookassaSecretKey) && (
+          <div className="mt-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-900">
+            ⚠ Включено без полных реквизитов — оплаты не пройдут. Заполните Shop ID и Secret Key.
+          </div>
+        )}
       </div>
 
       <div className="bg-white rounded-xl border border-stone-200 p-6">
@@ -2781,8 +2800,11 @@ function PaymentsTab() {
         </SettingsField>
       </div>
 
-      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-900">
-        Секретные ключи (api_key, signing_secret) хранятся в переменных окружения сервера и не редактируются из админки.
+      <div className="bg-stone-50 border border-stone-200 rounded-xl p-4 text-sm text-stone-700">
+        <div className="font-semibold mb-1">Безопасность ключей</div>
+        Секретные ключи хранятся в БД (зашифрованное соединение). Для дополнительной защиты в продакшене рекомендуется задавать
+        <code className="mx-1 px-1.5 py-0.5 bg-stone-200 rounded text-xs">YOOKASSA_SECRET_KEY</code>
+        через переменные окружения сервера — серверный код берёт ENV в приоритете над БД.
       </div>
 
       <SettingsActionBar dirty={!!dirty} saving={saving} onSave={save} onReset={reset} />
