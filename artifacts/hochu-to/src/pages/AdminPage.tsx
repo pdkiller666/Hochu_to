@@ -943,7 +943,7 @@ function ListingsTab() {
     try {
       const r = await fetch(`${API}/api/admin/seed-test-listings`, {
         method: "POST",
-        headers: { "content-type": "application/json", authorization: `Bearer ${localStorage.getItem("token") ?? ""}` },
+        headers: { "content-type": "application/json", ...getAuthHeaders() },
         body: JSON.stringify({ perCategory: 15 }),
       });
       const j = await r.json();
