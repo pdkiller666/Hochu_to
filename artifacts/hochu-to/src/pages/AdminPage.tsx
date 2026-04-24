@@ -749,6 +749,65 @@ function ListingDetailPanel({ listingId, onClose, onChanged }: {
 }
 
 // ─── BookingOverrideModal ─────────────────────────────────────────────────────
+function DigitalActsBlock({ bookingId }: { bookingId: number }) {
+  // Stage 22a — отображение Цифровых актов брони в админке для арбитража
+  const { data, loading } = useFetch<{ items: any[] }>(`${API}/api/bookings/${bookingId}/digital-acts`, [bookingId]);
+  const items = data?.items ?? [];
+
+  if (loading) return <div className="text-xs text-stone-400">Загрузка актов…</div>;
+  if (items.length === 0) {
+    return (
+      <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+        ⚠️ Цифровых актов нет. Если стороны спорят о состоянии вещи — у них нет доказательств.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {items.map((act: any) => {
+        const photos: string[] = Array.isArray(act.photos) ? act.photos : [];
+        const meta = act.metadata || {};
+        const hasGps = meta.extractedFromExif || (meta.photoExif?.some((e: any) => e?.lat));
+        return (
+          <div key={act.id} className="border border-stone-200 rounded-xl p-3 bg-stone-50">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
+                  act.type === "check_in" ? "bg-emerald-100 text-emerald-800" : "bg-violet-100 text-violet-800"
+                }`}>
+                  {act.type === "check_in" ? "📥 Check-in" : "📤 Check-out"}
+                </span>
+                <span className="text-[11px] text-stone-500">
+                  {new Date(act.createdAt).toLocaleString("ru-RU")}
+                </span>
+                {hasGps && (
+                  <span className="text-[10px] text-emerald-700 font-medium">📍 GPS</span>
+                )}
+              </div>
+              <span className="text-[11px] text-stone-500">{photos.length} фото</span>
+            </div>
+            <div className="grid grid-cols-4 gap-1.5">
+              {photos.map((url, i) => (
+                <a key={i} href={`${API}${url}`} target="_blank" rel="noreferrer"
+                   className="aspect-square rounded-lg overflow-hidden border border-stone-200 hover:border-emerald-400 transition-colors">
+                  <img src={`${API}${url}`} alt="" className="w-full h-full object-cover" />
+                </a>
+              ))}
+            </div>
+            {act.videoUrl && (
+              <a href={act.videoUrl} target="_blank" rel="noreferrer"
+                 className="mt-2 inline-block text-[11px] text-blue-600 hover:underline">
+                🎬 Видео доказательство
+              </a>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function BookingOverrideModal({ booking, onClose, onDone }: {
   booking: AdminBooking | null; onClose: () => void; onDone: () => void;
 }) {
@@ -801,6 +860,15 @@ function BookingOverrideModal({ booking, onClose, onDone }: {
               placeholder="Причина изменения статуса…"
               className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-[#C65D3B]/30" />
           </div>
+          {/* Stage 22a — Цифровые акты для арбитража */}
+          <div>
+            <div className="text-sm font-semibold text-stone-700 mb-2 flex items-center gap-2">
+              <span>🛡️ Цифровые акты</span>
+              <span className="text-[11px] font-normal text-stone-400">(доказательная база для спора)</span>
+            </div>
+            <DigitalActsBlock bookingId={booking.id} />
+          </div>
+
           <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs text-amber-700 flex items-start gap-2">
             <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
             Обе стороны получат уведомление. Действие записывается в аудит-лог.

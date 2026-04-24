@@ -76,6 +76,7 @@
   },
   "dependencies": {
     "@types/leaflet": "^1.9.21",
+    "exifr": "^7.1.3",
     "leaflet": "^1.9.4"
   }
 }

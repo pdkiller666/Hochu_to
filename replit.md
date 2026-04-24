@@ -26,13 +26,13 @@ Full-stack rental marketplace "Хочу_То" (I Want That) — a platform for r
 - Расходуется на компенсацию ущерба через `claims`, если залога недостаточно.
 - Лимиты анти-фрода: `fundReserveRatioPct`, `maxClaimAmountSingleRub`, `maxClaimsPerUserMonth`, `maxClaimAmountPerListingPct` (Stage 17b-limits).
 
-### 2. Цифровой Акт (Check-in/Check-out) — Roadmap
+### 2. Цифровой Акт (Check-in/Check-out) — Stage 22a: каркас готов
 Сделка не считается начатой/завершённой без фиксации состояния:
-- **4 фото** с разных ракурсов.
-- **1 видео** (подтверждение работоспособности).
-- **Метаданные:** привязка времени и GPS к файлам для защиты от подлога.
+- **Минимум 4 фото** с разных ракурсов (ограничение валидируется на бэке через Zod `.refine(photos.length≥4)`).
+- **Опциональное видео** (URL ссылка).
+- **Метаданные:** EXIF + GPS извлекаются клиентом (`exifr`) и сохраняются в `metadata jsonb` для защиты от подлога.
 
-> Статус: спроектировано, не реализовано (см. Roadmap внизу файла).
+> Статус (Stage 22a): таблица `digital_acts` + endpoints `GET/POST /api/bookings/:id/digital-acts` + блокировка перехода `confirmed → active` без check_in акта (409 `digital_act_required`) + UI в Dashboard и AdminPage готовы. Дальше: видео-аплоад, GPS-pin на карте в админке, цифровая подпись сторон, расширение до Check-out при `active → return_pending`.
 
 ### 3. Ступенчатый Арбитраж
 - **Категория А (визуальный ущерб):** царапины, сколы. Удерживается из залога мгновенно по фото-сравнению.
@@ -474,7 +474,7 @@ DB поле `boosted_until` (timestamp). Сортировка `?sort=new` уже
 
 ### 🟡 В работе / частично
 - **Подписки владельцев** (Pro / Бизнес) — спроектированы, не реализованы
-- **Цифровой Акт check-in/check-out** (фото + видео + GPS) — не начато
+- **Цифровой Акт check-in/check-out** — Stage 22a каркас готов: блокирующий check_in перед `active`, UI в Dashboard, видимость в админке. Доделать: видео-аплоад, GPS-pin на карте, цифровая подпись сторон.
 - **СБП/QR + загрузка чека + подтверждение админом** — `paymentMode` есть, потока нет
 - **ЮKassa / CloudPayments интеграция** — публичные ID настраиваются в админке, серверной интеграции нет
 - **Trust Score** — не начато
@@ -510,9 +510,31 @@ claims, отзывы, акты, чаты) **визуально не измени
 - `lib/yookassa.ts` — REST-клиент: `createPayment` (capture default `true`, опция `false` для будущих холдов броней), `getPayment`, `capturePayment`, `cancelPayment`, `verifyWebhookSignature`.
 - В админке: блок «Коммерческий режим (ИП + ЮKassa)» в табе «Платежи» с предупреждениями.
 
+## Stage 21b — Бета-дисклеймеры (24.04.2026 вечер)
+
+Чтобы пользователи в бета-режиме (`is_commercial_mode=false`) понимали, что:
+- В чекауте брони деньги не списываются: под блоком «Итого к оплате» в `ListingDetail.tsx` добавлен info-блок (читает `publicSettings.isCommercialMode`).
+- Компенсации по `claims` обрабатываются вручную: warning-баннер вверху `SubmitClaimModal` в `Dashboard.tsx`.
+
+При переключении в коммерческий режим дисклеймеры автоматически исчезают — это страховка от ситуации «пользователь думал что платит/получит выплату, а оно мок».
+
+## Stage 22a — Цифровой Акт (каркас, 24.04.2026 вечер)
+
+Реализован минимально-жизнеспособный каркас «Стального Щита #2»:
+- **Schema** `digital_acts(id, booking_id FK, type 'check_in'|'check_out', photos jsonb≥4, video_url?, metadata jsonb, created_by_user_id FK, created_at)`.
+- **Endpoints** `GET/POST /api/bookings/:id/digital-acts` — auth, проверка участника, Zod-валидация (`photos.length>=4`).
+- **Блокирующий гард** в `PUT /api/bookings/:id`: переход `confirmed → active` проверяет существование `check_in` акта. Нет акта → **HTTP 409 `digital_act_required`** с русским сообщением. Это означает: бронь физически невозможно перевести в активную фазу без зафиксированного состояния вещи.
+- **Frontend** `DigitalActUpload.tsx` — модалка с file input multi, preview-сеткой, EXIF+GPS через `exifr`. Использует существующий `/api/upload` для фото и POST на digital-acts с метаданными.
+- **Dashboard** — кнопки «🛡️ Цифровой акт приёмки» (`confirmed`, обе стороны) и «🛡️ Цифровой акт возврата» (`active`, обе стороны). `handleStatusChange` ловит 409 → авто-открывает модалку.
+- **AdminPage** — `DigitalActsBlock` в `BookingOverrideModal`: список актов с бейджами Check-in/Check-out, GPS-маркером, сеткой превью 4-в-ряд для арбитража.
+
+Дальнейший roadmap: видео-апплоад, GPS-pin на карте, цифровая подпись сторон, авто-предложение акта при подходе даты передачи/возврата.
+
 ## What Is NOT Yet Implemented (roadmap)
 
-- Цифровой Акт check-in/check-out (4 фото + видео + GPS)
+- Видео в Цифровом Акте (сейчас только `videoUrl` поле, апплоад не реализован)
+- GPS-pin на карте в админке (координаты есть в metadata, визуализации нет)
+- Цифровая подпись сторон (renterSignature/ownerSignature)
 - Поток оплаты через СБП/QR + загрузка чека + подтверждение админом
 - Реальные выплаты из Shield-фонда (сейчас только статус)
 - Stage 21b — ЮKassa для покупки контактов (single/pack10/unlimited30d)

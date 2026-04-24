@@ -22,3 +22,4 @@ export * from "./payout_requests";
 export * from "./listing_promotions";
 export * from "./listing_views";
 export * from "./payments";
+export * from "./digital_acts";

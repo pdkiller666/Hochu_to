@@ -28,6 +28,7 @@ import {
   Crown, Zap, Sparkles, Award,
 } from "lucide-react";
 import PromoteListingModal from "@/components/PromoteListingModal";
+import { DigitalActUpload, type DigitalActKind } from "@/components/DigitalActUpload";
 import { formatPrice } from "@/lib/utils";
 import { SBP_BANKS, getSbpBankName, formatPhoneMask, extractCleanPhone } from "@/lib/sbp-banks";
 import { format } from "date-fns";
@@ -35,6 +36,7 @@ import { StarRating } from "@/components/ui/StarRating";
 import { SupportSection } from "@/components/ui/SupportSection";
 import { usePersistedState } from "@/lib/use-persisted-state";
 import { useToast } from "@/hooks/use-toast";
+import { usePublicSettings } from "@/lib/use-public-settings";
 
 type BookingStatusFilter = "all" | "pending" | "confirmed" | "active" | "return_pending" | "completed" | "rejected" | "cancelled";
 type ListingVisFilter = "all" | "active" | "hidden";
@@ -185,6 +187,8 @@ export default function Dashboard() {
   const [reviewingBooking, setReviewingBooking] = useState<{ id: number; role: "renter" | "owner"; number?: string; listingId?: number; partnerId?: number } | null>(null);
   const [submitClaimBooking, setSubmitClaimBooking] = useState<{ id: number; bookingNumber?: string | null; listingTitle?: string | null; maxProtectionLimit?: number | null } | null>(null);
   const [claimRefreshNonce, setClaimRefreshNonce] = useState(0);
+  // Stage 22a — модалка Цифрового акта (Check-in / Check-out)
+  const [digitalActModal, setDigitalActModal] = useState<{ bookingId: number; type: DigitalActKind } | null>(null);
   const [reviewedIds, setReviewedIds] = useState<Set<number>>(new Set());
   const [reviewRating, setReviewRating] = useState(0);
   const [reviewHover, setReviewHover] = useState(0);
@@ -611,6 +615,23 @@ export default function Dashboard() {
         data: { status, ...(ownerComment !== undefined && { ownerComment }) },
       });
       await refetchBookings();
+    } catch (e: any) {
+      // Stage 22a (hardened post-review) — клиент кидает ApiError с .status и .data.
+      // Перехватываем 409 digital_act_required и сразу открываем модалку загрузки.
+      const status = e?.status ?? e?.response?.status;
+      const data = e?.data ?? e?.response?.data ?? e?.body;
+      const code = data?.error;
+      const msg = data?.message ?? e?.message;
+      if (status === 409 && code === "digital_act_required") {
+        toast({
+          title: "Нужен Цифровой акт приёмки",
+          description: "Загрузите минимум 4 фото вещи перед передачей.",
+          variant: "destructive",
+        });
+        setDigitalActModal({ bookingId, type: "check_in" });
+      } else {
+        toast({ title: "Не удалось изменить статус", description: msg ?? "Ошибка сервера", variant: "destructive" });
+      }
     } finally {
       setUpdatingId(null);
     }
@@ -1215,6 +1236,12 @@ export default function Dashboard() {
 
             {booking.status === "confirmed" && role === "owner" && (
               <div className="flex gap-2 flex-wrap pt-1 border-t border-border">
+                {/* Stage 22a — Цифровой акт приёмки. Backend блокирует переход active без него. */}
+                <button onClick={() => setDigitalActModal({ bookingId: booking.id, type: "check_in" })}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 text-sm font-semibold rounded-xl transition-colors">
+                  <ShieldCheck className="w-4 h-4" />
+                  Цифровой акт приёмки
+                </button>
                 <button onClick={() => handleGuardedAction(booking, "active", "owner")} disabled={isUpdating}
                   className="flex items-center gap-1.5 px-4 py-2 bg-teal-500 hover:bg-teal-600 text-white text-sm font-bold rounded-xl transition-colors disabled:opacity-50">
                   {isUpdating ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
@@ -1234,6 +1261,12 @@ export default function Dashboard() {
                   <Clock className="w-4 h-4 shrink-0" />
                   Ожидайте: владелец подтвердит передачу вещи
                 </div>
+                {/* Stage 22a — арендатор тоже может подгрузить свой Check-in акт. */}
+                <button onClick={() => setDigitalActModal({ bookingId: booking.id, type: "check_in" })}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 text-sm font-semibold rounded-xl transition-colors">
+                  <ShieldCheck className="w-4 h-4" />
+                  Цифровой акт приёмки
+                </button>
                 <button onClick={() => handleGuardedAction(booking, "cancelled", "renter")} disabled={isUpdating}
                   className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-red-50 text-red-500 border border-red-200 text-sm font-semibold rounded-xl transition-colors disabled:opacity-50">
                   <XCircle className="w-4 h-4" />
@@ -1248,6 +1281,12 @@ export default function Dashboard() {
                   <CheckCircle2 className="w-4 h-4 shrink-0 text-teal-500" />
                   Аренда идёт
                 </div>
+                {/* Stage 22a — Check-out акт перед возвратом. */}
+                <button onClick={() => setDigitalActModal({ bookingId: booking.id, type: "check_out" })}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 text-sm font-semibold rounded-xl transition-colors">
+                  <ShieldCheck className="w-4 h-4" />
+                  Цифровой акт возврата
+                </button>
                 <button onClick={() => handleGuardedAction(booking, "return_pending", "renter")} disabled={isUpdating}
                   className="flex items-center gap-1.5 px-4 py-2 bg-violet-500 hover:bg-violet-600 text-white text-sm font-bold rounded-xl transition-colors disabled:opacity-50">
                   {isUpdating ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowUpCircle className="w-4 h-4" />}
@@ -1267,6 +1306,11 @@ export default function Dashboard() {
                   <Clock className="w-4 h-4 shrink-0" />
                   Вещь у арендатора — аренда активна
                 </div>
+                <button onClick={() => setDigitalActModal({ bookingId: booking.id, type: "check_out" })}
+                  className="flex items-center gap-1.5 px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 text-sm font-semibold rounded-xl transition-colors">
+                  <ShieldCheck className="w-4 h-4" />
+                  Цифровой акт возврата
+                </button>
                 <button onClick={() => handleGuardedAction(booking, "cancelled", "owner")} disabled={isUpdating}
                   className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-red-50 text-red-500 border border-red-200 text-sm font-semibold rounded-xl transition-colors disabled:opacity-50">
                   <XCircle className="w-4 h-4" />
@@ -3049,6 +3093,23 @@ export default function Dashboard() {
           }}
         />
       )}
+
+      {/* Stage 22a — модалка загрузки Цифрового акта */}
+      {digitalActModal && (
+        <DigitalActUpload
+          bookingId={digitalActModal.bookingId}
+          type={digitalActModal.type}
+          onClose={() => setDigitalActModal(null)}
+          onSuccess={() => {
+            toast({
+              title: digitalActModal.type === "check_in" ? "✅ Акт приёмки сохранён" : "✅ Акт возврата сохранён",
+              description: "Теперь вы можете передать/вернуть вещь.",
+            });
+            setDigitalActModal(null);
+            void refetchBookings();
+          }}
+        />
+      )}
     </Layout>
   );
 }
@@ -4614,6 +4675,8 @@ function SubmitClaimModal({
   const [requestedAmount, setRequestedAmount] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const publicSettings = usePublicSettings();
+  const isBetaMode = publicSettings?.isCommercialMode === false;
 
   const maxLimit = booking.maxProtectionLimit ? Number(booking.maxProtectionLimit) : 0;
 
@@ -4682,6 +4745,18 @@ function SubmitClaimModal({
         </div>
 
         <div className="p-6 space-y-4">
+          {/* Stage 21b — баннер бета-режима в форме претензии. */}
+          {isBetaMode && (
+            <div className="bg-amber-50 border-2 border-amber-300 rounded-xl p-3.5 text-sm text-amber-900 flex gap-2.5">
+              <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5 text-amber-700" />
+              <div className="leading-snug">
+                <b>Обратите внимание:</b> в бета-режиме арбитраж работает на основе ваших Цифровых актов.
+                Платформа поможет урегулировать спор, но <b>не производит денежных выплат</b> из фонда.
+                Чем подробнее ваши фото и описание — тем выше шанс справедливого решения.
+              </div>
+            </div>
+          )}
+
           <div>
             <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-2 block">Тип проблемы</label>
             <div className="grid grid-cols-2 gap-2">

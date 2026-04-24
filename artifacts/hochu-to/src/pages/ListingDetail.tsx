@@ -1124,6 +1124,18 @@ export default function ListingDetail() {
                             <span className="text-xl text-primary">{formatPrice(total)}</span>
                           </div>
 
+                          {/* Stage 21b — дисклеймер бета-режима под итоговой ценой.
+                              Виден только когда `is_commercial_mode = false` (мок-режим). */}
+                          {publicSettings?.isCommercialMode === false && (
+                            <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] leading-snug text-amber-900 flex gap-2">
+                              <Info className="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-600" />
+                              <span>
+                                <b>Бета-тест:</b> взносы 0 ₽. Платформа помогает в спорах как арбитр на основе
+                                Цифрового акта, но прямые выплаты из фонда временно недоступны.
+                              </span>
+                            </div>
+                          )}
+
                           <div className="flex justify-between text-amber-700 text-[11px] pt-1.5 border-t border-primary/10">
                             <span className="flex items-center gap-1">
                               Залог

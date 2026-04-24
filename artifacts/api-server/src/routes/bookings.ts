@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, bookingsTable, listingsTable, usersTable, bookingEventsTable, bookingMessagesTable } from "@workspace/db";
+import { db, bookingsTable, listingsTable, usersTable, bookingEventsTable, bookingMessagesTable, digitalActsTable } from "@workspace/db";
 import { eq, or, and, sql, ne, asc, desc } from "drizzle-orm";
 import { requireAuth, AuthRequest } from "../middleware/auth.js";
 import { CreateBookingBody } from "@workspace/api-zod";
@@ -515,6 +515,24 @@ router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
       message: `Переход из «${fromStatus}» в «${status}» недоступен для вашей роли`,
     });
     return;
+  }
+
+  // Stage 22a — блокируем переход confirmed → active без Цифрового акта check_in.
+  // Это страховка от споров «вещь была сломана уже при передаче». Минимум 4 фото
+  // обязательны (валидация в digital_acts.ts).
+  if (fromStatus === "confirmed" && status === "active") {
+    const [checkInAct] = await db
+      .select({ id: digitalActsTable.id })
+      .from(digitalActsTable)
+      .where(and(eq(digitalActsTable.bookingId, id), eq(digitalActsTable.type, "check_in")))
+      .limit(1);
+    if (!checkInAct) {
+      res.status(409).json({
+        error: "digital_act_required",
+        message: "Сначала создайте Цифровой акт приёмки (Check-in) — минимум 4 фото вещи.",
+      });
+      return;
+    }
   }
 
   // Stage 19e: атомарный переход — UPDATE WHERE id=... AND status=fromStatus.

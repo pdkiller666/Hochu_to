@@ -429,6 +429,8 @@ GITHUB_TOKEN=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 bash scripts/github-push.s
 | 20b | **Полировка СБП:** whitelist 25 банков, нормализация телефона `+7XXXXXXXXXX`, partial unique indexes от дублей реквизитов |
 | 20c | **Поля ЮKassa в админке:** `yookassa_secret_key` в `platform_settings` + UI-блок настройки + защита от утечки секрета в публичные GET |
 | 21a | **Soft Launch Toggle + YooKassa Core:** master-флаг `is_commercial_mode`, таблица `payments`, REST-клиент ЮKassa, webhook `/api/webhooks/yookassa`, BetaBanner, mock/real branching в promotions, soft-обнуление serviceFee/taxFee/fund для bookings/contacts при OFF. **Пост-review фиксы:** allowlist для master-toggle, listing_promotion создаётся только в webhook, выручка по `payments.succeeded`, детерм. Idempotence-Key, HMAC + timingSafeEqual + fail-closed, raw body, FOR UPDATE anti-replay |
+| 21b | **Бета-дисклеймеры:** info-блок «Бета-режим» под «Итого к оплате» в `ListingDetail` (читает `publicSettings.isCommercialMode`); warning-баннер вверху `SubmitClaimModal` в `Dashboard` — компенсации в бета-режиме обрабатываются вручную |
+| 22a | **Цифровой Акт — каркас:** таблица `digital_acts` (booking_id FK, type='check_in'/'check_out', photos jsonb≥4, video_url, metadata jsonb с EXIF/GPS, created_by_user_id), routes `GET/POST /api/bookings/:id/digital-acts`, **блокировка перехода `confirmed → active` без check_in акта (409 `digital_act_required`)**, фронтовый `DigitalActUpload.tsx` с EXIF через `exifr`, кнопки в карточках брони (confirmed/active для обеих сторон), 409-перехват в `handleStatusChange` с авто-открытием модалки; в админке `BookingOverrideModal` — сетка превью актов с GPS-маркерами для арбитража |
 
 ### 🚧 Следующие приоритеты
 
@@ -459,7 +461,6 @@ GITHUB_TOKEN=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 bash scripts/github-push.s
 - [ ] DB-таблица `subscriptions` + `POST /api/subscriptions/checkout`
 
 ### 📦 Бэклог
-- 🧾 Цифровой Акт check-in/check-out (фото + видео + GPS + подпись)
 - 🤝 Партнёрские договоры с юрлицами (бейдж «Партнёр платформы», 5% комиссии)
 - 📊 Trust Score (рейтинг доверия пользователю, на основе истории сделок и отзывов)
 - 🔔 `showFormatBadges` → фронтовый переключатель в админке
@@ -517,7 +518,6 @@ GITHUB_TOKEN=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 bash scripts/github-push.s
 **Trust Score / KYC / верификация** — *0 строк*. Бейдж «Проверенный владелец» в `getListingBadges` **не реализован** (нет поля `is_verified` в `users`, нет ветки в badge-функции, нет API). Дизайн — в разделе 11d.
 
 ### 🔴 Бэклог — точно не начато
-- Цифровой Акт check-in/check-out (фото + видео + GPS + подпись).
 - Партнёрские договоры с юрлицами (бейдж «Партнёр платформы», 5% комиссии).
 - `minPremiumShareInResults=60` (настройка есть) — буфер Premium в пагинации не реализован.
 - `showFormatBadges` — фронтового переключателя нет.
@@ -851,6 +851,23 @@ V6–V8 — Trust Score, делается после накопления дан
 ---
 
 ## 12. Журнал релизов
+
+### 24.04.2026 вечер — Stage 21b + 22a: Бета-дисклеймеры + Цифровой Акт (каркас)
+
+**Stage 21b — Бета-дисклеймеры:**
+- `artifacts/hochu-to/src/pages/ListingDetail.tsx` — под блоком «Итого к оплате» добавлен info-блок «🧪 Бета-режим: списания не происходят» (виден при `publicSettings.isCommercialMode === false`).
+- `artifacts/hochu-to/src/pages/Dashboard.tsx` — `SubmitClaimModal` получил `usePublicSettings` + warning-баннер вверху: в бета-режиме компенсации обрабатываются вручную, реальных выплат нет.
+
+**Stage 22a — Цифровой Акт (каркас):**
+- **Schema** `lib/db/src/schema/digital_acts.ts`: `id serial`, `bookingId int FK→bookings`, `type 'check_in'|'check_out'`, `photos jsonb (string[]≥4)`, `videoUrl text?`, `metadata jsonb` (EXIF/GPS/devicePlatform), `createdByUserId int FK→users`, `createdAt`. Drizzle-zod схема с `.refine(photos.length≥4)`. Применено `pnpm --filter @workspace/db push --force`.
+- **Backend** `artifacts/api-server/src/routes/digital_acts.ts`:
+  - `GET /api/bookings/:id/digital-acts` — возвращает все акты брони (отсортированные по createdAt DESC). Доступ: владелец, арендатор, админ.
+  - `POST /api/bookings/:id/digital-acts` — создание акта. Auth, проверка участника брони, валидация Zod (photos≥4), запись `created_by_user_id = req.userId`.
+- **Backend block** `artifacts/api-server/src/routes/bookings.ts` (PUT `/:id`): при попытке `confirmed → active` проверяется наличие `digital_acts(type='check_in')` для брони. Нет акта → **409 `digital_act_required`** с русским сообщением «Сначала создайте Цифровой акт приёмки (минимум 4 фото)».
+- **Frontend** `artifacts/hochu-to/src/components/DigitalActUpload.tsx`: модалка загрузки. File input multi (image/*), preview-сетка, валидация min 4. EXIF + GPS извлекаются через npm `exifr` (peer-warning от orval по typescript — не критично). После выбора файлов — параллельный upload через существующий `POST /api/upload` (multer "photos" max 10, 10MB), затем POST на digital-acts с метаданными `{photoExif: [...], extractedFromExif: true/false, devicePlatform}`.
+- **Frontend integration** `artifacts/hochu-to/src/pages/Dashboard.tsx`: добавлены кнопки «🛡️ Цифровой акт приёмки» (в карточках `confirmed` для owner и renter) и «🛡️ Цифровой акт возврата» (в `active` для обеих сторон). State `digitalActModal: { bookingId, type } | null` + рендер `<DigitalActUpload>`. **`handleStatusChange` ловит 409 `digital_act_required`** → автоматически открывает модалку Check-in акта + toast «Загрузите минимум 4 фото вещи перед передачей».
+- **Admin visibility** `artifacts/hochu-to/src/pages/AdminPage.tsx`: новый компонент `DigitalActsBlock` в `BookingOverrideModal` — для арбитража. Подгружает акты через `useFetch`, рисует список с бейджем (📥 Check-in / 📤 Check-out), датой, GPS-маркером (если EXIF содержит координаты), сеткой превью 4-в-ряд (клик → открыть фото в новой вкладке). Если актов нет — амбер-предупреждение «Доказательств у сторон нет».
+- **Smoke test (24.04.2026 вечер):** workflow `Start application` поднялся, `/api/health → 200`, токен админа `admin@hochu.to` работает, GET/POST `/api/bookings/:id/digital-acts` корректно отвечают auth/404 на несуществующую бронь. Таблица `digital_acts` создана в БД (`to_regclass` подтвердил).
 
 ### 24.04.2026 — Stage 21a: Soft Launch Toggle + YooKassa Core
 - **Цель:** подготовить публичный бета-запуск без риска для существующих флоу. Все пользовательские потоки (бронирования, контакты, claims, отзывы, цифровые акты, чаты) **визуально не меняются** — переопределяется только финансовая математика и платёжные шлюзы.

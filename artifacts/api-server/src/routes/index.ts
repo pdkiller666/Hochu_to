@@ -23,6 +23,7 @@ import financeRouter from "./finance.js";
 import payoutsRouter from "./payouts.js";
 import promotionsRouter from "./promotions.js";
 import webhooksRouter from "./webhooks.js";
+import digitalActsRouter from "./digital_acts.js";
 
 const router: IRouter = Router();
 
@@ -45,6 +46,7 @@ router.use("/claims", claimsRouter);
 router.use("/promotions", promotionsRouter);
 router.use("/webhooks", webhooksRouter);
 router.use("/admin", adminRouter);
+router.use(digitalActsRouter);
 router.use(contactsRouter);
 router.use(financeRouter);
 router.use(payoutsRouter);
