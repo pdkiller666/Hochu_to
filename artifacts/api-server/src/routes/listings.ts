@@ -1,7 +1,8 @@
 import { Router } from "express";
-import { db, listingsTable, usersTable, categoriesTable, regionsTable, reviewsTable, bookingsTable } from "@workspace/db";
+import { db, listingsTable, usersTable, categoriesTable, regionsTable, reviewsTable, bookingsTable, listingViewsTable } from "@workspace/db";
 import { eq, and, gte, lte, sql, or, desc, count } from "drizzle-orm";
 import { requireAuth, AuthRequest } from "../middleware/auth.js";
+import { verifyAccessToken } from "../lib/auth-token.js";
 import { CreateListingBody } from "@workspace/api-zod";
 import fs from "fs";
 import path from "path";
@@ -61,6 +62,17 @@ async function getListingWithDetails(id: number) {
       isUrgent: listingsTable.isUrgent,
       urgentUntil: listingsTable.urgentUntil,
       boostedUntil: listingsTable.boostedUntil,
+      // Stage 19e: денормализованные счётчики
+      bookingCount: listingsTable.bookingCount,
+      reviewCount: listingsTable.reviewCount,
+      avgRating: listingsTable.avgRating,
+      favoritesCount: listingsTable.favoritesCount,
+      // Stage 19c: просмотры за последние 30 дней (для виджета и метрик)
+      views30d: sql<number>`COALESCE((
+        SELECT COUNT(*)::int FROM listing_views lv
+        WHERE lv.listing_id = ${listingsTable.id}
+          AND lv.created_at > NOW() - INTERVAL '30 days'
+      ), 0)`,
       createdAt: listingsTable.createdAt,
     })
     .from(listingsTable)
@@ -71,6 +83,40 @@ async function getListingWithDetails(id: number) {
     .limit(1);
 
   return listing;
+}
+
+/**
+ * Stage 19c — фиксируем просмотр объявления.
+ *
+ * Дедупликация в течение часа через UNIQUE INDEX (listing_id, viewer_key, hour_bucket)
+ * + INSERT ... ON CONFLICT DO NOTHING. Не выбрасывает наружу — best-effort.
+ *
+ * viewer_key:
+ *  - "u:<userId>" — если в заголовке Authorization есть валидный JWT
+ *    (маршрут публичный, requireAuth не вешаем; парсим токен вручную, чтобы не ломать гостям).
+ *  - "ip:<req.ip>" — иначе. req.ip уже учитывает trust proxy (`app.set('trust proxy', 1)`),
+ *    поэтому брать X-Forwarded-For вручную не нужно.
+ */
+async function trackListingView(listingId: number, req: any): Promise<void> {
+  try {
+    let viewerKey: string | null = null;
+    const authHeader = req.headers?.authorization as string | undefined;
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      const payload = verifyAccessToken(authHeader.slice(7));
+      if (payload && typeof payload.userId === "number") {
+        viewerKey = `u:${payload.userId}`;
+      }
+    }
+    if (!viewerKey) {
+      const ip = req.ip || req.socket?.remoteAddress || "unknown";
+      viewerKey = `ip:${ip}`;
+    }
+    const now = new Date();
+    const hourBucket = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-${String(now.getUTCDate()).padStart(2, "0")}-${String(now.getUTCHours()).padStart(2, "0")}`;
+    await db.insert(listingViewsTable).values({ listingId, viewerKey, hourBucket }).onConflictDoNothing();
+  } catch {
+    // best-effort: трекинг просмотров не должен ломать ответ юзеру
+  }
 }
 
 /** Вычисляет лимит защитного фонда по категории с учётом опыта владельца.
@@ -244,12 +290,23 @@ router.get("/", async (req, res) => {
       )
       .limit(limitNum).offset(offset);
   } else if (sort === "popular") {
-    // Популярные: промо → кол-во состоявшихся броней → рейтинг → дата
+    // Stage 19c — Популярные: промо → гибридный «hit-score» → дата.
+    //   hit_score = bookingCount × 5 + reviewCount × 2 + favoritesCount + views_30d
+    // Просмотры за 30 дней считаются через коррелированный subquery
+    // (UNIQUE-индекс по часу-бакету защищает от накрутки).
     rawListings = await (baseQuery as any)
       .orderBy(
         ...promoOrder,
-        desc(listingsTable.bookingCount),
-        desc(listingsTable.avgRating),
+        sql`(
+          ${listingsTable.bookingCount} * 5
+          + ${listingsTable.reviewCount} * 2
+          + ${listingsTable.favoritesCount}
+          + COALESCE((
+              SELECT COUNT(*) FROM listing_views lv
+              WHERE lv.listing_id = ${listingsTable.id}
+                AND lv.created_at > NOW() - INTERVAL '30 days'
+            ), 0)
+        ) DESC`,
         desc(listingsTable.createdAt),
       )
       .limit(limitNum).offset(offset);
@@ -481,19 +538,14 @@ router.get("/:id", async (req, res) => {
     .where(eq(reviewsTable.listingId, id))
     .orderBy(reviewsTable.createdAt);
 
-  const [ratingResult] = await db
-    .select({
-      avg: sql<number>`COALESCE(AVG(${reviewsTable.rating}), 0)::float`,
-      count: sql<number>`COUNT(*)::int`,
-    })
-    .from(reviewsTable)
-    .where(eq(reviewsTable.listingId, id));
-
   // Телефон владельца Free-объявления: скрываем если режим «after_payment»
   // (арендатор должен купить доступ через /contacts/unlock, там и получит номер).
   const listingSettings = await getPlatformSettings();
   const isFreeDetail = listing.ownerProtectionEnabled === false;
   const maskPhone = isFreeDetail && listingSettings.freeShowOwnerPhoneMode === "after_payment";
+
+  // Stage 19c — фиксируем просмотр (best-effort, не блокирует ответ)
+  void trackListingView(id, req);
 
   res.json({
     ...listing,
@@ -501,8 +553,12 @@ router.get("/:id", async (req, res) => {
     pricePerDay: parseFloat(listing.pricePerDay as unknown as string),
     deposit: listing.deposit ? parseFloat(listing.deposit as unknown as string) : undefined,
     createdAt: listing.createdAt.toISOString(),
-    rating: ratingResult?.avg ?? 0,
-    reviewCount: ratingResult?.count ?? 0,
+    // Stage 19e: денормализованные счётчики из колонок listings — никаких extra-запросов
+    rating: listing.avgRating ? parseFloat(listing.avgRating as unknown as string) : 0,
+    reviewCount: listing.reviewCount ?? 0,
+    bookingCount: listing.bookingCount ?? 0,
+    favoritesCount: listing.favoritesCount ?? 0,
+    views30d: listing.views30d ?? 0,
     reviews: reviews.map(r => ({
       ...r,
       createdAt: r.createdAt.toISOString(),

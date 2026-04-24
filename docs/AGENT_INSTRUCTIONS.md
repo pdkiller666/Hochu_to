@@ -893,4 +893,20 @@ GITHUB_TOKEN=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 bash scripts/github-push.s
 1. Race condition в PUT /api/bookings/:id: `fromStatus` читался отдельным SELECT. Исправлено атомарным `UPDATE WHERE id=… AND status=fromStatus` с возвратом 409 при конфликте.
 2. Backfill использовал `NOT IN`, что некорректно при NULL в подзапросе — заменено на `NOT EXISTS` + `WHERE listing_id IS NOT NULL` в группирующих SELECT.
 
-**Бэклог Stage 19:** 19c (гибридная метрика «Хитов» — требует таблицу `listing_views`).
+**Бэклог Stage 19:** ✅ всё закрыто.
+
+## Журнал — Stage 19c (Гибридная метрика «Хитов» + просмотры, 24.04.2026)
+
+**Проблема:** холодный старт объявлений: новое объявление без броней/отзывов невидимо в карусели «Хиты», даже если активно просматривается. Нужен способ учесть «интерес» (просмотры) с защитой от накрутки.
+
+**Сделано:**
+- `lib/db/src/schema/listing_views.ts`: новая таблица `listing_views(id, listing_id, viewer_key, hour_bucket, created_at)` с UNIQUE-индексом `(listing_id, viewer_key, hour_bucket)` и индексом `(listing_id, created_at)`. Применено через `pnpm --filter @workspace/db run push`.
+- `routes/listings.ts → trackListingView(id, req)`: best-effort INSERT с `onConflictDoNothing`. `viewer_key = "u:<userId>"` для авторизованных и `"ip:<X-Forwarded-For или socket.remoteAddress>"` для гостей. `hour_bucket = "YYYY-MM-DD-HH"` (UTC). Дубли в течение часа — no-op.
+- `routes/listings.ts → GET /:id`: вызывается `void trackListingView()` (не блокирует ответ); `getListingWithDetails` теперь возвращает `bookingCount/reviewCount/avgRating/favoritesCount` (фикс контракта — раньше эти поля отдавал только `GET /api/listings`) и `views30d` через коррелированный subquery `COUNT(*) FROM listing_views WHERE created_at > NOW() - INTERVAL '30 days'`. Дополнительный SELECT AVG/COUNT по reviews убран — берём из денорм-колонки `avgRating`.
+- `routes/listings.ts → sort=popular`: ORDER BY заменён на гибридный hit-score `bookingCount × 5 + reviewCount × 2 + favoritesCount + views_30d` (subquery), затем `createdAt DESC`. Промо-префикс `promoOrder` сохранён.
+
+**E2E-проверка (curl как пользователь):**
+- 4 запроса с одного IP за час → `views30d=1` (UNIQUE-индекс работает).
+- Запрос с другого IP (через `X-Forwarded-For: 8.8.8.8`) → `+1`.
+- `GET /api/listings/:id` отдаёт все 5 счётчиков.
+- `sort=popular` корректно ранжирует по hit-score (объявление с 11 бронями впереди объявлений с 1 бронью + отзывом).
