@@ -963,7 +963,7 @@ function ListingsTab() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-amber-50 border border-amber-200">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-3 rounded-xl bg-amber-50 border border-amber-200">
         <div className="text-sm">
           <div className="font-bold text-amber-900">Тестовые данные для обкатки</div>
           <div className="text-amber-800 text-xs">Добавит по 15 объявлений в каждую из 10 категорий с фото-ссылками. Можно нажимать повторно — дубликатов не будет.</div>
@@ -971,7 +971,7 @@ function ListingsTab() {
         <button
           onClick={handleSeedTest}
           disabled={seedingTest}
-          className="px-4 py-2 rounded-lg bg-amber-600 text-white text-sm font-bold hover:bg-amber-700 transition disabled:opacity-50 whitespace-nowrap"
+          className="w-full sm:w-auto px-4 py-2 rounded-lg bg-amber-600 text-white text-sm font-bold hover:bg-amber-700 transition disabled:opacity-50 whitespace-nowrap"
         >
           {seedingTest ? "Заполняем…" : "Заполнить тестовыми"}
         </button>
