@@ -313,20 +313,21 @@ maxProtectionLimit = pricePerDay × multiplier  // лимит компенсац
 
 ## Listing Badges System
 
-Карточка объявления (`ListingCard`) выводит до 3 бейджей в порядке приоритета. Логика в `getListingBadges(listing)`.
+Карточка объявления (`ListingCard`) выводит до 3 бейджей в порядке приоритета. Логика в `getListingBadges(listing)`. Те же бейджи (без лимита 3) показываются на детальной странице `/listings/:id` через `getDetailBadges()` + `<BadgeRow />` (Stage 19f).
 
 ### Бейджи (приоритет сверху вниз)
 | Бейдж | Иконка | Условие | Тип |
 |-------|--------|---------|-----|
-| **VIP** | Crown (золото) | `isFeatured && featuredUntil > now` | 💰 платный |
-| **Срочно** | Zap (красный) | `isUrgent && urgentUntil > now` | 💰 платный |
+| **VIP** | Crown (золото) | `isFeatured && featuredUntil > now` | 💰 платный (Stage 18) |
+| **Срочно** | Zap (красный) | `isUrgent && urgentUntil > now` | 💰 платный (Stage 18) |
+| **Топ** | Sparkles (оранжевый) | `boostedUntil > now` | 💰 платный (Stage 18, только на детальной) |
 | **Безопасная сделка** | ShieldCheck (зелёный) | `ownerProtectionEnabled !== false` | 🆓 базовый |
 | **Высокий рейтинг** | Star (амбер) | `rating >= 4.5 && reviewCount >= 3` | 🏆 заработанный |
-| **Часто берут** | Flame (оранжевый) | `reviewCount >= 10 && rating < 4.5` | 🏆 заработанный |
+| **Часто берут** | Flame (оранжевый) | `bookingCount >= 10 && rating < 4.5` | 🏆 заработанный (Stage 19b — раньше было `reviewCount >= 10`) |
 | **Новинка** | Sparkles (голубой) | `createdAt` ≤ 14 дней | 🏆 заработанный |
-| **Проверенный владелец** | Award (фиолетовый) | `ownerVerified` (моеделирует) | 🏆 заработанный |
+| **Проверенный владелец** | Award (фиолетовый) | `ownerVerified` или `ownerIsVerified` | 🏆 заработанный |
 
-Поля `isFeatured`, `featuredUntil`, `isUrgent`, `urgentUntil`, `ownerVerified` ещё не в схеме — будут добавлены вместе с монетизацией.
+Поля промо (`is_featured`, `featured_until`, `is_urgent`, `urgent_until`, `boosted_until`) добавлены в `listings` в Stage 18. Денорм-счётчики (`bookingCount`, `reviewCount`, `avgRating`, `favoritesCount`) — в Stage 19e и поддерживаются автоматически (см. ниже).
 
 ## Monetization Roadmap (по аналогии с Avito)
 

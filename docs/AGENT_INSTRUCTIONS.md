@@ -374,7 +374,7 @@ GITHUB_TOKEN=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 bash scripts/github-push.s
 
 ---
 
-## 11. Дорожная карта (актуально на 23.04.2026 вечер)
+## 11. Дорожная карта (актуально на 24.04.2026 вечер)
 
 ### ✅ Готово
 | Этап | Описание |
@@ -405,31 +405,44 @@ GITHUB_TOKEN=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 bash scripts/github-push.s
 | 9 | UX-полировка ListingDetail: цена-заголовок = `pricePerDay`, уменьшенное PC-фото, простой CTA на Free-карточке |
 | 10 | **Bug fix:** OpenAPI `itemCategory` enum дополнен `special_machinery` — теперь синхронен на всех слоях (zod, серверные касты, клиент, БД-комментарий) |
 | 11 | **UX-мотивация:** ListingDetail переписан с акцентом на выгоды (escrow / фонд / арбитраж) для обеих сторон, без пустых обещаний |
+| 17a | **Payout Requests:** реквизиты карты/СБП, очередь заявок владельцев на вывод, ручной mark-paid с проставлением `payoutSettledAt` |
+| 17b | **Compensation Payouts:** claims расширены реквизитами, админский поток approve→mark-paid→reject, кнопка «Подать претензию» в Dashboard |
+| 17b-limits | **Анти-фрод фонда:** `fundReserveRatioPct/maxClaimAmountSingleRub/maxClaimsPerUserMonth/maxClaimAmountPerListingPct` + KPI-карточки |
+| 17c | **Аналитика фонда:** `GET /api/claims/analytics`, lazy-блок с LineChart баланса, топ-получатели, флаги подозрительных паттернов |
+| 17d | **E2E-отладка перед деплоем:** 67 сценариев за все роли, RBAC по 6 admin-эндпоинтам |
+| seed | `POST /api/admin/seed-test-listings` — идемпотентная заливка 150 объявлений (15×10 категорий) с picsum-фото, пометка `[seed-test]` |
+| 18 | **Платное продвижение:** `is_featured/featured_until/is_urgent/urgent_until/boosted_until` + `listing_promotions`, `/api/promotions/pricing\|listings/:id\|me\|admin`, продление поверх активного, бейджи VIP/Срочно/Топ, модалка `PromoteListingModal` |
+| 19a | **Промо во всех каруселях:** `promoOrder = [VIP DESC, Срочно DESC, Boost DESC]` префикс во ВСЕ ветки сортировки + `promoTier()` для JS-сортировок `popular`/`rating` |
+| 19b | **Бейдж «Часто берут» по броням:** `bookingCount >= 10 && rating < 4.5` вместо устаревшего `reviewCount >= 10` |
+| 19d-quality | **Порог качества «Новинок»:** `?quality=true` → `array_length(photos)≥1` и `char_length(description)≥50` (только в карусели на главной) |
+| 19e | **Денормализация счётчиков:** `bookingCount/reviewCount/avgRating/favoritesCount` колонки + idempotent backfill, убраны N+1 sub-queries; `popular`/`rating` теперь чистый SQL |
+| 19c | **Гибридная метрика «Хитов» + просмотры:** `listing_views(viewer_key, hour_bucket)` UNIQUE, hit-score `bookingCount × 5 + reviewCount × 2 + favoritesCount + views_30d`. `GET /:id` теперь отдаёт все 5 счётчиков (фикс контракта) |
+| 19f | **Бейджи и кнопка «Продвигать» на детальной карточке:** VIP/Срочно/Топ/«Часто берут» в обоих заголовках `/listings/:id`; кнопка «Продвигать объявление» в правом сайдбаре для владельца |
 
 ### 🚧 Следующие приоритеты
 
-#### Этап 8 — Расширенная статистика в админке
-- [ ] `GET /api/admin/stats?from=&to=` с агрегациями
-- [ ] Блок «Объявления»: всего Free/Premium, конверсия Free→Premium, ТОП категорий
-- [ ] Блок «Сделки»: брони за период, средний чек, % завершённых
-- [ ] Блок «Контакты»: куплено за период, ARPU, конверсия
-- [ ] Блок «Пользователи»: регистрации, DAU/MAU
-
-#### Этап 9 — ЮKassa для контактов
+#### ЮKassa для платежей
 - [ ] SDK + webhook
-- [ ] Создание платежа на покупку контакта
+- [ ] Создание платежа на покупку контакта / промо / Premium-брони
 - [ ] Подтверждение и активация баланса
 > Требует `YOOKASSA_SHOP_ID` и `YOOKASSA_SECRET_KEY` в Replit Secrets и на Amvera.
 
+#### Реальные банковские выплаты
+- [ ] Замена ручного `mark-paid` на автомат через ЮKassa Payouts / банковский API
+- [ ] Применимо к `payout_requests` (выплаты владельцам) и `claims` (компенсации фонда)
+
+#### Подписки владельцев
+- [ ] Pro / Бизнес тарифы с пониженной комиссией
+- [ ] DB-таблица `subscriptions` + `POST /api/subscriptions/checkout`
+
 ### 📦 Бэклог
-- 💳 Реальная оплата для Premium-броней (ЮKassa, СБП, CloudPayments-холд депозита)
-- 🏷️ Продвижение объявлений: VIP/Boost/Срочно + `POST /listings/:id/promote`
-- 📋 Подписки владельцев: basic/pro/business + пониженная комиссия
-- 🧾 Цифровой акт check-in/check-out: фото + GPS + подпись
-- 🛡️ Реальные выплаты из Гарантийного фонда + баланс фонда в Admin
-- 📊 Trust Score, статистика просмотров (для Pro), финансовый P&L
-- 🔔 `showFormatBadges` → фронтовый переключатель
+- 🧾 Цифровой Акт check-in/check-out (фото + видео + GPS + подпись)
+- 🤝 Партнёрские договоры с юрлицами (бейдж «Партнёр платформы», 5% комиссии)
+- 📊 Trust Score (рейтинг доверия пользователю, на основе истории сделок и отзывов)
+- 🔔 `showFormatBadges` → фронтовый переключатель в админке
 - 📊 `minPremiumShareInResults` → логика «буфера Premium» в пагинации
+- 🗂️ Admin-RBAC через middleware `requireAdmin` (сейчас в каждом хендлере ручной `await isAdmin()`)
+- 🚀 Индексы для аналитики на проде: `bookings(status, protection_enabled, payout_settled_at)`, `claims(status, paid_at)`, `claims(claimant_id, created_at)`
 
 ---
 
