@@ -20,6 +20,8 @@ export interface Listing {
   ownerName?: string;
   ownerAvatar?: string;
   ownerPhone?: string;
+  /** Владелец прошёл верификацию (для бейджа «Проверенный владелец») */
+  ownerIsVerified?: boolean;
   rating?: number;
   reviewCount?: number;
   isAvailable: boolean;

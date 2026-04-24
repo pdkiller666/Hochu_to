@@ -487,7 +487,7 @@ router.get("/users/:id", requireAuth, requireAdmin, async (req: AuthRequest, res
 // Update user (role, name, email, phone, bio, ban status, etc.)
 router.patch("/users/:id", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
   const id = parseInt(req.params.id as string);
-  const { role, isBanned, banReason, name, email, phone, bio, telegram } = req.body;
+  const { role, isBanned, banReason, name, email, phone, bio, telegram, isVerified, verificationNote } = req.body;
 
   if (id === req.userId) {
     res.status(400).json({ error: "bad_request", message: "Нельзя изменить собственный аккаунт через эту форму" });
@@ -503,6 +503,22 @@ router.patch("/users/:id", requireAuth, requireAdmin, async (req: AuthRequest, r
   if (phone !== undefined) updates.phone = phone.trim() || null;
   if (bio !== undefined) updates.bio = bio.trim() || null;
   if (telegram !== undefined) updates.telegram = telegram.trim() || null;
+  // Stage 19g — Trust & Verification (Уровень 1: бинарный «Проверенный владелец»).
+  // Бессрочно: верификация снимается только повторной правкой админа (см. AGENT_INSTRUCTIONS.md §11d).
+  if (isVerified !== undefined) {
+    updates.isVerified = !!isVerified;
+    if (isVerified) {
+      updates.verifiedAt = new Date();
+      updates.verifiedByAdminId = req.userId!;
+    } else {
+      updates.verifiedAt = null;
+      updates.verifiedByAdminId = null;
+    }
+  }
+  if (verificationNote !== undefined) {
+    const trimmed = typeof verificationNote === "string" ? verificationNote.trim() : "";
+    updates.verificationNote = trimmed || null;
+  }
 
   if (Object.keys(updates).length === 0) {
     res.status(400).json({ error: "bad_request", message: "Нечего обновлять" });
@@ -513,10 +529,19 @@ router.patch("/users/:id", requireAuth, requireAdmin, async (req: AuthRequest, r
   if (!updated) { res.status(404).json({ error: "not_found" }); return; }
 
   const changedFields = Object.keys(updates).join(", ");
-  await audit(req.userId!, "user", id, isBanned === true ? "ban_user" : isBanned === false ? "unban_user" : "edit_user",
+  const action = isBanned === true
+    ? "ban_user"
+    : isBanned === false
+      ? "unban_user"
+      : isVerified === true
+        ? "verify_user"
+        : isVerified === false
+          ? "unverify_user"
+          : "edit_user";
+  await audit(req.userId!, "user", id, action,
     `Changed: ${changedFields}${banReason ? `. Reason: ${banReason}` : ""}`);
 
-  res.json({ id: updated.id, role: updated.role, isBanned: updated.isBanned, name: updated.name, email: updated.email });
+  res.json({ id: updated.id, role: updated.role, isBanned: updated.isBanned, isVerified: updated.isVerified, verifiedAt: updated.verifiedAt?.toISOString() ?? null, verificationNote: updated.verificationNote, name: updated.name, email: updated.email });
 });
 
 // Send notification to a user

@@ -13,6 +13,7 @@ import {
   ChevronLeft,
   User,
   MessageSquare,
+  Award,
 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { ru } from "date-fns/locale";
@@ -117,9 +118,15 @@ export default function OwnerProfile() {
               <div className="flex-1 min-w-0 pb-1">
                 <div className="flex flex-wrap items-center gap-2 mb-1">
                   <h1 className="text-2xl font-bold truncate">{user.name}</h1>
-                  <span className="flex items-center gap-1 text-xs font-semibold text-green-700 bg-green-100 px-2 py-0.5 rounded-full">
-                    <Shield className="w-3 h-3" /> Проверен
-                  </span>
+                  {/* Stage 19g — бейдж «Проверенный владелец» (Уровень 1). Показываем только если админ верифицировал. */}
+                  {(user as any).isVerified && (
+                    <span
+                      className="flex items-center gap-1 text-xs font-semibold text-violet-700 bg-violet-100 px-2 py-0.5 rounded-full"
+                      title={(user as any).verifiedAt ? `Проверен ${new Date((user as any).verifiedAt).toLocaleDateString("ru-RU")}` : "Проверенный владелец"}
+                    >
+                      <Award className="w-3 h-3" /> Проверенный владелец
+                    </span>
+                  )}
                 </div>
                 <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
                   <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${roleColor}`}>{roleLabel}</span>

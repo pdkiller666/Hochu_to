@@ -47,6 +47,17 @@ export const LoginUserResponse = zod.object({
     website: zod.string().optional(),
     regionId: zod.number().optional(),
     regionName: zod.string().optional(),
+    isVerified: zod
+      .boolean()
+      .optional()
+      .describe(
+        "Проверенный владелец (бинарный бейдж, ручная верификация админом)",
+      ),
+    verifiedAt: zod
+      .string()
+      .optional()
+      .describe("Когда был верифицирован (ISO timestamp)"),
+    isBanned: zod.boolean().optional(),
     createdAt: zod.string(),
   }),
   token: zod.string(),
@@ -75,6 +86,17 @@ export const GetCurrentUserResponse = zod.object({
   website: zod.string().optional(),
   regionId: zod.number().optional(),
   regionName: zod.string().optional(),
+  isVerified: zod
+    .boolean()
+    .optional()
+    .describe(
+      "Проверенный владелец (бинарный бейдж, ручная верификация админом)",
+    ),
+  verifiedAt: zod
+    .string()
+    .optional()
+    .describe("Когда был верифицирован (ISO timestamp)"),
+  isBanned: zod.boolean().optional(),
   createdAt: zod.string(),
 });
 
@@ -147,6 +169,12 @@ export const GetListingsResponse = zod.object({
       ownerName: zod.string().optional(),
       ownerAvatar: zod.string().optional(),
       ownerPhone: zod.string().optional(),
+      ownerIsVerified: zod
+        .boolean()
+        .optional()
+        .describe(
+          "Владелец прошёл верификацию (для бейджа «Проверенный владелец»)",
+        ),
       rating: zod.number().optional(),
       reviewCount: zod.number().optional(),
       isAvailable: zod.boolean(),
@@ -173,6 +201,12 @@ export const GetListingsResponse = zod.object({
         ownerName: zod.string().optional(),
         ownerAvatar: zod.string().optional(),
         ownerPhone: zod.string().optional(),
+        ownerIsVerified: zod
+          .boolean()
+          .optional()
+          .describe(
+            "Владелец прошёл верификацию (для бейджа «Проверенный владелец»)",
+          ),
         rating: zod.number().optional(),
         reviewCount: zod.number().optional(),
         isAvailable: zod.boolean(),
@@ -232,6 +266,12 @@ export const GetListingByIdResponse = zod
     ownerName: zod.string().optional(),
     ownerAvatar: zod.string().optional(),
     ownerPhone: zod.string().optional(),
+    ownerIsVerified: zod
+      .boolean()
+      .optional()
+      .describe(
+        "Владелец прошёл верификацию (для бейджа «Проверенный владелец»)",
+      ),
     rating: zod.number().optional(),
     reviewCount: zod.number().optional(),
     isAvailable: zod.boolean(),
@@ -301,6 +341,12 @@ export const UpdateListingResponse = zod.object({
   ownerName: zod.string().optional(),
   ownerAvatar: zod.string().optional(),
   ownerPhone: zod.string().optional(),
+  ownerIsVerified: zod
+    .boolean()
+    .optional()
+    .describe(
+      "Владелец прошёл верификацию (для бейджа «Проверенный владелец»)",
+    ),
   rating: zod.number().optional(),
   reviewCount: zod.number().optional(),
   isAvailable: zod.boolean(),
@@ -537,6 +583,8 @@ export const GetUserByIdResponse = zod.object({
   totalBookings: zod.number(),
   completedDeals: zod.number().optional(),
   rating: zod.number().optional(),
+  isVerified: zod.boolean().optional().describe("Проверенный владелец"),
+  verifiedAt: zod.string().optional(),
 });
 
 /**
@@ -569,6 +617,17 @@ export const UpdateUserProfileResponse = zod.object({
   website: zod.string().optional(),
   regionId: zod.number().optional(),
   regionName: zod.string().optional(),
+  isVerified: zod
+    .boolean()
+    .optional()
+    .describe(
+      "Проверенный владелец (бинарный бейдж, ручная верификация админом)",
+    ),
+  verifiedAt: zod
+    .string()
+    .optional()
+    .describe("Когда был верифицирован (ISO timestamp)"),
+  isBanned: zod.boolean().optional(),
   createdAt: zod.string(),
 });
 
@@ -593,6 +652,12 @@ export const GetUserListingsResponseItem = zod.object({
   ownerName: zod.string().optional(),
   ownerAvatar: zod.string().optional(),
   ownerPhone: zod.string().optional(),
+  ownerIsVerified: zod
+    .boolean()
+    .optional()
+    .describe(
+      "Владелец прошёл верификацию (для бейджа «Проверенный владелец»)",
+    ),
   rating: zod.number().optional(),
   reviewCount: zod.number().optional(),
   isAvailable: zod.boolean(),

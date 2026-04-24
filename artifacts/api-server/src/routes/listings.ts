@@ -57,6 +57,8 @@ async function getListingWithDetails(id: number) {
       ownerName: usersTable.name,
       ownerAvatar: usersTable.avatar,
       ownerPhone: usersTable.phone,
+      // Stage 19g — для бейджа «Проверенный владелец» в карточке объявления.
+      ownerIsVerified: usersTable.isVerified,
       isFeatured: listingsTable.isFeatured,
       featuredUntil: listingsTable.featuredUntil,
       isUrgent: listingsTable.isUrgent,
@@ -231,6 +233,8 @@ router.get("/", async (req, res) => {
       ownerName: usersTable.name,
       ownerAvatar: usersTable.avatar,
       ownerPhone: usersTable.phone,
+      // Stage 19g — для бейджа «Проверенный владелец» в карточке объявления.
+      ownerIsVerified: usersTable.isVerified,
       isFeatured: listingsTable.isFeatured,
       featuredUntil: listingsTable.featuredUntil,
       isUrgent: listingsTable.isUrgent,
@@ -363,6 +367,8 @@ router.get("/", async (req, res) => {
         ownerName: usersTable.name,
         ownerAvatar: usersTable.avatar,
         ownerPhone: usersTable.phone,
+        // Stage 19g — для бейджа «Проверенный владелец» (fallback из других регионов).
+        ownerIsVerified: usersTable.isVerified,
         bookingCount: listingsTable.bookingCount,
         reviewCount: listingsTable.reviewCount,
         avgRating: listingsTable.avgRating,

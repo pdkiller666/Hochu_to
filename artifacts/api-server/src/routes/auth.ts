@@ -56,6 +56,9 @@ function formatUser(user: typeof usersTable.$inferSelect, regionName?: string) {
     avatar: user.avatar ?? undefined,
     regionId: user.regionId ?? undefined,
     regionName: regionName ?? undefined,
+    // Stage 19g — Trust & Verification: владелец видит свой статус в личном кабинете.
+    isVerified: user.isVerified ?? false,
+    verifiedAt: user.verifiedAt ? user.verifiedAt.toISOString() : null,
     createdAt: user.createdAt.toISOString(),
   };
 }

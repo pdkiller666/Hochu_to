@@ -25,7 +25,7 @@ import {
   Coins, ArrowDownToLine, ArrowUpFromLine, ShieldCheck, Banknote,
   Shield, KeyRound, ScrollText, Activity, ExternalLink, BarChart2, ChevronRight,
   CreditCard, Smartphone, X, Star as StarIcon, ShieldAlert, AlertTriangle, FileText,
-  Crown, Zap, Sparkles,
+  Crown, Zap, Sparkles, Award,
 } from "lucide-react";
 import PromoteListingModal from "@/components/PromoteListingModal";
 import { formatPrice } from "@/lib/utils";
@@ -33,6 +33,7 @@ import { format } from "date-fns";
 import { StarRating } from "@/components/ui/StarRating";
 import { SupportSection } from "@/components/ui/SupportSection";
 import { usePersistedState } from "@/lib/use-persisted-state";
+import { useToast } from "@/hooks/use-toast";
 
 type BookingStatusFilter = "all" | "pending" | "confirmed" | "active" | "return_pending" | "completed" | "rejected" | "cancelled";
 type ListingVisFilter = "all" | "active" | "hidden";
@@ -234,6 +235,11 @@ export default function Dashboard() {
     bio: "", telegram: "", website: "",
   });
   const [profileSaved, setProfileSaved] = useState(false);
+  // Stage 19g — Trust & Verification: модалка подачи заявки на бейдж «Проверенный владелец».
+  const { toast } = useToast();
+  const [verifModalOpen, setVerifModalOpen] = useState(false);
+  const [verifBody, setVerifBody] = useState("");
+  const [verifSubmitting, setVerifSubmitting] = useState(false);
   const [credForm, setCredForm] = useState({ newEmail: "", currentPassword: "", newPassword: "", confirmPassword: "" });
   const [credSaved, setCredSaved] = useState(false);
   const [credError, setCredError] = useState("");
@@ -2286,6 +2292,48 @@ export default function Dashboard() {
                   </div>
                 </div>
 
+                {/* ── Stage 19g: Trust & Verification — статус «Проверенный владелец» ── */}
+                {user.role === "owner" && (
+                  <div className={`border rounded-2xl p-5 mb-4 shadow-sm ${(user as any).isVerified ? "bg-violet-50 border-violet-200" : "bg-white border-border"}`}>
+                    <div className="flex items-start gap-3">
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${(user as any).isVerified ? "bg-violet-100" : "bg-stone-100"}`}>
+                        <Award className={`w-5 h-5 ${(user as any).isVerified ? "text-violet-600" : "text-stone-400"}`} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="font-bold text-base">
+                            {(user as any).isVerified ? "Проверенный владелец" : "Верификация владельца"}
+                          </h3>
+                          {(user as any).isVerified && (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 font-semibold">
+                              ✓ активен
+                            </span>
+                          )}
+                        </div>
+                        {(user as any).isVerified ? (
+                          <p className="text-sm text-muted-foreground mt-1">
+                            Ваш аккаунт верифицирован администрацией{(user as any).verifiedAt ? ` ${format(new Date((user as any).verifiedAt), "d MMMM yyyy")}` : ""}.
+                            Бейдж «Проверенный владелец» отображается на всех ваших объявлениях и в профиле.
+                          </p>
+                        ) : (
+                          <>
+                            <p className="text-sm text-muted-foreground mt-1">
+                              Получите бейдж «Проверенный владелец», чтобы повысить доверие арендаторов. Это бесплатно и бессрочно.
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => { setVerifBody(""); setVerifModalOpen(true); }}
+                              className="mt-3 inline-flex items-center gap-2 px-4 py-2 bg-violet-600 text-white text-sm font-medium rounded-lg hover:bg-violet-700 transition"
+                            >
+                              <Award className="w-4 h-4" /> Подать заявку на верификацию
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* ── Main settings form ── */}
                 <div className="bg-white border border-border rounded-2xl p-6 shadow-sm">
                   <form className="space-y-6" onSubmit={handleProfileSave}>
@@ -2811,6 +2859,97 @@ export default function Dashboard() {
               >
                 {reviewSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <MessageSquare className="w-4 h-4" />}
                 Опубликовать
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Stage 19g: Verification Request Modal ── */}
+      {verifModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm px-4" onClick={e => e.target === e.currentTarget && !verifSubmitting && setVerifModalOpen(false)}>
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md p-6 space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-violet-100 flex items-center justify-center flex-shrink-0">
+                <Award className="w-5 h-5 text-violet-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold">Заявка на верификацию</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">Бесплатно, бессрочно. Рассмотрение до 3 рабочих дней.</p>
+              </div>
+            </div>
+
+            <div className="bg-stone-50 border border-stone-200 rounded-xl p-3 text-xs text-stone-600 space-y-1">
+              <p className="font-semibold text-stone-700">Что приложить:</p>
+              <ul className="list-disc list-inside space-y-0.5 pl-1">
+                <li>Подтверждение личности (паспорт или права — фото первой страницы)</li>
+                <li>Подтверждение, что вещи действительно ваши (чек, фото с серийным номером, документы)</li>
+                <li>Контактный телефон (если ещё не указан в профиле)</li>
+              </ul>
+              <p className="text-[11px] text-stone-500 mt-2">Документы будут видны только администраторам сервиса. Можно отправить ссылки или приложить файлы в переписке тикета после создания.</p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-muted-foreground mb-2">Расскажите о себе *</label>
+              <textarea
+                className="w-full px-3 py-2.5 border border-border rounded-xl text-sm focus:border-primary outline-none resize-none transition-all min-h-[120px]"
+                placeholder="Например: «Сдаю фототехнику с 2022 года, около 30 завершённых сделок. Готов прислать сканы паспорта и чеки на оборудование в переписке.»"
+                value={verifBody}
+                onChange={e => setVerifBody(e.target.value)}
+                maxLength={2000}
+                autoFocus
+                disabled={verifSubmitting}
+              />
+              <p className="text-[11px] text-muted-foreground text-right mt-1">{verifBody.length}/2000</p>
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setVerifModalOpen(false)}
+                disabled={verifSubmitting}
+                className="flex-1 py-2.5 border border-border rounded-xl text-sm font-semibold hover:bg-muted transition-colors disabled:opacity-50"
+              >
+                Отмена
+              </button>
+              <button
+                type="button"
+                disabled={verifSubmitting || verifBody.trim().length < 20}
+                onClick={async () => {
+                  if (verifBody.trim().length < 20) return;
+                  setVerifSubmitting(true);
+                  try {
+                    const r = await fetch(`${API_BASE}/api/support/tickets`, {
+                      method: "POST",
+                      headers: { ...authHeaders.headers, "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        subject: `Заявка на верификацию: ${user.name}`,
+                        body: verifBody.trim(),
+                        category: "verification_request",
+                      }),
+                    });
+                    if (r.ok) {
+                      toast({ title: "Заявка отправлена", description: "Администратор рассмотрит её в ближайшее время. Ответ придёт в раздел «Поддержка»." });
+                      setVerifModalOpen(false);
+                      setVerifBody("");
+                      setActiveTab("support");
+                    } else if (r.status === 409) {
+                      const data = await r.json().catch(() => ({}));
+                      toast({ title: "Заявка уже подана", description: data.message ?? "Дождитесь ответа администратора в разделе «Поддержка».", variant: "destructive" });
+                      setVerifModalOpen(false);
+                      setActiveTab("support");
+                    } else {
+                      const data = await r.json().catch(() => ({}));
+                      toast({ title: "Ошибка", description: data.message ?? "Не удалось отправить заявку", variant: "destructive" });
+                    }
+                  } finally {
+                    setVerifSubmitting(false);
+                  }
+                }}
+                className="flex-1 py-2.5 bg-violet-600 hover:bg-violet-700 text-white rounded-xl text-sm font-bold transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {verifSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Award className="w-4 h-4" />}
+                Отправить заявку
               </button>
             </div>
           </div>

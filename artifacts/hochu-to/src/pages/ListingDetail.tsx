@@ -1,7 +1,7 @@
 import { Layout } from "@/components/layout/Layout";
 import { useRoute } from "wouter";
 import { useGetListingById, useGetListingUnavailableDates, useCreateBooking, useGetCurrentUser } from "@workspace/api-client-react";
-import { Loader2, MapPin, Star, Shield, ShieldOff, ShieldCheck, Info, User, ChevronLeft, CheckCircle2, AlertTriangle, Settings, CalendarDays, X, Expand, Hash, MessageSquare, Phone, Heart, Crown, Zap, Sparkles, Flame } from "lucide-react";
+import { Loader2, MapPin, Star, Shield, ShieldOff, ShieldCheck, Info, User, ChevronLeft, CheckCircle2, AlertTriangle, Settings, CalendarDays, X, Expand, Hash, MessageSquare, Phone, Heart, Crown, Zap, Sparkles, Flame, Award } from "lucide-react";
 import { formatPrice, calculateTotalPrice, calcDeposit, calcMaxProtectionLimit, type ItemCategory } from "@/lib/utils";
 import { useState, useEffect, useCallback } from "react";
 import { useAuthState, getToken } from "@/lib/auth";
@@ -43,6 +43,11 @@ function getDetailBadges(l: any): ListingBadge[] {
   const rating = typeof l.rating === "number" ? l.rating : 0;
   if (bookingCount >= 10 && rating < 4.5) {
     out.push({ key: "popular", icon: Flame, label: "Часто берут", className: "bg-orange-50 text-orange-700 border-orange-200" });
+  }
+  // Stage 19g — Trust & Verification: бейдж «Проверенный владелец». Поле ownerIsVerified
+  // приходит из JOIN с usersTable (см. routes/listings.ts). Парный с ListingCard.
+  if (l.ownerIsVerified) {
+    out.push({ key: "verified-owner", icon: Award, label: "Проверенный владелец", className: "bg-violet-50 text-violet-700 border-violet-200" });
   }
   return out;
 }

@@ -78,6 +78,10 @@ router.get("/:id", async (req, res) => {
     website: user.website ?? undefined,
     regionId: user.regionId ?? undefined,
     createdAt: user.createdAt.toISOString(),
+    // Stage 19g — Trust & Verification: публично отдаём бинарный флаг и дату для бейджа на профиле.
+    // verificationNote НЕ отдаём — это внутренняя админ-заметка (см. AGENT_INSTRUCTIONS.md §11d).
+    isVerified: user.isVerified ?? false,
+    verifiedAt: user.verifiedAt ? user.verifiedAt.toISOString() : null,
     totalListings: listingsCount?.count ?? 0,
     totalBookings: bookingsCount?.count ?? 0,
     completedDeals: completedBookings?.count ?? 0,

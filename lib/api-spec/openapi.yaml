@@ -824,6 +824,14 @@ components:
           type: integer
         regionName:
           type: string
+        isVerified:
+          type: boolean
+          description: Проверенный владелец (бинарный бейдж, ручная верификация админом)
+        verifiedAt:
+          type: string
+          description: Когда был верифицирован (ISO timestamp)
+        isBanned:
+          type: boolean
         createdAt:
           type: string
       required:
@@ -858,6 +866,11 @@ components:
           type: integer
         rating:
           type: number
+        isVerified:
+          type: boolean
+          description: Проверенный владелец
+        verifiedAt:
+          type: string
       required:
         - id
         - name
@@ -980,6 +993,9 @@ components:
           type: string
         ownerPhone:
           type: string
+        ownerIsVerified:
+          type: boolean
+          description: Владелец прошёл верификацию (для бейджа «Проверенный владелец»)
         rating:
           type: number
         reviewCount:

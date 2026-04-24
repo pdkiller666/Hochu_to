@@ -10,7 +10,7 @@ import {
   ShieldAlert, TrendingUp, Clock, Ticket, Eye, EyeOff,
   MessageSquare, AlertTriangle, ScrollText, Bell, Send,
   X, Pencil, ExternalLink, Trash2, RefreshCw, UserCheck,
-  BarChart2, ArrowUpDown, Flag, Shield, Megaphone,
+  BarChart2, ArrowUpDown, Flag, Shield, Megaphone, Award, Loader2,
   Coins, CreditCard, Save, RotateCcw, Banknote, ArrowDownToLine, ArrowUpFromLine, PiggyBank, Wallet,
 } from "lucide-react";
 import { formatPrice } from "@/lib/utils";
@@ -258,6 +258,9 @@ function UserDetailPanel({ userId, onClose, onChanged }: {
   const [form, setForm] = useState({ name: "", email: "", phone: "", bio: "", telegram: "", role: "" });
   const [notifyForm, setNotifyForm] = useState({ title: "", body: "", link: "" });
   const [banReason, setBanReason] = useState("");
+  // Stage 19g — Trust & Verification: бинарный toggle + внутренняя заметка админа.
+  const [verifSaving, setVerifSaving] = useState(false);
+  const [verifNote, setVerifNote] = useState("");
 
   useEffect(() => {
     if (data?.user) {
@@ -266,6 +269,7 @@ function UserDetailPanel({ userId, onClose, onChanged }: {
         phone: data.user.phone ?? "", bio: data.user.bio ?? "",
         telegram: data.user.telegram ?? "", role: data.user.role ?? "renter",
       });
+      setVerifNote(data.user.verificationNote ?? "");
     }
   }, [data?.user?.id]);
 
@@ -302,6 +306,40 @@ function UserDetailPanel({ userId, onClose, onChanged }: {
     }
   }
 
+  // Stage 19g — Trust & Verification (Уровень 1: бинарный «Проверенный владелец»).
+  // Бессрочно: верификация снимается только повторным toggle. Заметка — только для админов.
+  async function toggleVerification() {
+    if (!data?.user || !userId) return;
+    const next = !data.user.isVerified;
+    setVerifSaving(true);
+    const r = await fetch(`${API}/api/admin/users/${userId}`, {
+      method: "PATCH",
+      headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ isVerified: next, verificationNote: verifNote }),
+    });
+    setVerifSaving(false);
+    if (r.ok) {
+      toast({ title: next ? "Пользователь верифицирован" : "Верификация снята" });
+      refresh();
+      onChanged();
+    }
+  }
+
+  async function saveVerifNote() {
+    if (!userId) return;
+    setVerifSaving(true);
+    const r = await fetch(`${API}/api/admin/users/${userId}`, {
+      method: "PATCH",
+      headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ verificationNote: verifNote }),
+    });
+    setVerifSaving(false);
+    if (r.ok) {
+      toast({ title: "Заметка сохранена" });
+      refresh();
+    }
+  }
+
   const u = data?.user;
   return (
     <SlideOver open={!!userId} onClose={onClose} title={u ? `Пользователь: ${u.name}` : "Загрузка…"} wide>
@@ -333,6 +371,60 @@ function UserDetailPanel({ userId, onClose, onChanged }: {
               <div><strong>Заблокирован</strong>{u.banReason ? `: ${u.banReason}` : ""}</div>
             </div>
           )}
+
+          {/* Stage 19g — Trust & Verification: бинарный «Проверенный владелец» (Уровень 1).
+              Двухуровневая концепция см. AGENT_INSTRUCTIONS.md §11d. Уровень 2 (Trust Score) — V6+. */}
+          <div className={`rounded-xl border p-4 ${u.isVerified ? "bg-violet-50 border-violet-200" : "bg-stone-50 border-stone-200"}`}>
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <div className="flex items-start gap-2">
+                <Award className={`w-5 h-5 flex-shrink-0 mt-0.5 ${u.isVerified ? "text-violet-600" : "text-stone-400"}`} />
+                <div>
+                  <div className="text-sm font-semibold text-stone-800">
+                    {u.isVerified ? "Проверенный владелец" : "Не верифицирован"}
+                  </div>
+                  {u.isVerified && u.verifiedAt && (
+                    <div className="text-xs text-stone-500 mt-0.5">
+                      с {new Date(u.verifiedAt).toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" })}
+                      {u.verifiedByAdminId ? ` · админ #${u.verifiedByAdminId}` : ""}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={toggleVerification}
+                disabled={verifSaving}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg font-medium transition disabled:opacity-50 ${
+                  u.isVerified
+                    ? "border border-stone-300 text-stone-700 hover:bg-stone-100"
+                    : "bg-violet-600 text-white hover:bg-violet-700"
+                }`}
+              >
+                {verifSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Award className="w-3.5 h-3.5" />}
+                {u.isVerified ? "Снять" : "Сделать проверенным"}
+              </button>
+            </div>
+            <div>
+              <label className="block text-[11px] font-medium text-stone-500 uppercase tracking-wide mb-1">
+                Внутренняя заметка (видна только админам)
+              </label>
+              <textarea
+                value={verifNote}
+                onChange={(e) => setVerifNote(e.target.value)}
+                rows={2}
+                placeholder="Например: «Скан паспорта в тикете #234, верифицировано по видеозвонку»"
+                className="w-full text-sm border border-stone-200 rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-violet-300 bg-white"
+              />
+              {verifNote !== (u.verificationNote ?? "") && (
+                <button
+                  onClick={saveVerifNote}
+                  disabled={verifSaving}
+                  className="mt-2 text-xs text-violet-700 hover:underline disabled:opacity-50"
+                >
+                  Сохранить заметку
+                </button>
+              )}
+            </div>
+          </div>
 
           {/* Stats row */}
           <div className="grid grid-cols-4 gap-3">

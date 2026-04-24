@@ -18,4 +18,7 @@ export interface UserProfile {
   totalBookings: number;
   completedDeals?: number;
   rating?: number;
+  /** Проверенный владелец */
+  isVerified?: boolean;
+  verifiedAt?: string;
 }

@@ -1,10 +1,12 @@
-import { pgTable, serial, integer, text, timestamp, pgEnum, varchar, boolean } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, text, timestamp, pgEnum, varchar, boolean, uniqueIndex } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 export const supportCategoryEnum = pgEnum("support_category", [
   "general",
   "dispute",
   "technical",
   "billing",
+  "verification_request",
 ]);
 
 export const supportStatusEnum = pgEnum("support_status", [
@@ -33,7 +35,13 @@ export const supportTicketsTable = pgTable("support_tickets", {
   closedAt: timestamp("closed_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+}, (t) => ({
+  // Stage 19g — анти-race для verification_request: один открытый тикет на пользователя.
+  // Partial unique index — двойная защита поверх SELECT-then-INSERT в маршруте.
+  verificationRequestSingletonIdx: uniqueIndex("support_tickets_verification_singleton_idx")
+    .on(t.userId)
+    .where(sql`${t.category} = 'verification_request' AND ${t.status} IN ('open', 'in_progress')`),
+}));
 
 export const supportMessagesTable = pgTable("support_messages", {
   id: serial("id").primaryKey(),

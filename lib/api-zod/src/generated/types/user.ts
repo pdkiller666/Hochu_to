@@ -19,5 +19,10 @@ export interface User {
   website?: string;
   regionId?: number;
   regionName?: string;
+  /** Проверенный владелец (бинарный бейдж, ручная верификация админом) */
+  isVerified?: boolean;
+  /** Когда был верифицирован (ISO timestamp) */
+  verifiedAt?: string;
+  isBanned?: boolean;
   createdAt: string;
 }

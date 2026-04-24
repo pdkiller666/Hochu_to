@@ -791,18 +791,18 @@ return Math.max(0, Math.min(100, score))
 
 ### Поэтапный план
 
-| Этап | Что | Примерный объём |
-|------|-----|-----------------|
-| **V1 — Схема** | 6 новых полей в `users` (`is_verified`, `verified_at`, `verified_by_admin_id`, `verification_note`, `trust_score`, `trust_score_updated_at`) + `db:push --force` | 1 файл, 1 миграция |
-| **V2 — API** | Расширить `PATCH /api/admin/users/:id`, добавить `isVerified` в `GET /api/users/:id`, добавить `ownerIsVerified` в каждое объявление через JOIN | 2 файла |
-| **V3 — Бейдж** | Ветка в `lib/badges.ts` (`getListingBadges` + `getDetailBadges`), бейдж в `OwnerProfile.tsx` | 2 файла |
-| **V4 — Админ-toggle** | UI в `AdminPage.tsx` — checkbox «Проверенный» + textarea «Заметка верификатора» в карточке пользователя | 1 файл |
-| **V5 — Заявка от владельца** | Категория `verification_request` в `support_tickets`, кнопка «Подать заявку на верификацию» в Dashboard → создаёт тикет | 2 файла |
-| **V6 — Trust Score helper** | `lib/trust-score.ts` с формулой + unit-тесты на стартовых данных | 1 файл |
-| **V7 — Cron + админ-кнопка «Пересчитать»** | Ежесуточный пересчёт + ручной trigger в админке | 2 файла |
-| **V8 — Публичный показ Trust Score** | Маркер на карточке + фильтр в каталоге + блок в Dashboard | 3-4 файла |
+| Этап | Что | Примерный объём | Статус |
+|------|-----|-----------------|--------|
+| **V1 — Схема** | 6 новых полей в `users` (`is_verified`, `verified_at`, `verified_by_admin_id`, `verification_note`, `trust_score`, `trust_score_updated_at`) + `db:push --force` | 1 файл, 1 миграция | ✅ ГОТОВО (Stage 19g) |
+| **V2 — API** | Расширить `PATCH /api/admin/users/:id`, добавить `isVerified` в `GET /api/users/:id`, добавить `ownerIsVerified` в каждое объявление через JOIN | 2 файла | ✅ ГОТОВО (Stage 19g) |
+| **V3 — Бейдж** | Ветка в `lib/badges.ts` (`getListingBadges` + `getDetailBadges`), бейдж в `OwnerProfile.tsx` | 2 файла | ✅ ГОТОВО (Stage 19g) |
+| **V4 — Админ-toggle** | UI в `AdminPage.tsx` — checkbox «Проверенный» + textarea «Заметка верификатора» в карточке пользователя | 1 файл | ✅ ГОТОВО (Stage 19g) |
+| **V5 — Заявка от владельца** | Категория `verification_request` в `support_tickets`, кнопка «Подать заявку на верификацию» в Dashboard → создаёт тикет | 2 файла | ✅ ГОТОВО (Stage 19g) |
+| **V6 — Trust Score helper** | `lib/trust-score.ts` с формулой + unit-тесты на стартовых данных | 1 файл | ⏳ отложено |
+| **V7 — Cron + админ-кнопка «Пересчитать»** | Ежесуточный пересчёт + ручной trigger в админке | 2 файла | ⏳ отложено |
+| **V8 — Публичный показ Trust Score** | Маркер на карточке + фильтр в каталоге + блок в Dashboard | 3-4 файла | ⏳ отложено |
 
-V1–V5 — это и есть «MVP Проверенного владельца», его можно сделать за один заход.
+**MVP «Проверенный владелец» (V1–V5) выпущен в Stage 19g 24.04.2026.**
 V6–V8 — Trust Score, делается после накопления данных (минимум 100 завершённых сделок и 50 владельцев — иначе калибровка бессмысленна).
 
 ### Что НЕ делать сейчас
@@ -1308,3 +1308,53 @@ GITHUB_TOKEN=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 bash scripts/github-push.s
 - `GET /api/listings`, `?sort=popular`, `/api/listings/22`, `/api/categories`, `/api/regions`, `/api/promotions/pricing` → все 200.
 - Скриншот `/listings/22` показывает три промо-бейджа (VIP/Срочно/Топ) под заголовком объявления.
 - Все остальные функции (галерея, бронирование, отзывы, карта, владелец) работают без регрессии — изменения только additive.
+
+## Журнал — Stage 19g (MVP «Проверенный владелец», 24.04.2026)
+
+**Контекст:** реализованы V1–V5 из раздела 11d — фундамент Trust & Verification (бессрочный бейдж «Проверенный владелец», ручная верификация админом, заявки от владельцев через систему поддержки). Trust Score (V6–V8) отложен до накопления данных.
+
+**Сделано:**
+
+**V1 — Схема (`artifacts/api-server/src/db/schema.ts`):**
+- В `usersTable` добавлены 6 полей: `isVerified` (boolean, default false), `verifiedAt` (timestamp), `verifiedByAdminId` (FK→users.id), `verificationNote` (text — внутренняя заметка админа), `trustScore` (integer 0–100), `trustScoreUpdatedAt` (timestamp). Trust Score-поля заложены сейчас, чтобы V6–V8 не требовали миграции.
+- В `supportCategoryEnum` добавлено значение `verification_request`.
+- Применено через `db:push --force` (перенос данных не требовался — все новые поля nullable/с default).
+
+**V2 — API:**
+- `PATCH /api/admin/users/:id` (`artifacts/api-server/src/routes/admin.ts`): принимает `isVerified: boolean` + опциональный `verificationNote`. При смене `isVerified` авто-проставляются `verifiedAt = now()` (или `null` при сбросе) и `verifiedByAdminId = req.userId`. Запись в `admin_audit_log` с action `verify_user`/`unverify_user`.
+- `GET /api/users/:id` (`artifacts/api-server/src/routes/auth.ts`, `formatUser`): отдаёт `isVerified, verifiedAt` (без приватных `verificationNote` и `verifiedByAdminId`).
+- `GET /api/auth/me` — формирует ответ через тот же `formatUser`, поэтому юзер сразу знает свой статус.
+- `GET /api/listings`, `GET /api/listings/:id`, fallback `otherRegions` (`artifacts/api-server/src/routes/listings.ts`): JOIN на `users` теперь возвращает `ownerIsVerified` в каждой проекции.
+- `POST /api/support/tickets` (`artifacts/api-server/src/routes/support.ts`): разрешает категорию `verification_request`. Если у юзера уже есть открытая заявка этой категории — возвращает HTTP 409 с `error: "verification_request_pending"`, `ticketId` и понятным `message` для UI.
+- OpenAPI обновлён (`lib/api-spec/openapi.yaml`): схемы `User`, `UserProfile`, `Listing` получили новые поля. Кодоген `orval` прошёл успешно.
+
+**V3 — Бейджи (`artifacts/hochu-to/src/lib/badges.ts` + страницы):**
+- `getListingBadges()` и `getDetailBadges()` уже включали ветку «Проверенный владелец» (`ownerIsVerified === true`) — теперь поле наконец приходит из API.
+- `OwnerProfile.tsx`: бейдж «Проверен» (фиолетовый Award) рендерится теперь условно по `user.isVerified` вместо хардкода. Пользователь без верификации не видит бейдж.
+- `ListingCard.tsx` уже был готов — без изменений.
+
+**V4 — Админ-toggle (`artifacts/hochu-to/src/pages/AdminPage.tsx`):**
+- В `UserDetailPanel` после блока «Заблокирован» добавлен блок «Верификация»: toggle-кнопка («Снять верификацию» / «Верифицировать»), textarea для внутренней заметки, кнопка «Сохранить заметку». Loading-state через `verifSaving`. Все запросы идут через существующий `PATCH /api/admin/users/:id`.
+
+**V5 — Заявка от владельца (`artifacts/hochu-to/src/pages/Dashboard.tsx`):**
+- В табе «Профиль» (только для `role: "owner"`) добавлен блок «Верификация владельца» с двумя состояниями: верифицирован (фиолетовая карточка с датой) или нет (кнопка «Подать заявку на верификацию»).
+- Модалка `verifModalOpen`: textarea (мин 20 символов, макс 2000), краткие инструкции что приложить (паспорт, чеки, контактный телефон). Submit делает `POST /api/support/tickets` с `category: "verification_request"`. Обработка 201 (toast success + переход в таб «Поддержка»), 409 (toast «Заявка уже подана» + переход в «Поддержку»), прочих ошибок (toast destructive).
+
+**Smoke-test результаты:**
+- `GET /api/listings?limit=1` → `ownerIsVerified: false` ✓
+- `GET /api/auth/me` (admin) → `isVerified: false, verifiedAt: null, role: "admin"` ✓
+- `PATCH /api/admin/users/3` `{isVerified:true, verificationNote:"…"}` → ответ содержит `isVerified:true, verifiedAt: "2026-04-24T06:08:29Z", verificationNote, name, email` ✓
+- После верификации `GET /api/listings?limit=20` → 8 объявлений Дмитрия Захарова все с `ownerIsVerified: true` ✓
+- `POST /api/support/tickets {category:"verification_request"}` → 201, тикет создан ✓
+- Повторный `POST` → 409 `{error:"verification_request_pending", ticketId:3, message:"Ваша заявка на верификацию уже на рассмотрении…"}` ✓
+- **Race-test (5 параллельных POST verification_request на одного юзера):** ровно 1 → 201, остальные 4 → 409, в БД создан **ровно 1 тикет**. ✓
+- Тестовые данные откачены (верификация снята, тикеты удалены).
+
+**Защита от race condition (выявлено архитектором):** изначальная реализация V5 имела TOCTOU между `SELECT existing` и `INSERT`. Параллельные запросы могли создать несколько открытых заявок. Исправлено двойной защитой:
+1. **БД-уровень:** partial unique index `support_tickets_verification_singleton_idx` UNIQUE на `(user_id) WHERE category='verification_request' AND status IN ('open','in_progress')` (`lib/db/src/schema/support.ts`).
+2. **Маршрут-уровень:** `try/catch` вокруг `INSERT` с обработкой Postgres error code `23505` (unique_violation) для `verification_request` → 409 с `ticketId` существующего тикета. Старая SELECT-проверка остаётся как fast-path (избегает hot-loop ошибок).
+
+**Ограничения / следующие шаги:**
+- Нет автоматического flow для KYC-документов — владелец прикладывает ссылки/фото уже после создания тикета через `POST /api/support/tickets/:id/messages`. Это сознательное решение раздела 11d (нет хранения PII без юридической оценки).
+- Trust Score (V6–V8) отложен до 100+ завершённых сделок и 50+ владельцев — иначе калибровка бессмысленна.
+- Бейдж не даёт материальных привилегий (скидок, пониженного депозита) — это сознательное решение, чтобы не создавать инцентив на накрутку верификации.

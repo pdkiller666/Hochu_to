@@ -125,6 +125,11 @@ export interface User {
   website?: string;
   regionId?: number;
   regionName?: string;
+  /** Проверенный владелец (бинарный бейдж, ручная верификация админом) */
+  isVerified?: boolean;
+  /** Когда был верифицирован (ISO timestamp) */
+  verifiedAt?: string;
+  isBanned?: boolean;
   createdAt: string;
 }
 
@@ -145,6 +150,9 @@ export interface UserProfile {
   totalBookings: number;
   completedDeals?: number;
   rating?: number;
+  /** Проверенный владелец */
+  isVerified?: boolean;
+  verifiedAt?: string;
 }
 
 export type UpdateProfileRequestRole =
@@ -206,6 +214,8 @@ export interface Listing {
   ownerName?: string;
   ownerAvatar?: string;
   ownerPhone?: string;
+  /** Владелец прошёл верификацию (для бейджа «Проверенный владелец») */
+  ownerIsVerified?: boolean;
   rating?: number;
   reviewCount?: number;
   isAvailable: boolean;

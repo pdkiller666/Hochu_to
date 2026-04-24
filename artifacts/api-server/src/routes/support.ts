@@ -16,7 +16,8 @@ function genTicketNumber(id: number): string {
 // ─── POST /api/support/tickets — create ticket ────────────────────────────────
 router.post("/tickets", requireAuth, async (req: AuthRequest, res) => {
   const { subject, body } = req.body;
-  const VALID_CATEGORIES = ["general", "dispute", "technical", "billing"] as const;
+  // Stage 19g — добавлена категория verification_request для заявок на бейдж «Проверенный владелец».
+  const VALID_CATEGORIES = ["general", "dispute", "technical", "billing", "verification_request"] as const;
   const rawCategory = req.body.category;
   const category = VALID_CATEGORIES.includes(rawCategory) ? rawCategory : "general";
   if (!subject?.trim() || !body?.trim()) {
@@ -24,12 +25,58 @@ router.post("/tickets", requireAuth, async (req: AuthRequest, res) => {
     return;
   }
 
-  const [ticket] = await db.insert(supportTicketsTable).values({
-    userId: req.userId!,
-    subject: subject.trim(),
-    category: category ?? "general",
-    status: "open",
-  }).returning();
+  // Stage 19g — анти-спам для verification_request: не позволяем создать второй тикет,
+  // если у пользователя уже есть открытая заявка на верификацию.
+  if (category === "verification_request") {
+    const [existing] = await db.select({ id: supportTicketsTable.id })
+      .from(supportTicketsTable)
+      .where(and(
+        eq(supportTicketsTable.userId, req.userId!),
+        eq(supportTicketsTable.category, "verification_request"),
+        sql`${supportTicketsTable.status} IN ('open', 'in_progress')`,
+      ))
+      .limit(1);
+    if (existing) {
+      res.status(409).json({
+        error: "verification_request_pending",
+        message: "Ваша заявка на верификацию уже на рассмотрении. Дождитесь ответа администратора.",
+        ticketId: existing.id,
+      });
+      return;
+    }
+  }
+
+  // Stage 19g — двойная защита от race condition: помимо SELECT-проверки выше
+  // у `support_tickets` есть partial unique index `support_tickets_verification_singleton_idx`
+  // на (user_id) WHERE category='verification_request' AND status IN ('open','in_progress').
+  // Параллельные запросы пройдут SELECT, но второй INSERT упадёт на 23505 → возвращаем 409.
+  let ticket;
+  try {
+    [ticket] = await db.insert(supportTicketsTable).values({
+      userId: req.userId!,
+      subject: subject.trim(),
+      category: category ?? "general",
+      status: "open",
+    }).returning();
+  } catch (e: any) {
+    if (category === "verification_request" && e?.code === "23505") {
+      const [existing] = await db.select({ id: supportTicketsTable.id })
+        .from(supportTicketsTable)
+        .where(and(
+          eq(supportTicketsTable.userId, req.userId!),
+          eq(supportTicketsTable.category, "verification_request"),
+          sql`${supportTicketsTable.status} IN ('open', 'in_progress')`,
+        ))
+        .limit(1);
+      res.status(409).json({
+        error: "verification_request_pending",
+        message: "Ваша заявка на верификацию уже на рассмотрении. Дождитесь ответа администратора.",
+        ticketId: existing?.id,
+      });
+      return;
+    }
+    throw e;
+  }
 
   const number = genTicketNumber(ticket.id);
   await db.update(supportTicketsTable)
