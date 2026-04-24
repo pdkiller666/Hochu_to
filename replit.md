@@ -325,7 +325,7 @@ maxProtectionLimit = pricePerDay × multiplier  // лимит компенсац
 | **Высокий рейтинг** | Star (амбер) | `rating >= 4.5 && reviewCount >= 3` | 🏆 заработанный |
 | **Часто берут** | Flame (оранжевый) | `bookingCount >= 10 && rating < 4.5` | 🏆 заработанный (Stage 19b — раньше было `reviewCount >= 10`) |
 | **Новинка** | Sparkles (голубой) | `createdAt` ≤ 14 дней | 🏆 заработанный |
-| **Проверенный владелец** | Award (фиолетовый) | `ownerVerified` или `ownerIsVerified` | 🏆 заработанный |
+| **Проверенный владелец** | Award (фиолетовый) | `ownerIsVerified` | 🏆 заработанный (⚠️ **в плане**, см. AGENT_INSTRUCTIONS.md §11d — поле `is_verified` ещё не добавлено в `users`, бейдж не отображается) |
 
 Поля промо (`is_featured`, `featured_until`, `is_urgent`, `urgent_until`, `boosted_until`) добавлены в `listings` в Stage 18. Денорм-счётчики (`bookingCount`, `reviewCount`, `avgRating`, `favoritesCount`) — в Stage 19e и поддерживаются автоматически (см. ниже).
 
