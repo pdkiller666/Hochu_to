@@ -671,9 +671,57 @@ Frontend (`/pools`, `/pools/create`, `/pools/:id`):
 5. **Try/catch для post-commit side effects в bookings.ts PUT** — `recordEvent` и блок `createNotification` обёрнуты в отдельные try/catch. Транзакция уже зафиксирована, статус и счётчики консистентны; падение audit/notif (например, БД временно недоступна) не должно приводить к 5xx — иначе клиент сделает ложный retry, а второй PUT упадёт в `invalid_transition` из-за TOCTOU guard. Логируем через `console.error`, отвечаем 200.
 
 **Что НЕ сделано (Stage 27+):**
-- Применение остаточной стоимости в цене доли на вторичном рынке (`share_offers`).
+- ~~Применение остаточной стоимости в цене доли на вторичном рынке (`share_offers`).~~ — **закрыто Stage 25** (фронт-расчёт справедливой цены в Sell Modal).
 - Серверное зеркало `calculateResidualValue` (когда понадобится для API-расчётов).
 - Декремент wear meter при «капитальном ремонте» / claims из фонда обслуживания.
+
+## Stage 25 — Вторичный рынок долей (P2P beta) (25.04.2026)
+
+Превращаем платформу в мини-биржу: совладельцы могут продавать свои доли через `share_offers`. На beta-этапе деньги переводятся напрямую через СБП (платформа = реестр прав), commercial-режим (Stage 24) добавит эскроу через ЮKassa.
+
+**БД (`lib/db/src/schema/co_sharing.ts`):** в `share_offers` добавлены 3 nullable-поля:
+- `buyer_id` integer FK→users — кто зарезервировал оффер. NULL = свободно.
+- `reserved_at` timestamp — момент резервации (TTL опционально, пока не использован).
+- `seller_payment_details` text — СБП-реквизиты продавца, показываются buyer'у после `/buy`.
+
+Жизненный цикл оффера: `open + buyer_id=NULL` → `open + buyer_id=X (reserved)` → `sold` (атомарный merge) | `canceled`.
+
+**Backend (`artifacts/api-server/src/routes/pools.ts`)** — 5 новых endpoints:
+1. `POST /api/pools/:id/shares/:shareId/offers` (auth) — создать оффер. Валидация: ownership, `paymentStatus ∈ {creator_confirmed, escrow_held}` (нельзя продавать неоплаченную долю — иначе можно «продать» фейк), нет другого открытого оффера на эту долю.
+2. `GET /api/pools/:id/offers` — список открытых офферов с join'ами `pool_shares` (sharePercentage, amountRub) и `users` (sellerName, sellerAvatar).
+3. `POST /api/pools/:id/offers/:offerId/buy` (auth) — резервация. **TOCTOU:** атомарный `UPDATE … WHERE status='open' AND buyer_id IS NULL RETURNING` — при параллельных «Купить» победит ровно один. Self-check: `cannot_buy_own_offer`.
+4. `POST /api/pools/:id/offers/:offerId/confirm-transfer` (auth, только seller) — **АТОМАРНАЯ ПЕРЕДАЧА ВЛАДЕНИЯ**. Внутри `db.transaction`:
+   - TOCTOU `UPDATE share_offers SET status='sold' WHERE id=? AND status='open' AND seller_id=?` — защита от двойного confirm.
+   - SELECT свежей доли продавца внутри tx; повторная проверка `seller_id == userId` (защита от race с предыдущим merge).
+   - **Merge logic:** если у buyer уже есть `pool_shares` запись для этого `pool_id` (UNIQUE(pool_id, user_id)) → `UPDATE buyer.share SET sharePercentage += seller.percentage, amountRub += seller.amount` + `DELETE seller.share`. Иначе → `UPDATE seller.share SET user_id = buyer_id` (transfer ownership).
+   - Sum проценты на стороне SQL через `sql\`${sharePercentage} + ${seller.sharePercentage}\`` — DECIMAL(5,2) точность сохраняется, CHECK (>0 AND <=100) валидирует.
+5. `POST /api/pools/:id/offers/:offerId/cancel` (auth, только seller) — отмена с TOCTOU guard, сбрасывает `buyer_id` и `reserved_at`.
+
+`GET /api/pools/:id` теперь дополнительно отдаёт `offers[]` (открытые) — фронт за один запрос рендерит и доли, и рынок.
+
+**Frontend (`artifacts/hochu-to/src/lib/api-pools.ts`):** новые типы (`ShareOfferDetail`, `BuyOfferResponse`, `ConfirmTransferResponse`) и функции (`createShareOffer`, `listOffers`, `buyShareOffer`, `confirmShareTransfer`, `cancelShareOffer`).
+
+**Frontend (`artifacts/hochu-to/src/pages/PoolDetail.tsx`):**
+- В `SharesList` для своей оплаченной доли (без открытого оффера) — кнопка «Продать» (icon `Tag`). Если оффер уже стоит — бейдж «На продаже».
+- Новый `MarketplaceBlock` (блок «Рынок долей», между ResidualValueBlock и SharesList): список открытых офферов с `OfferRow`. Для buyer'а — кнопка «Купить»; для seller'а — `SellerOfferActions` (cancel или, если зарезервировано, «Подтвердить получение и передать долю» + cancel); для buyer'а который уже зарезервировал — текст «Переведите по СБП и ждите подтверждения».
+- `SellShareModal`: расчёт справедливой цены = `calculateResidualValue(targetAmount, listing.wearAndTearMeter, depPercent) × sharePercentage / 100`. Если listing нет — по номиналу. Показывает блок-tip с residual + износ %, инпут цены с кнопкой «Сбросить к справедливой», инпут СБП-реквизитов, чек-бокс согласия.
+- `BuyOfferModal`: двухфазный (зарезервировать → показать СБП-реквизиты с copy-button + инструкции).
+
+**Smoke-тест end-to-end (на pool#15, 30000₽, 2 совладельца maria + dmitry):**
+- Validation: создание (201), дубль (409 `offer_already_open`), чужая доля (403 `not_share_owner`), пустые реквизиты (400 zod).
+- TOCTOU race: 5 параллельных POST `/buy` от alexey → ровно 1×200 + 4×409 `offer_unavailable`.
+- Self-check: maria → 403 `cannot_buy_own_offer`.
+- **Transfer-mode** (alexey не имел доли): maria → alexey, share#13 user_id 14→13, `mergeMode='transfer'`. Дубль confirm → 409 `offer_not_open`.
+- **Merge-mode** (у alexey уже 50% после A): dmitry продаёт → alexey. Result: share#13 sharePercentage 50→100, amountRub 15000→30000, share#14 удалена. **Целостность:** `SUM(sharePercentage)=100.00`, `SUM(amount)=30000` ✓.
+- Cancel-flow: create + 403 чужой cancel + 200 свой cancel + 409 повтор.
+- Negative auth: confirm-transfer от не-seller → 403 `only_seller_can_confirm`.
+
+**Что НЕ сделано (Stage 25 followup, future):**
+- TTL для зарезервированных офферов (если buyer не платит — авто-сброс buyer_id через cron).
+- Уведомления (`createNotification` в seller/buyer о ключевых событиях).
+- Аудит-лог (`recordEvent` для history/forensics).
+- Комиссия платформы при продаже (Stage 24+ с эскроу).
+- Авто-переоценка существующих офферов при изменении wearAndTearMeter (сейчас цена «замораживается» на момент создания).
 
 ## What Is NOT Yet Implemented (roadmap)
 

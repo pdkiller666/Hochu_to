@@ -147,8 +147,17 @@ export const poolSharesTable = pgTable(
 );
 
 /**
- * Вторичный рынок долей. Совладелец может продать свою долю другому юзеру.
+ * Вторичный рынок долей (Stage 25). Совладелец может продать свою долю другому юзеру.
  * Платформа берёт комиссию (отдельная настройка в будущем).
+ *
+ * Жизненный цикл оффера:
+ *   1. open + buyer_id=NULL          — выставлено на продажу
+ *   2. open + buyer_id=X (reserved)  — покупатель резервирует, переводит P2P
+ *   3. sold                          — продавец подтвердил получение, доли мерджатся
+ *   4. canceled                      — продавец отменил (или TTL истёк)
+ *
+ * Beta: seller_payment_details — СБП продавца, показывается покупателю на /buy.
+ * Commercial (Stage 24): эскроу через ЮKassa — поле станет необязательным.
  */
 export const shareOffersTable = pgTable(
   "share_offers",
@@ -162,11 +171,19 @@ export const shareOffersTable = pgTable(
 
     status: shareOfferStatusEnum("status").default("open").notNull(),
 
+    /** Stage 25: текущий резервирующий покупатель. NULL = свободно. */
+    buyerId: integer("buyer_id").references(() => usersTable.id, { onDelete: "restrict" }),
+    /** Stage 25: момент резервации; используется для TTL (сейчас опционально). */
+    reservedAt: timestamp("reserved_at"),
+    /** Stage 25: СБП-реквизиты продавца, показываются покупателю при /buy. */
+    sellerPaymentDetails: text("seller_payment_details"),
+
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (t) => ({
     shareStatusIdx: index("share_offers_share_status_idx").on(t.shareId, t.status),
     sellerIdx: index("share_offers_seller_idx").on(t.sellerId),
+    buyerIdx: index("share_offers_buyer_idx").on(t.buyerId),
     priceNonNeg: check("share_offers_price_non_neg", sql`${t.priceRub} >= 0`),
   }),
 );

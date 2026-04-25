@@ -1,9 +1,10 @@
 import { Router, type Response } from "express";
-import { eq, and, inArray, sql, desc } from "drizzle-orm";
+import { eq, and, inArray, sql, desc, isNull } from "drizzle-orm";
 import {
   db,
   poolsTable,
   poolSharesTable,
+  shareOffersTable,
   usersTable,
   listingsTable,
 } from "@workspace/db";
@@ -240,6 +241,29 @@ router.get("/:id", async (req, res) => {
       .where(eq(listingsTable.poolId, id))
       .limit(1);
 
+    // Stage 25: открытые офферы вторичного рынка для этого пула.
+    // Подтягиваются вместе с пулом, чтобы фронт за один запрос показал блок «Рынок долей».
+    const offersRaw = await db
+      .select({
+        id: shareOffersTable.id,
+        shareId: shareOffersTable.shareId,
+        sellerId: shareOffersTable.sellerId,
+        priceRub: shareOffersTable.priceRub,
+        status: shareOffersTable.status,
+        buyerId: shareOffersTable.buyerId,
+        reservedAt: shareOffersTable.reservedAt,
+        createdAt: shareOffersTable.createdAt,
+        sharePercentage: poolSharesTable.sharePercentage,
+        amountRub: poolSharesTable.amountRub,
+        sellerName: usersTable.name,
+        sellerAvatar: usersTable.avatar,
+      })
+      .from(shareOffersTable)
+      .innerJoin(poolSharesTable, eq(shareOffersTable.shareId, poolSharesTable.id))
+      .leftJoin(usersTable, eq(shareOffersTable.sellerId, usersTable.id))
+      .where(and(eq(poolSharesTable.poolId, id), eq(shareOffersTable.status, "open")))
+      .orderBy(desc(shareOffersTable.createdAt));
+
     // users.name — единое поле; разбиваем на firstName/lastName для UI.
     const splitName = (n: string | null) => {
       const trimmed = (n ?? "").trim();
@@ -267,6 +291,20 @@ router.get("/:id", async (req, res) => {
         amountRub: s.amountRub,
         paymentStatus: s.paymentStatus,
         createdAt: s.createdAt,
+      })),
+      offers: offersRaw.map((o) => ({
+        id: o.id,
+        shareId: o.shareId,
+        sellerId: o.sellerId,
+        sellerName: (o.sellerName ?? "").trim() || `Пользователь #${o.sellerId}`,
+        sellerAvatarUrl: o.sellerAvatar,
+        priceRub: o.priceRub,
+        status: o.status,
+        sharePercentage: o.sharePercentage,
+        amountRub: o.amountRub,
+        buyerId: o.buyerId,
+        reservedAt: o.reservedAt,
+        createdAt: o.createdAt,
       })),
     });
   } catch (e) {
@@ -436,6 +474,449 @@ router.post(
       res.json(result);
     } catch (e) {
       logger.error({ err: e }, "POST /pools/:id/shares/:shareId/confirm failed");
+      res.status(500).json({ error: "internal_error" });
+    }
+  },
+);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Stage 25 — Вторичный рынок долей (share_offers)
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Жизненный цикл оффера:
+//   1. POST /shares/:shareId/offers       → status='open',  buyer_id=NULL
+//   2. POST /offers/:id/buy   (любой юзер) → status='open',  buyer_id=X (резерв)
+//   3. POST /offers/:id/confirm-transfer (seller) → status='sold' + merge долей
+//   4. POST /offers/:id/cancel (seller)    → status='canceled'
+//
+// Все мутации с TOCTOU-guard'ом (UPDATE … WHERE status=?) и атомарной транзакцией.
+// На beta-этапе платежи P2P через СБП-реквизиты продавца; commercial (Stage 24) —
+// эскроу через ЮKassa, поле seller_payment_details станет необязательным.
+
+const createOfferBodySchema = z.object({
+  priceRub: z.number().int().nonnegative().max(50_000_000),
+  sellerPaymentDetails: z.string().trim().min(3).max(500),
+});
+
+// ── POST /api/pools/:id/shares/:shareId/offers — выставить долю на продажу ─
+router.post(
+  "/:id/shares/:shareId/offers",
+  requireAuth,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const poolId = Number(req.params.id);
+      const shareId = Number(req.params.shareId);
+      if (
+        !Number.isInteger(poolId) || poolId <= 0 ||
+        !Number.isInteger(shareId) || shareId <= 0
+      ) {
+        res.status(400).json({ error: "invalid_id" });
+        return;
+      }
+      const parsed = createOfferBodySchema.safeParse(req.body);
+      if (!parsed.success) {
+        res.status(400).json({ error: "invalid_body", details: parsed.error.issues });
+        return;
+      }
+
+      const [share] = await db
+        .select()
+        .from(poolSharesTable)
+        .where(and(eq(poolSharesTable.id, shareId), eq(poolSharesTable.poolId, poolId)))
+        .limit(1);
+      if (!share) {
+        res.status(404).json({ error: "share_not_found" });
+        return;
+      }
+      if (share.userId !== req.userId!) {
+        res.status(403).json({ error: "not_share_owner" });
+        return;
+      }
+      // Продавать можно только реально оплаченную долю — иначе можно «продать»
+      // фейковую запись и получить деньги за то, чего нет.
+      if (!(["creator_confirmed", "escrow_held"] as const).includes(share.paymentStatus as any)) {
+        res.status(409).json({
+          error: "share_not_paid",
+          message: "Долю нельзя продать, пока её оплата не подтверждена",
+          currentStatus: share.paymentStatus,
+        });
+        return;
+      }
+
+      // Один открытый оффер на долю — иначе двойная продажа.
+      const [openOffer] = await db
+        .select({ id: shareOffersTable.id })
+        .from(shareOffersTable)
+        .where(and(eq(shareOffersTable.shareId, shareId), eq(shareOffersTable.status, "open")))
+        .limit(1);
+      if (openOffer) {
+        res.status(409).json({ error: "offer_already_open", offerId: openOffer.id });
+        return;
+      }
+
+      const [created] = await db
+        .insert(shareOffersTable)
+        .values({
+          shareId,
+          sellerId: req.userId!,
+          priceRub: parsed.data.priceRub,
+          sellerPaymentDetails: parsed.data.sellerPaymentDetails,
+          status: "open",
+        })
+        .returning();
+
+      res.status(201).json(created);
+    } catch (e) {
+      logger.error({ err: e }, "POST /pools/:id/shares/:shareId/offers failed");
+      res.status(500).json({ error: "internal_error" });
+    }
+  },
+);
+
+// ── GET /api/pools/:id/offers — список открытых офферов пула ───────────────
+router.get("/:id/offers", async (req, res) => {
+  try {
+    const poolId = Number(req.params.id);
+    if (!Number.isInteger(poolId) || poolId <= 0) {
+      res.status(400).json({ error: "invalid_id" });
+      return;
+    }
+    const rows = await db
+      .select({
+        id: shareOffersTable.id,
+        shareId: shareOffersTable.shareId,
+        sellerId: shareOffersTable.sellerId,
+        priceRub: shareOffersTable.priceRub,
+        status: shareOffersTable.status,
+        buyerId: shareOffersTable.buyerId,
+        reservedAt: shareOffersTable.reservedAt,
+        createdAt: shareOffersTable.createdAt,
+        sharePercentage: poolSharesTable.sharePercentage,
+        amountRub: poolSharesTable.amountRub,
+        sellerName: usersTable.name,
+        sellerAvatar: usersTable.avatar,
+      })
+      .from(shareOffersTable)
+      .innerJoin(poolSharesTable, eq(shareOffersTable.shareId, poolSharesTable.id))
+      .leftJoin(usersTable, eq(shareOffersTable.sellerId, usersTable.id))
+      .where(and(eq(poolSharesTable.poolId, poolId), eq(shareOffersTable.status, "open")))
+      .orderBy(desc(shareOffersTable.createdAt));
+
+    res.json(
+      rows.map((o) => ({
+        id: o.id,
+        shareId: o.shareId,
+        sellerId: o.sellerId,
+        sellerName: (o.sellerName ?? "").trim() || `Пользователь #${o.sellerId}`,
+        sellerAvatarUrl: o.sellerAvatar,
+        priceRub: o.priceRub,
+        status: o.status,
+        sharePercentage: o.sharePercentage,
+        amountRub: o.amountRub,
+        buyerId: o.buyerId,
+        reservedAt: o.reservedAt,
+        createdAt: o.createdAt,
+      })),
+    );
+  } catch (e) {
+    logger.error({ err: e }, "GET /pools/:id/offers failed");
+    res.status(500).json({ error: "internal_error" });
+  }
+});
+
+// ── POST /api/pools/:id/offers/:offerId/buy — резерв за покупателем ────────
+//
+// TOCTOU: атомарный UPDATE WHERE status='open' AND (buyer_id IS NULL OR reserved_at < NOW()-TTL).
+// При параллельных нажатиях «Купить» победит ровно один — остальные получат 409.
+// TTL предотвращает «вечную заморозку» оффера: если предыдущий buyer не перевёл деньги
+// в течение RESERVATION_TTL_MIN минут, оффер автоматически освобождается, и любой
+// другой buyer может его перехватить (без необходимости в cron-задаче).
+const RESERVATION_TTL_MIN = 30;
+
+router.post(
+  "/:id/offers/:offerId/buy",
+  requireAuth,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const poolId = Number(req.params.id);
+      const offerId = Number(req.params.offerId);
+      if (
+        !Number.isInteger(poolId) || poolId <= 0 ||
+        !Number.isInteger(offerId) || offerId <= 0
+      ) {
+        res.status(400).json({ error: "invalid_id" });
+        return;
+      }
+
+      const [offerWithShare] = await db
+        .select({
+          offer: shareOffersTable,
+          sharePoolId: poolSharesTable.poolId,
+        })
+        .from(shareOffersTable)
+        .innerJoin(poolSharesTable, eq(shareOffersTable.shareId, poolSharesTable.id))
+        .where(eq(shareOffersTable.id, offerId))
+        .limit(1);
+      if (!offerWithShare) {
+        res.status(404).json({ error: "offer_not_found" });
+        return;
+      }
+      if (offerWithShare.sharePoolId !== poolId) {
+        res.status(404).json({ error: "offer_not_in_pool" });
+        return;
+      }
+      if (offerWithShare.offer.sellerId === req.userId!) {
+        res.status(403).json({ error: "cannot_buy_own_offer" });
+        return;
+      }
+
+      // Атомарная резервация — один UPDATE, никакой race-condition.
+      // Свободно, если: buyer_id NULL ИЛИ резерв протух (старше TTL минут).
+      const [reserved] = await db
+        .update(shareOffersTable)
+        .set({ buyerId: req.userId!, reservedAt: new Date() })
+        .where(
+          and(
+            eq(shareOffersTable.id, offerId),
+            eq(shareOffersTable.status, "open"),
+            sql`(${shareOffersTable.buyerId} IS NULL OR ${shareOffersTable.reservedAt} < NOW() - (${RESERVATION_TTL_MIN} || ' minutes')::interval)`,
+          ),
+        )
+        .returning();
+      if (!reserved) {
+        res.status(409).json({
+          error: "offer_unavailable",
+          message: "Этот оффер уже зарезервирован или закрыт",
+        });
+        return;
+      }
+
+      res.json({
+        offer: reserved,
+        sellerPaymentDetails: reserved.sellerPaymentDetails,
+        instructions:
+          "Переведите указанную сумму продавцу через СБП. После получения денег продавец подтвердит передачу доли.",
+      });
+    } catch (e) {
+      logger.error({ err: e }, "POST /pools/:id/offers/:offerId/buy failed");
+      res.status(500).json({ error: "internal_error" });
+    }
+  },
+);
+
+// ── POST /api/pools/:id/offers/:offerId/confirm-transfer ───────────────────
+//
+// АТОМАРНАЯ ПЕРЕДАЧА ВЛАДЕНИЯ. Вызывает продавец после получения денег по СБП.
+//
+// Внутри транзакции:
+//   1. UPDATE share_offers SET status='sold' WHERE id=X AND status='open' AND buyer_id IS NOT NULL
+//      → TOCTOU-guard, защита от двойного confirm.
+//   2. SELECT seller's pool_share (FOR UPDATE — берём свежие данные внутри tx).
+//   3. SELECT buyer's existing share для этого пула (UNIQUE(pool_id, user_id)).
+//      - Если есть: merge — увеличить процент/сумму у buyer, удалить долю seller.
+//      - Если нет:  transfer — переписать user_id на buyer.
+//
+// Все шаги в одной db.transaction → либо всё, либо откат.
+router.post(
+  "/:id/offers/:offerId/confirm-transfer",
+  requireAuth,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const poolId = Number(req.params.id);
+      const offerId = Number(req.params.offerId);
+      if (
+        !Number.isInteger(poolId) || poolId <= 0 ||
+        !Number.isInteger(offerId) || offerId <= 0
+      ) {
+        res.status(400).json({ error: "invalid_id" });
+        return;
+      }
+
+      // Pre-check (для понятных ошибок до транзакции). Авторитативная проверка — внутри tx.
+      const [pre] = await db
+        .select({
+          offer: shareOffersTable,
+          sharePoolId: poolSharesTable.poolId,
+        })
+        .from(shareOffersTable)
+        .innerJoin(poolSharesTable, eq(shareOffersTable.shareId, poolSharesTable.id))
+        .where(eq(shareOffersTable.id, offerId))
+        .limit(1);
+      if (!pre) {
+        res.status(404).json({ error: "offer_not_found" });
+        return;
+      }
+      if (pre.sharePoolId !== poolId) {
+        res.status(404).json({ error: "offer_not_in_pool" });
+        return;
+      }
+      if (pre.offer.sellerId !== req.userId!) {
+        res.status(403).json({ error: "only_seller_can_confirm" });
+        return;
+      }
+      if (pre.offer.status !== "open") {
+        res.status(409).json({ error: "offer_not_open", currentStatus: pre.offer.status });
+        return;
+      }
+      if (!pre.offer.buyerId) {
+        res.status(409).json({
+          error: "no_buyer_reserved",
+          message: "Никто ещё не нажал «Купить» — резерва нет",
+        });
+        return;
+      }
+
+      const result = await db.transaction(async (tx) => {
+        // 1. Атомарный TOCTOU перевод status → 'sold'.
+        const [sold] = await tx
+          .update(shareOffersTable)
+          .set({ status: "sold" })
+          .where(
+            and(
+              eq(shareOffersTable.id, offerId),
+              eq(shareOffersTable.status, "open"),
+              eq(shareOffersTable.sellerId, req.userId!),
+            ),
+          )
+          .returning();
+        if (!sold || !sold.buyerId) {
+          throw Object.assign(new Error("invalid_transition"), {
+            httpStatus: 409,
+            httpBody: { error: "invalid_transition", message: "Оффер уже изменён" },
+          });
+        }
+
+        // 2. Свежие данные доли продавца внутри tx.
+        const [sellerShare] = await tx
+          .select()
+          .from(poolSharesTable)
+          .where(eq(poolSharesTable.id, sold.shareId))
+          .limit(1);
+        if (!sellerShare) {
+          throw Object.assign(new Error("share_not_found"), {
+            httpStatus: 409,
+            httpBody: { error: "share_not_found" },
+          });
+        }
+        if (sellerShare.userId !== sold.sellerId) {
+          // Продавец уже не владелец (например, кто-то другой объединил доли) —
+          // безопасно откатываем.
+          throw Object.assign(new Error("seller_no_longer_owns_share"), {
+            httpStatus: 409,
+            httpBody: { error: "seller_no_longer_owns_share" },
+          });
+        }
+
+        // 3. Существующая доля у покупателя в этом же пуле?
+        const [buyerExisting] = await tx
+          .select()
+          .from(poolSharesTable)
+          .where(
+            and(
+              eq(poolSharesTable.poolId, sellerShare.poolId),
+              eq(poolSharesTable.userId, sold.buyerId),
+            ),
+          )
+          .limit(1);
+
+        let mergedShare: typeof sellerShare;
+        let mergeMode: "merge" | "transfer";
+
+        if (buyerExisting) {
+          mergeMode = "merge";
+          // Складываем проценты с DECIMAL-точностью (numeric(5,2)) — на стороне SQL.
+          const [updated] = await tx
+            .update(poolSharesTable)
+            .set({
+              sharePercentage: sql`${poolSharesTable.sharePercentage} + ${sellerShare.sharePercentage}`,
+              amountRub: sql`${poolSharesTable.amountRub} + ${sellerShare.amountRub}`,
+            })
+            .where(eq(poolSharesTable.id, buyerExisting.id))
+            .returning();
+          // Удаляем долю продавца — UNIQUE(pool_id, user_id) не нарушится.
+          await tx.delete(poolSharesTable).where(eq(poolSharesTable.id, sellerShare.id));
+          mergedShare = updated!;
+        } else {
+          mergeMode = "transfer";
+          const [updated] = await tx
+            .update(poolSharesTable)
+            .set({ userId: sold.buyerId })
+            .where(eq(poolSharesTable.id, sellerShare.id))
+            .returning();
+          mergedShare = updated!;
+        }
+
+        return { offer: sold, share: mergedShare, mergeMode };
+      });
+
+      res.json(result);
+    } catch (e: any) {
+      if (e?.httpStatus && e?.httpBody) {
+        res.status(e.httpStatus).json(e.httpBody);
+        return;
+      }
+      logger.error({ err: e }, "POST /pools/:id/offers/:offerId/confirm-transfer failed");
+      res.status(500).json({ error: "internal_error" });
+    }
+  },
+);
+
+// ── POST /api/pools/:id/offers/:offerId/cancel — продавец отменяет оффер ───
+router.post(
+  "/:id/offers/:offerId/cancel",
+  requireAuth,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const poolId = Number(req.params.id);
+      const offerId = Number(req.params.offerId);
+      if (
+        !Number.isInteger(poolId) || poolId <= 0 ||
+        !Number.isInteger(offerId) || offerId <= 0
+      ) {
+        res.status(400).json({ error: "invalid_id" });
+        return;
+      }
+
+      const [pre] = await db
+        .select({
+          offer: shareOffersTable,
+          sharePoolId: poolSharesTable.poolId,
+        })
+        .from(shareOffersTable)
+        .innerJoin(poolSharesTable, eq(shareOffersTable.shareId, poolSharesTable.id))
+        .where(eq(shareOffersTable.id, offerId))
+        .limit(1);
+      if (!pre) {
+        res.status(404).json({ error: "offer_not_found" });
+        return;
+      }
+      if (pre.sharePoolId !== poolId) {
+        res.status(404).json({ error: "offer_not_in_pool" });
+        return;
+      }
+      if (pre.offer.sellerId !== req.userId!) {
+        res.status(403).json({ error: "only_seller_can_cancel" });
+        return;
+      }
+
+      const [canceled] = await db
+        .update(shareOffersTable)
+        .set({ status: "canceled", buyerId: null, reservedAt: null })
+        .where(
+          and(
+            eq(shareOffersTable.id, offerId),
+            eq(shareOffersTable.status, "open"),
+          ),
+        )
+        .returning();
+      if (!canceled) {
+        res.status(409).json({ error: "invalid_transition", currentStatus: pre.offer.status });
+        return;
+      }
+
+      res.json({ offer: canceled });
+    } catch (e) {
+      logger.error({ err: e }, "POST /pools/:id/offers/:offerId/cancel failed");
       res.status(500).json({ error: "internal_error" });
     }
   },

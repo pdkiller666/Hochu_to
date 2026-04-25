@@ -46,6 +46,26 @@ export interface PoolLinkedListing {
   custodianId: number | null;
 }
 
+export type ShareOfferStatus = "open" | "sold" | "canceled";
+
+export interface ShareOfferDetail {
+  id: number;
+  shareId: number;
+  sellerId: number;
+  sellerName: string;
+  sellerAvatarUrl: string | null;
+  priceRub: number;
+  status: ShareOfferStatus;
+  /** Процент доли (numeric строка из БД, например "12.50"). */
+  sharePercentage: string;
+  /** Изначальная сумма доли в рублях. */
+  amountRub: number;
+  /** Stage 25: id зарезервировавшего покупателя; null = свободно. */
+  buyerId: number | null;
+  reservedAt: string | null;
+  createdAt: string;
+}
+
 export interface PoolDetail extends PoolListItem {
   description: string | null;
   creatorPaymentDetails: string | null;
@@ -61,6 +81,8 @@ export interface PoolDetail extends PoolListItem {
   /** Stage 26: связанный listing (присутствует только для активированных пулов). */
   listing: PoolLinkedListing | null;
   shares: PoolShareDetail[];
+  /** Stage 25: открытые офферы вторичного рынка для этого пула. */
+  offers: ShareOfferDetail[];
 }
 
 async function jsonFetch<T>(url: string, init?: RequestInit): Promise<T> {
@@ -128,4 +150,60 @@ export function confirmShare(poolId: number, shareId: number) {
     `/api/pools/${poolId}/shares/${shareId}/confirm`,
     { method: "POST" },
   );
+}
+
+// ── Stage 25: Secondary market ────────────────────────────────────────────
+
+export interface CreateOfferPayload {
+  priceRub: number;
+  sellerPaymentDetails: string;
+}
+
+export function createShareOffer(
+  poolId: number,
+  shareId: number,
+  body: CreateOfferPayload,
+): Promise<ShareOfferDetail> {
+  return jsonFetch<ShareOfferDetail>(`/api/pools/${poolId}/shares/${shareId}/offers`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function listOffers(poolId: number): Promise<ShareOfferDetail[]> {
+  return jsonFetch<ShareOfferDetail[]>(`/api/pools/${poolId}/offers`);
+}
+
+export interface BuyOfferResponse {
+  offer: ShareOfferDetail;
+  sellerPaymentDetails: string | null;
+  instructions: string;
+}
+
+export function buyShareOffer(poolId: number, offerId: number): Promise<BuyOfferResponse> {
+  return jsonFetch<BuyOfferResponse>(`/api/pools/${poolId}/offers/${offerId}/buy`, {
+    method: "POST",
+  });
+}
+
+export interface ConfirmTransferResponse {
+  offer: ShareOfferDetail;
+  share: PoolShareDetail;
+  mergeMode: "merge" | "transfer";
+}
+
+export function confirmShareTransfer(
+  poolId: number,
+  offerId: number,
+): Promise<ConfirmTransferResponse> {
+  return jsonFetch<ConfirmTransferResponse>(
+    `/api/pools/${poolId}/offers/${offerId}/confirm-transfer`,
+    { method: "POST" },
+  );
+}
+
+export function cancelShareOffer(poolId: number, offerId: number): Promise<{ offer: ShareOfferDetail }> {
+  return jsonFetch<{ offer: ShareOfferDetail }>(`/api/pools/${poolId}/offers/${offerId}/cancel`, {
+    method: "POST",
+  });
 }

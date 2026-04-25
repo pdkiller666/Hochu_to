@@ -6,8 +6,13 @@ import {
   getPool,
   contributeShare,
   confirmShare,
+  createShareOffer,
+  buyShareOffer,
+  confirmShareTransfer,
+  cancelShareOffer,
   type PoolDetail,
   type PoolShareDetail,
+  type ShareOfferDetail,
 } from "@/lib/api-pools";
 import { formatPrice } from "@/lib/utils";
 import { calculateResidualValue, calculateDepreciationPercent } from "@/lib/pricing";
@@ -29,6 +34,11 @@ import {
   Crown,
   Lock,
   Camera,
+  Tag,
+  ShoppingCart,
+  X,
+  TrendingDown,
+  Handshake,
 } from "lucide-react";
 
 const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
@@ -191,8 +201,11 @@ export default function PoolDetailPage() {
           <ResidualValueBlock pool={pool} />
         )}
 
+        {/* Stage 25 — Вторичный рынок долей */}
+        <MarketplaceBlock pool={pool} meId={me?.id ?? null} />
+
         {/* All shares */}
-        <SharesList pool={pool} />
+        <SharesList pool={pool} meId={me?.id ?? null} />
       </div>
     </Layout>
   );
@@ -422,7 +435,9 @@ function CreatorPendingBlock({ pool }: { pool: PoolDetail }) {
   );
 }
 
-function SharesList({ pool }: { pool: PoolDetail }) {
+function SharesList({ pool, meId }: { pool: PoolDetail; meId: number | null }) {
+  const [sellShare, setSellShare] = useState<PoolShareDetail | null>(null);
+
   if (pool.shares.length === 0) {
     return (
       <div className="bg-white rounded-3xl border border-border shadow-sm p-6 text-sm text-muted-foreground text-center">
@@ -430,33 +445,584 @@ function SharesList({ pool }: { pool: PoolDetail }) {
       </div>
     );
   }
+
+  // Доля считается «продаваемой», если оплата подтверждена и нет открытого оффера.
+  const openOfferShareIds = new Set(
+    pool.offers.filter((o) => o.status === "open").map((o) => o.shareId),
+  );
+  const isSaleable = (s: PoolShareDetail) =>
+    meId === s.userId &&
+    (s.paymentStatus === "creator_confirmed" || s.paymentStatus === "escrow_held") &&
+    !openOfferShareIds.has(s.id);
+
   return (
-    <div className="bg-white rounded-3xl border border-border shadow-sm p-6 md:p-8">
-      <h2 className="text-xl font-extrabold mb-4 flex items-center gap-2">
-        <Users className="w-5 h-5 text-primary" /> Совладельцы
-      </h2>
-      <ul className="space-y-2">
-        {pool.shares.map((s) => {
-          const p = PAYMENT_LABEL[s.paymentStatus];
-          const Icon = p?.icon ?? Clock;
-          return (
-            <li
-              key={s.id}
-              className="flex items-center justify-between gap-3 p-3 rounded-xl border border-border hover:border-primary/30 transition-colors"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="font-bold text-sm truncate">{s.userName}</div>
-                <div className="text-xs text-muted-foreground">
-                  {formatPrice(s.amountRub)} · {s.sharePercentage}%
+    <>
+      <div className="bg-white rounded-3xl border border-border shadow-sm p-6 md:p-8">
+        <h2 className="text-xl font-extrabold mb-4 flex items-center gap-2">
+          <Users className="w-5 h-5 text-primary" /> Совладельцы
+        </h2>
+        <ul className="space-y-2">
+          {pool.shares.map((s) => {
+            const p = PAYMENT_LABEL[s.paymentStatus];
+            const Icon = p?.icon ?? Clock;
+            const mine = meId === s.userId;
+            const hasOpenOffer = openOfferShareIds.has(s.id);
+            return (
+              <li
+                key={s.id}
+                className={`flex items-center justify-between gap-3 p-3 rounded-xl border transition-colors ${
+                  mine ? "border-primary/40 bg-primary/5" : "border-border hover:border-primary/30"
+                }`}
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="font-bold text-sm truncate inline-flex items-center gap-2">
+                    {s.userName}
+                    {mine && (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-primary/15 text-primary">
+                        Вы
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {formatPrice(s.amountRub)} · {s.sharePercentage}%
+                  </div>
                 </div>
-              </div>
-              <span className={`shrink-0 inline-flex items-center gap-1 text-xs font-bold px-2 py-1 rounded ${p?.cls ?? "bg-stone-100"}`}>
-                <Icon className="w-3 h-3" /> {p?.label ?? s.paymentStatus}
+                <div className="flex items-center gap-2 shrink-0">
+                  <span
+                    className={`inline-flex items-center gap-1 text-xs font-bold px-2 py-1 rounded ${
+                      p?.cls ?? "bg-stone-100"
+                    }`}
+                  >
+                    <Icon className="w-3 h-3" /> {p?.label ?? s.paymentStatus}
+                  </span>
+                  {isSaleable(s) && (
+                    <button
+                      onClick={() => setSellShare(s)}
+                      className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1.5 rounded-lg bg-primary hover:bg-primary/90 text-white transition-colors"
+                      title="Выставить долю на продажу"
+                    >
+                      <Tag className="w-3 h-3" /> Продать
+                    </button>
+                  )}
+                  {mine && hasOpenOffer && (
+                    <span className="inline-flex items-center gap-1 text-xs font-bold px-2 py-1 rounded bg-amber-100 text-amber-700">
+                      <Tag className="w-3 h-3" /> На продаже
+                    </span>
+                  )}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+
+      {sellShare && (
+        <SellShareModal
+          pool={pool}
+          share={sellShare}
+          onClose={() => setSellShare(null)}
+        />
+      )}
+    </>
+  );
+}
+
+
+// ─── Stage 25: Вторичный рынок долей ──────────────────────────────────────
+
+function MarketplaceBlock({ pool, meId }: { pool: PoolDetail; meId: number | null }) {
+  const offers = pool.offers.filter((o) => o.status === "open");
+  // Прячем блок только если нечего показать совсем (нет офферов И юзер не залогинен).
+  // Если юзер вошёл, но офферов нет — покажем мини-объяснение.
+  if (offers.length === 0 && !meId) return null;
+
+  return (
+    <div className="bg-white rounded-3xl border border-border shadow-sm p-6 md:p-8 mt-6">
+      <div className="flex items-center gap-2 mb-2">
+        <ShoppingCart className="w-5 h-5 text-primary" />
+        <h2 className="text-xl font-extrabold">Рынок долей</h2>
+        {offers.length > 0 && (
+          <span className="text-xs font-bold px-2 py-0.5 rounded-md bg-primary/10 text-primary">
+            {offers.length}
+          </span>
+        )}
+      </div>
+      <p className="text-xs text-muted-foreground mb-4">
+        P2P-обмен между совладельцами. Деньги переводятся напрямую через СБП — платформа выступает реестром прав.
+      </p>
+
+      {offers.length === 0 ? (
+        <div className="text-sm text-muted-foreground py-4 text-center">
+          Пока никто не выставил долю на продажу.
+        </div>
+      ) : (
+        <ul className="space-y-3">
+          {offers.map((o) => (
+            <OfferRow key={o.id} pool={pool} offer={o} meId={meId} />
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function OfferRow({
+  pool,
+  offer,
+  meId,
+}: {
+  pool: PoolDetail;
+  offer: ShareOfferDetail;
+  meId: number | null;
+}) {
+  const [buyOpen, setBuyOpen] = useState(false);
+  const isSeller = meId === offer.sellerId;
+  const isBuyer = meId !== null && meId === offer.buyerId;
+  const reserved = offer.buyerId !== null;
+
+  return (
+    <li className="p-4 rounded-xl border border-border hover:border-primary/30 transition-colors">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="min-w-0 flex-1">
+          <div className="font-bold text-sm truncate">
+            {offer.sellerName}
+            {isSeller && (
+              <span className="ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded bg-primary/15 text-primary">
+                Вы продавец
               </span>
-            </li>
-          );
-        })}
-      </ul>
+            )}
+          </div>
+          <div className="text-xs text-muted-foreground mt-0.5">
+            Доля {offer.sharePercentage}% · номинал {formatPrice(offer.amountRub)}
+          </div>
+        </div>
+        <div className="text-right">
+          <div className="text-2xl font-extrabold text-primary leading-none">
+            {formatPrice(offer.priceRub)}
+          </div>
+          <div className="text-[10px] text-muted-foreground mt-0.5">цена продавца</div>
+        </div>
+      </div>
+
+      {reserved && (
+        <div className="mt-3 inline-flex items-center gap-1.5 text-xs font-bold px-2 py-1 rounded bg-amber-100 text-amber-700">
+          <Clock className="w-3 h-3" /> Зарезервирован покупателем
+        </div>
+      )}
+
+      <div className="flex flex-wrap gap-2 mt-3">
+        {!isSeller && meId && !reserved && (
+          <button
+            onClick={() => setBuyOpen(true)}
+            className="px-4 py-2 bg-primary hover:bg-primary/90 text-white rounded-lg text-xs font-bold inline-flex items-center gap-1.5 transition-colors"
+          >
+            <ShoppingCart className="w-3.5 h-3.5" /> Купить
+          </button>
+        )}
+        {!isSeller && !meId && (
+          <Link
+            href={`/auth?tab=login&redirect=/pools/${pool.id}`}
+            className="px-4 py-2 bg-primary hover:bg-primary/90 text-white rounded-lg text-xs font-bold inline-flex items-center gap-1.5 transition-colors"
+          >
+            <ShoppingCart className="w-3.5 h-3.5" /> Войдите, чтобы купить
+          </Link>
+        )}
+        {isBuyer && (
+          <span className="text-xs text-amber-700 font-bold inline-flex items-center gap-1">
+            <Clock className="w-3 h-3" /> Вы зарезервировали — переведите по СБП и ждите подтверждения продавца
+          </span>
+        )}
+        {isSeller && <SellerOfferActions pool={pool} offer={offer} />}
+      </div>
+
+      {buyOpen && (
+        <BuyOfferModal
+          pool={pool}
+          offer={offer}
+          onClose={() => setBuyOpen(false)}
+        />
+      )}
+    </li>
+  );
+}
+
+function SellerOfferActions({ pool, offer }: { pool: PoolDetail; offer: ShareOfferDetail }) {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const reserved = offer.buyerId !== null;
+
+  const confirmMut = useMutation({
+    mutationFn: () => confirmShareTransfer(pool.id, offer.id),
+    onSuccess: (data) => {
+      toast({
+        title: "Доля передана",
+        description:
+          data.mergeMode === "merge"
+            ? "Покупатель уже был совладельцем — доли объединены."
+            : "Право собственности переписано на покупателя.",
+      });
+      qc.invalidateQueries({ queryKey: ["pool", pool.id] });
+    },
+    onError: (err: any) => {
+      const msg = err?.data?.message || err?.message || "Не удалось подтвердить передачу";
+      toast({ title: "Ошибка", description: msg, variant: "destructive" });
+    },
+  });
+
+  const cancelMut = useMutation({
+    mutationFn: () => cancelShareOffer(pool.id, offer.id),
+    onSuccess: () => {
+      toast({ title: "Оффер отменён" });
+      qc.invalidateQueries({ queryKey: ["pool", pool.id] });
+    },
+    onError: (err: any) => {
+      const msg = err?.data?.message || err?.message || "Не удалось отменить";
+      toast({ title: "Ошибка", description: msg, variant: "destructive" });
+    },
+  });
+
+  if (reserved) {
+    return (
+      <>
+        <button
+          onClick={() => confirmMut.mutate()}
+          disabled={confirmMut.isPending}
+          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold inline-flex items-center gap-1.5 disabled:opacity-50 transition-colors"
+        >
+          {confirmMut.isPending ? (
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          ) : (
+            <Handshake className="w-3.5 h-3.5" />
+          )}
+          Подтвердить получение и передать долю
+        </button>
+        <button
+          onClick={() => {
+            if (confirm("Отменить оффер? Резервация покупателя сбросится.")) cancelMut.mutate();
+          }}
+          disabled={cancelMut.isPending}
+          className="px-3 py-2 bg-stone-100 hover:bg-stone-200 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 disabled:opacity-50 transition-colors"
+        >
+          <X className="w-3.5 h-3.5" /> Отменить
+        </button>
+      </>
+    );
+  }
+
+  return (
+    <button
+      onClick={() => {
+        if (confirm("Снять долю с продажи?")) cancelMut.mutate();
+      }}
+      disabled={cancelMut.isPending}
+      className="px-3 py-2 bg-stone-100 hover:bg-stone-200 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 disabled:opacity-50 transition-colors"
+    >
+      <X className="w-3.5 h-3.5" /> Снять с продажи
+    </button>
+  );
+}
+
+// ── Sell Modal — продавец выставляет долю ─────────────────────────────────
+function SellShareModal({
+  pool,
+  share,
+  onClose,
+}: {
+  pool: PoolDetail;
+  share: PoolShareDetail;
+  onClose: () => void;
+}) {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const settings = usePublicSettings();
+
+  // Stage 26: справедливая цена = остаточная стоимость пула × % доли.
+  // Если listing нет (пул ещё без вещи) — используем номинал.
+  const meter = pool.listing?.wearAndTearMeter ?? 0;
+  const depPercent = settings?.depreciationPerRentalPercent ?? 1;
+  const residualPool = pool.listing
+    ? calculateResidualValue(pool.targetAmountRub, meter, depPercent)
+    : pool.targetAmountRub;
+  const sharePct = Number(share.sharePercentage);
+  const fairPrice = Math.max(0, Math.round((residualPool * sharePct) / 100));
+  const wearPct = pool.listing
+    ? calculateDepreciationPercent(meter, depPercent)
+    : 0;
+
+  const [price, setPrice] = useState(String(fairPrice));
+  const [paymentDetails, setPaymentDetails] = useState("");
+  const [confirmed, setConfirmed] = useState(false);
+
+  const mut = useMutation({
+    mutationFn: () =>
+      createShareOffer(pool.id, share.id, {
+        priceRub: Math.round(Number(price)),
+        sellerPaymentDetails: paymentDetails.trim(),
+      }),
+    onSuccess: () => {
+      toast({
+        title: "Оффер создан",
+        description: "Доля выставлена на вторичный рынок. Покупатели увидят её в блоке «Рынок долей».",
+      });
+      qc.invalidateQueries({ queryKey: ["pool", pool.id] });
+      onClose();
+    },
+    onError: (err: any) => {
+      const msg = err?.data?.message || err?.message || "Не удалось создать оффер";
+      toast({ title: "Ошибка", description: msg, variant: "destructive" });
+    },
+  });
+
+  const priceNum = Number(price);
+  const priceValid = Number.isFinite(priceNum) && priceNum >= 0;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3 mb-1">
+          <h2 className="text-xl font-extrabold">Продать долю</h2>
+          <button
+            onClick={onClose}
+            className="p-1 -mr-1 -mt-1 text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+        <p className="text-sm text-muted-foreground mb-4">
+          Ваша доля {share.sharePercentage}% (номинал {formatPrice(share.amountRub)}). После создания оффера
+          покупатель сможет зарезервировать его и перевести вам деньги через СБП.
+        </p>
+
+        {/* Fair-price hint */}
+        <div className="rounded-xl bg-gradient-to-br from-violet-50 to-stone-50 border border-violet-200 p-4 mb-4">
+          <div className="flex items-start gap-2">
+            <TrendingDown className="w-4 h-4 text-violet-600 shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <div className="text-xs font-bold text-violet-800 mb-1">Справедливая цена</div>
+              <div className="text-2xl font-extrabold text-stone-900 leading-none">
+                {formatPrice(fairPrice)}
+              </div>
+              <div className="text-[11px] text-stone-600 mt-1.5 leading-snug">
+                {pool.listing
+                  ? `Оценочная стоимость пула ${formatPrice(residualPool)} × ${share.sharePercentage}%${
+                      meter > 0 ? ` (износ ${wearPct.toFixed(1)}% после ${meter} аренд)` : ""
+                    }. Можно указать любую цену.`
+                  : `Пул ещё не активирован — расчёт по номиналу. Можно указать любую цену.`}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <label className="block mb-4">
+          <div className="text-sm font-bold mb-1.5">Цена продажи, ₽</div>
+          <input
+            type="number"
+            inputMode="numeric"
+            min={0}
+            value={price}
+            onChange={(e) => setPrice(e.target.value)}
+            className="input w-full"
+          />
+          <button
+            type="button"
+            onClick={() => setPrice(String(fairPrice))}
+            className="text-xs text-primary hover:underline mt-1"
+          >
+            Сбросить к справедливой
+          </button>
+        </label>
+
+        <label className="block mb-4">
+          <div className="text-sm font-bold mb-1.5">Ваши реквизиты для перевода (СБП)</div>
+          <input
+            type="text"
+            value={paymentDetails}
+            onChange={(e) => setPaymentDetails(e.target.value)}
+            className="input w-full"
+            placeholder="+7 999 123-45-67 (Тинькофф)"
+            maxLength={500}
+          />
+          <div className="text-[11px] text-muted-foreground mt-1">
+            Покупатель увидит эти данные после нажатия «Купить».
+          </div>
+        </label>
+
+        <label className="flex items-start gap-2 mb-4 text-sm cursor-pointer">
+          <input
+            type="checkbox"
+            checked={confirmed}
+            onChange={(e) => setConfirmed(e.target.checked)}
+            className="mt-0.5"
+          />
+          <span>
+            Я понимаю: после получения денег я обязан подтвердить передачу — доля автоматически перейдёт
+            покупателю.
+          </span>
+        </label>
+
+        <div className="flex gap-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 py-2.5 bg-stone-100 hover:bg-stone-200 rounded-xl text-sm font-bold transition-colors"
+          >
+            Отмена
+          </button>
+          <button
+            type="button"
+            disabled={
+              !priceValid || !paymentDetails.trim() || !confirmed || mut.isPending
+            }
+            onClick={() => mut.mutate()}
+            className="flex-1 py-2.5 bg-primary hover:bg-primary/90 text-white rounded-xl text-sm font-bold inline-flex items-center justify-center gap-2 disabled:opacity-50 transition-colors"
+          >
+            {mut.isPending ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Tag className="w-4 h-4" />
+            )}
+            Выставить на продажу
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Buy Modal — покупатель резервирует и видит реквизиты ──────────────────
+function BuyOfferModal({
+  pool,
+  offer,
+  onClose,
+}: {
+  pool: PoolDetail;
+  offer: ShareOfferDetail;
+  onClose: () => void;
+}) {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const [reserved, setReserved] = useState<{
+    sellerPaymentDetails: string | null;
+    instructions: string;
+  } | null>(null);
+
+  const mut = useMutation({
+    mutationFn: () => buyShareOffer(pool.id, offer.id),
+    onSuccess: (data) => {
+      setReserved({
+        sellerPaymentDetails: data.sellerPaymentDetails,
+        instructions: data.instructions,
+      });
+      qc.invalidateQueries({ queryKey: ["pool", pool.id] });
+    },
+    onError: (err: any) => {
+      const msg = err?.data?.message || err?.message || "Не удалось зарезервировать";
+      toast({ title: "Ошибка", description: msg, variant: "destructive" });
+    },
+  });
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3 mb-1">
+          <h2 className="text-xl font-extrabold">Купить долю</h2>
+          <button
+            onClick={onClose}
+            className="p-1 -mr-1 -mt-1 text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <p className="text-sm text-muted-foreground mb-4">
+          Доля {offer.sharePercentage}% от пула «{pool.title}», продавец — {offer.sellerName}.
+        </p>
+
+        <div className="rounded-xl bg-primary/5 border border-primary/20 p-4 mb-4">
+          <div className="text-xs font-bold text-primary mb-1">Сумма перевода</div>
+          <div className="text-3xl font-extrabold text-foreground leading-none">
+            {formatPrice(offer.priceRub)}
+          </div>
+        </div>
+
+        {!reserved ? (
+          <>
+            <div className="text-xs text-muted-foreground mb-4 leading-relaxed">
+              Нажмите «Зарезервировать», чтобы заблокировать оффер за вами. После этого
+              получите реквизиты СБП и переведёте деньги напрямую продавцу. Когда продавец
+              подтвердит получение — доля автоматически перейдёт к вам.
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={onClose}
+                className="flex-1 py-2.5 bg-stone-100 hover:bg-stone-200 rounded-xl text-sm font-bold transition-colors"
+              >
+                Отмена
+              </button>
+              <button
+                onClick={() => mut.mutate()}
+                disabled={mut.isPending}
+                className="flex-1 py-2.5 bg-primary hover:bg-primary/90 text-white rounded-xl text-sm font-bold inline-flex items-center justify-center gap-2 disabled:opacity-50 transition-colors"
+              >
+                {mut.isPending ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <ShoppingCart className="w-4 h-4" />
+                )}
+                Зарезервировать
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-4 mb-4">
+              <div className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-800 mb-2">
+                <CheckCircle2 className="w-3.5 h-3.5" /> Оффер зарезервирован за вами
+              </div>
+              <div className="text-xs font-bold text-emerald-900 mb-2 inline-flex items-center gap-1">
+                <ShieldCheck className="w-3 h-3" /> Реквизиты продавца (СБП)
+              </div>
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <code className="text-sm font-bold text-foreground break-all">
+                  {reserved.sellerPaymentDetails || "не указаны"}
+                </code>
+                {reserved.sellerPaymentDetails && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(reserved.sellerPaymentDetails!);
+                      toast({ title: "Скопировано" });
+                    }}
+                    className="shrink-0 p-1.5 rounded-md hover:bg-emerald-100 text-emerald-700 transition-colors"
+                    title="Скопировать"
+                  >
+                    <Copy className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+              <div className="text-[11px] text-emerald-900/70 leading-snug">{reserved.instructions}</div>
+            </div>
+            <button
+              onClick={onClose}
+              className="w-full py-2.5 bg-primary hover:bg-primary/90 text-white rounded-xl text-sm font-bold transition-colors"
+            >
+              Понятно
+            </button>
+          </>
+        )}
+      </div>
     </div>
   );
 }
