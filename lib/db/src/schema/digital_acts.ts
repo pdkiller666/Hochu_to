@@ -55,10 +55,12 @@ export const digitalActsTable = pgTable("digital_acts", {
   bookingTypeUniq: uniqueIndex("digital_acts_booking_type_uniq")
     .on(t.bookingId, t.type)
     .where(sql`booking_id IS NOT NULL`),
-  // Stage 23c: один genesis-акт каждого типа на пул.
+  // Stage 23c: один genesis-акт (check_in) на пул. Stage 26-B: handover-акты
+  // (type='pool_handover') допускаются многократно — это история передачи
+  // вещи между совладельцами. Поэтому условие unique сужено до genesis-типа.
   poolTypeUniq: uniqueIndex("digital_acts_pool_type_uniq")
     .on(t.poolId, t.type)
-    .where(sql`pool_id IS NOT NULL`),
+    .where(sql`pool_id IS NOT NULL AND type = 'check_in'`),
   createdByIdx: index("digital_acts_created_by_idx").on(t.createdByUserId),
   // XOR-инвариант: акт привязан либо к брони, либо к пулу — но не к обоим и не «в воздухе».
   bookingOrPoolXor: check(
@@ -68,7 +70,7 @@ export const digitalActsTable = pgTable("digital_acts", {
 }));
 
 export const insertDigitalActSchema = createInsertSchema(digitalActsTable, {
-  type: z.enum(["check_in", "check_out"]),
+  type: z.enum(["check_in", "check_out", "pool_handover"]),
   photos: z.array(z.string().min(1)).min(4, "Нужно минимум 4 фото"),
   // Stage 22b-followup: либо внешний http(s) URL, либо внутренний /uploads/<uuid>.(mp4|webm|mov|m4v)
   // Финальная валидация форматов делается в роуте (whitelist), здесь — только базовая непустота.

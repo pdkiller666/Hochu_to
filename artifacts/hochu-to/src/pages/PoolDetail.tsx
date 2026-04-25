@@ -11,6 +11,7 @@ import {
   confirmShareTransfer,
   cancelShareOffer,
   listPoolEvents,
+  getSuggestedPrice,
   type PoolDetail,
   type PoolShareDetail,
   type ShareOfferDetail,
@@ -20,7 +21,7 @@ import { formatPrice } from "@/lib/utils";
 import { calculateResidualValue, calculateDepreciationPercent } from "@/lib/pricing";
 import { usePublicSettings } from "@/lib/use-public-settings";
 import { useToast } from "@/hooks/use-toast";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { DigitalActUpload } from "@/components/DigitalActUpload";
 import {
   ArrowLeft,
@@ -449,6 +450,8 @@ function CreatorPendingBlock({ pool }: { pool: PoolDetail }) {
 
 function SharesList({ pool, meId }: { pool: PoolDetail; meId: number | null }) {
   const [sellShare, setSellShare] = useState<PoolShareDetail | null>(null);
+  const [handoverOpen, setHandoverOpen] = useState(false);
+  const [handoverTo, setHandoverTo] = useState<PoolShareDetail | null>(null);
 
   if (pool.shares.length === 0) {
     return (
@@ -526,6 +529,91 @@ function SharesList({ pool, meId }: { pool: PoolDetail; meId: number | null }) {
             );
           })}
         </ul>
+
+        {/* Stage 26-B — Передача физической вещи между совладельцами. */}
+        {pool.listing && (() => {
+          const custId = pool.listing!.custodianId;
+          const meIsCustodian = meId != null && custId === meId;
+          const meIsCoOwner = meId != null && (meId === pool.creatorId || pool.shares.some((x) => x.userId === meId));
+          const custodianShare = pool.shares.find((x) => x.userId === custId);
+          const custodianName = custodianShare?.userName
+            ?? (pool.creator && pool.creator.id === custId
+              ? `${pool.creator.firstName ?? ""} ${pool.creator.lastName ?? ""}`.trim() || "Создатель"
+              : custId ? `Пользователь #${custId}` : "не назначен");
+          // Список потенциальных получателей: все co-owners пула, кроме самого custodian.
+          // Используем paid shares + creator-by-default (если он не присутствует в shares —
+          // creator не может вносить долю в свой пул, см. Stage 23b). Дедуп по userId.
+          const paidShares = pool.shares.filter(
+            (s) => s.paymentStatus === "creator_confirmed" || s.paymentStatus === "escrow_held",
+          );
+          const recipients: { id: number; userId: number; userName: string }[] = paidShares
+            .filter((s) => s.userId !== meId)
+            .map((s) => ({ id: s.id, userId: s.userId, userName: s.userName }));
+          if (
+            pool.creator &&
+            pool.creator.id !== meId &&
+            !recipients.some((r) => r.userId === pool.creator!.id) &&
+            !paidShares.some((s) => s.userId === pool.creator!.id)
+          ) {
+            const creatorName = `${pool.creator.firstName ?? ""} ${pool.creator.lastName ?? ""}`.trim()
+              || `Создатель #${pool.creator.id}`;
+            recipients.unshift({ id: -pool.creator.id, userId: pool.creator.id, userName: creatorName });
+          }
+          const others = recipients;
+
+          if (meIsCustodian) {
+            return (
+              <div className="mt-4 rounded-2xl border-2 border-emerald-200 bg-emerald-50/60 p-4">
+                <div className="flex items-start gap-2">
+                  <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <div className="font-bold text-sm text-emerald-900">Вы — Хранитель этой вещи</div>
+                    <div className="text-xs text-emerald-800 mt-0.5">
+                      Когда передаёте вещь следующему совладельцу — оформите Цифровой акт. Это защитит обе стороны при споре.
+                    </div>
+                    {others.length === 0 ? (
+                      <div className="text-[11px] text-emerald-700 mt-2">
+                        Других совладельцев пока нет — передавать некому.
+                      </div>
+                    ) : (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {others.map((s) => (
+                          <button
+                            key={s.id}
+                            onClick={() => { setHandoverTo(s); setHandoverOpen(true); }}
+                            className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition-colors"
+                            title={`Передать вещь пользователю ${s.userName}`}
+                          >
+                            <ArrowRightLeft className="w-3.5 h-3.5" />
+                            Передать → {s.userName}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          }
+          if (meIsCoOwner) {
+            return (
+              <div className="mt-4 rounded-2xl border border-stone-200 bg-stone-50 p-4">
+                <div className="flex items-start gap-2">
+                  <Handshake className="w-5 h-5 text-stone-500 shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <div className="font-bold text-sm text-stone-800">
+                      Хранитель сейчас: {custodianName}
+                    </div>
+                    <div className="text-xs text-stone-600 mt-0.5">
+                      Чтобы принять вещь от Хранителя, попросите его оформить Цифровой акт передачи в этом пуле — после этого вы автоматически станете новым Хранителем.
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          }
+          return null;
+        })()}
       </div>
 
       {sellShare && (
@@ -533,6 +621,25 @@ function SharesList({ pool, meId }: { pool: PoolDetail; meId: number | null }) {
           pool={pool}
           share={sellShare}
           onClose={() => setSellShare(null)}
+        />
+      )}
+
+      {/* Stage 26-B — handover act upload */}
+      {handoverOpen && handoverTo && (
+        <DigitalActUpload
+          poolId={pool.id}
+          type="pool_handover"
+          toUserId={handoverTo.userId}
+          toUserName={handoverTo.userName}
+          onClose={() => { setHandoverOpen(false); setHandoverTo(null); }}
+          onSuccess={() => {
+            setHandoverOpen(false);
+            setHandoverTo(null);
+            // Force-refresh pool & events: custodianId изменился.
+            // queryClient захватываем через top-level hook, но тут он не нужен —
+            // PoolDetail-страница сама invalidate'нет через wrapper.
+            window.location.reload();
+          }}
         />
       )}
     </>
@@ -758,14 +865,36 @@ function SellShareModal({
     ? calculateResidualValue(pool.targetAmountRub, meter, depPercent)
     : pool.targetAmountRub;
   const sharePct = Number(share.sharePercentage);
-  const fairPrice = Math.max(0, Math.round((residualPool * sharePct) / 100));
-  const wearPct = pool.listing
+  const clientFairPrice = Math.max(0, Math.round((residualPool * sharePct) / 100));
+  const clientWearPct = pool.listing
     ? calculateDepreciationPercent(meter, depPercent)
     : 0;
+
+  // Stage 26-B: server is the single source of truth для остаточной цены.
+  // Если запрос успешен — используем `suggestedRub`, иначе fallback на client-side.
+  // staleTime: 30s — admin может поменять % амортизации; не хочется кэшировать вечность.
+  const sp = useQuery({
+    queryKey: ["suggested-price", pool.id, share.id],
+    queryFn: () => getSuggestedPrice(pool.id, share.id),
+    staleTime: 30_000,
+    retry: 1,
+  });
+  const fairPrice = sp.data?.suggestedRub ?? clientFairPrice;
+  const wearPct = sp.data?.depreciationPercent ?? clientWearPct;
+  const sourceLabel = sp.data ? "сервер" : sp.isError ? "офлайн-расчёт" : "загрузка…";
 
   const [price, setPrice] = useState(String(fairPrice));
   const [paymentDetails, setPaymentDetails] = useState("");
   const [confirmed, setConfirmed] = useState(false);
+  const [priceTouched, setPriceTouched] = useState(false);
+
+  // Stage 26-B: когда суф. цена с сервера приехала, обновляем поле — но
+  // только если пользователь его ещё не правил вручную (UX: не перезатирать).
+  useEffect(() => {
+    if (!priceTouched && sp.data?.suggestedRub != null) {
+      setPrice(String(sp.data.suggestedRub));
+    }
+  }, [sp.data?.suggestedRub, priceTouched]);
 
   const mut = useMutation({
     mutationFn: () =>
@@ -829,6 +958,7 @@ function SellShareModal({
                       meter > 0 ? ` (износ ${wearPct.toFixed(1)}% после ${meter} аренд)` : ""
                     }. Можно указать любую цену.`
                   : `Пул ещё не активирован — расчёт по номиналу. Можно указать любую цену.`}
+                <span className="block text-[10px] text-stone-400 mt-1">источник: {sourceLabel}</span>
               </div>
             </div>
           </div>
@@ -841,12 +971,12 @@ function SellShareModal({
             inputMode="numeric"
             min={0}
             value={price}
-            onChange={(e) => setPrice(e.target.value)}
+            onChange={(e) => { setPrice(e.target.value); setPriceTouched(true); }}
             className="input w-full"
           />
           <button
             type="button"
-            onClick={() => setPrice(String(fairPrice))}
+            onClick={() => { setPrice(String(fairPrice)); setPriceTouched(false); }}
             className="text-xs text-primary hover:underline mt-1"
           >
             Сбросить к справедливой

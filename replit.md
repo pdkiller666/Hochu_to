@@ -671,9 +671,69 @@ Frontend (`/pools`, `/pools/create`, `/pools/:id`):
 5. **Try/catch для post-commit side effects в bookings.ts PUT** — `recordEvent` и блок `createNotification` обёрнуты в отдельные try/catch. Транзакция уже зафиксирована, статус и счётчики консистентны; падение audit/notif (например, БД временно недоступна) не должно приводить к 5xx — иначе клиент сделает ложный retry, а второй PUT упадёт в `invalid_transition` из-за TOCTOU guard. Логируем через `console.error`, отвечаем 200.
 
 **Что НЕ сделано (Stage 27+):**
-- ~~Применение остаточной стоимости в цене доли на вторичном рынке (`share_offers`).~~ — **закрыто Stage 25** (фронт-расчёт справедливой цены в Sell Modal).
-- Серверное зеркало `calculateResidualValue` (когда понадобится для API-расчётов).
+- ~~Применение остаточной стоимости в цене доли на вторичном рынке (`share_offers`).~~ — **закрыто Stage 26-B** (server endpoint + автозаполнение в SellShareModal).
+- ~~Серверное зеркало `calculateResidualValue` (когда понадобится для API-расчётов).~~ — **закрыто Stage 26-B** (`GET /api/pools/:id/shares/:shareId/suggested-price`).
 - Декремент wear meter при «капитальном ремонте» / claims из фонда обслуживания.
+
+## Stage 26-B — Co-Sharing Final Polish (Vector A) (25.04.2026)
+
+Три точечных полишинга, которые превращают co-sharing из "схема в БД" в работающий продуктовый цикл: остаточная цена доли, фонд обслуживания и физическая передача вещи между совладельцами.
+
+### 1. Остаточная цена доли — single source of truth (server)
+
+**Backend (`artifacts/api-server/src/routes/pools.ts`):** новый endpoint `GET /api/pools/:id/shares/:shareId/suggested-price` — возвращает `{poolId, shareId, shareInitialRub, sharePct, wearAndTearMeter, depreciationPerRentalPercent, depreciationPercent, residualRatio, suggestedRub, currency: "RUB"}`. Формула: `residual = initial × (1 − meter × pct/100)` с floor 10%, затем `share% × residual`. Источник правды теперь сервер, а не клиент — иначе фронт мог бы тихо «обмануть» себя при изменении формулы. Возвращает 400 `bad_request` для невалидных id, 404 `share_not_found`, 422 `pool_not_active` если у пула нет привязанного listing (не из чего считать residual).
+
+**Frontend API (`artifacts/hochu-to/src/lib/api-pools.ts`):** `getSuggestedPrice(poolId, shareId)` — простой fetcher.
+
+**SellShareModal (`PoolDetail.tsx`):** при открытии — useEffect синхронизирует suggested-price от сервера в input «Цена в рублях». Если пользователь вручную правил поле (`priceTouched=true`) — не перезаписываем. Fallback на client-side `pricing.calculateResidualValue` при сетевой ошибке. UI-источник показывается как «офлайн-расчёт» / «загрузка…» под полем цены, чтобы пользователь понимал, что число посчитано, а не угадано.
+
+### 2. Maintenance fund accrual при completed-броне совладельца
+
+**Backend (`artifacts/api-server/src/routes/bookings.ts`):** в PUT `/api/bookings/:id` (transition → `completed`) — re-derive `isCoOwner` ПЕРЕД входом в транзакцию (через `listing.poolId` + `pool_shares.payment_status IN ('creator_confirmed','escrow_held')` для renter). Внутри tx (рядом с `wearAndTearMeter +1`) добавлен `UPDATE pools SET maintenance_fund_balance = maintenance_fund_balance + serviceFeeRub WHERE id = listing.poolId`. Атомарно с counter-обновлениями: если падает CHECK на `maintenance_fund_balance >= 0` (защита от отрицательных значений) — откатывается весь блок completed.
+
+**Audit (post-commit):** `recordAuditEvent({entityType: "pool", entityId: listing.poolId, eventType: "fund_accrued", actorId: req.userId, metadata: {bookingId, serviceFeeRub, listingId}})` — намеренно ВНЕ tx (best-effort observability, не financial-ledger). Выпадение audit при temp DB-сбое не должно ронять финансовую операцию.
+
+**Импорты:** `poolsTable` (из `@workspace/db`) + `recordAuditEvent` (из `lib/audit-events.js`) добавлены в headers `bookings.ts` — без них эта ветка падала бы с runtime ReferenceError при первом completed-broning.
+
+### 3. Цифровой акт передачи (`pool_handover`) + смена custodian + UI
+
+**Schema (`lib/db/src/schema/digital_acts.ts`):**
+- Расширен Zod-enum типов `digital_act_type`: `check_in | check_out | pool_handover`.
+- Partial unique `digital_acts_pool_type_uniq` сужен с `WHERE pool_id IS NOT NULL` до `WHERE pool_id IS NOT NULL AND type = 'check_in'`. Иначе вторая «передача» (handover #2) того же пула роняла бы unique violation, потому что `(pool_id, 'pool_handover')` повторяется при каждой смене custodian. Только genesis-акт `check_in` уникален по пулу.
+
+**Production migration (`lib/db/migrate-prod.mjs`):** добавлен идемпотентный SQL `DROP INDEX IF EXISTS digital_acts_pool_type_uniq; CREATE UNIQUE INDEX ... WHERE pool_id IS NOT NULL AND type = 'check_in'`. Drizzle-kit push не пересоздаёт WHERE-условие partial unique автоматически — только этот явный DROP+CREATE гарантирует, что production-БД получит правильное условие.
+
+**Backend (`artifacts/api-server/src/routes/digital_acts.ts`):** новый endpoint `POST /api/pools/:poolId/handovers`. Внутри одной `db.transaction`:
+1. Загружаем `pool` + `listing` (по `pool.id`). Если listing нет → 422 `no_listing`.
+2. **TOCTOU-guard:** проверяем `listing.custodian_id === req.userId` (только current custodian оформляет передачу — это безопаснее, чем receiver-инициатива, потому что у sender в руках вещь).
+3. **Self-handover:** `toUserId === req.userId` → 400 `self_handover`.
+4. **Receiver — co-owner с paid share:** проверяем `pool.creator_id === toUserId` (creator-by-default) ИЛИ есть `pool_shares` с `payment_status IN ('creator_confirmed','escrow_held')`. Иначе 400 `receiver_not_co_owner`.
+5. INSERT `digital_acts` с `type='pool_handover'`, `pool_id`, `metadata={fromUserId, toUserId, signature, ...}`, `photos[≥4]`.
+6. **Atomic UPDATE:** `UPDATE listings SET custodian_id = toUserId WHERE id = listing.id AND custodian_id = req.userId` (TOCTOU re-check — если за время транзакции custodian уже сменился, returning будет пустой → откат).
+
+**Audit (post-commit):** `custodian_changed` (entityType=`pool`, entityId=poolId, metadata={fromUserId, toUserId, listingId, actId}).
+
+**Notification:** новый тип `pool_custodian_received` в `lib/notifications.ts` — отправляется новому custodian: «Вещь передана вам — {listing.title}. {fromUser.name} оформил Цифровой акт передачи. Теперь вы — Хранитель этой вещи.»
+
+**Frontend API (`api-pools.ts`):** `handoverPool(poolId, body)`, расширен `PoolEventType` для `custodian_changed`.
+
+**DigitalActUpload (`components/DigitalActUpload.tsx`):** поддержка `mode: "booking" | "pool_handover"` с props `toUserId / toUserName` для последнего. Динамический endpoint (`/api/bookings/:id/digital-acts` vs `/api/pools/:poolId/handovers`) и body-shape, остальная логика (фото≥4, подпись, EXIF, валидация) переиспользуется. UI-копирайтинг адаптивный: «Подписать акт передачи → {toUserName}».
+
+**PoolDetail.tsx — handover-блок в SharesList:**
+- **Если ты — current custodian** (`listing.custodianId === me.id`): emerald-карточка «Вы — Хранитель» + кнопки «Передать → {userName}» для каждого co-owner. Список получателей = paid shares (без меня) ∪ creator-by-default (если creator не в shares и не я). Дедупликация по userId. Без paid shares и creator → «Других совладельцев пока нет — передавать некому».
+- **Если ты — co-owner, но не custodian:** stone-карточка «Хранитель сейчас: {custodianName}. Чтобы принять вещь, попросите его оформить Цифровой акт передачи.»
+- **Не co-owner и не custodian:** блок не показывается.
+
+### Smoke (live, port 8080)
+- `GET /api/pools/15/shares/13/suggested-price` → `{suggestedRub: 30000, sharePct: 100, residualRatio: 1}` ✓
+- `404 share_not_found` для неизвестного share_id ✓
+- `400 bad_request` для `pool_id=0` ✓
+- `POST /pools/15/handovers` без auth → 401 ✓
+- `self_handover` (alexey→alexey) → 400 ✓
+- `not_current_custodian` (maria без прав) → 403 с `currentCustodianId=13` ✓
+- `receiver_not_co_owner` → 400 ✓
+- e2e #1 alexey→maria: создан `digital_act #16 pool_handover`, `listings.custodian_id 13→14`, audit `custodian_changed#10`, notification `pool_custodian_received` доставлена ✓
+- e2e #2 maria→alexey (повторная передача): создан `digital_act #18 pool_handover`, `listings.custodian_id 14→13`, audit `custodian_changed#11` ✓ (это и был тест на partial unique — без `type='check_in'` сужения вторая запись падала с `internal_error`).
 
 ## Stage 25 — Вторичный рынок долей (P2P beta) (25.04.2026)
 

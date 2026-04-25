@@ -1,11 +1,12 @@
 import { Router } from "express";
-import { db, bookingsTable, listingsTable, usersTable, bookingEventsTable, bookingMessagesTable, digitalActsTable, poolSharesTable } from "@workspace/db";
+import { db, bookingsTable, listingsTable, usersTable, bookingEventsTable, bookingMessagesTable, digitalActsTable, poolSharesTable, poolsTable } from "@workspace/db";
 import { eq, or, and, sql, ne, asc, desc, inArray } from "drizzle-orm";
 import { requireAuth, AuthRequest } from "../middleware/auth.js";
 import { CreateBookingBody } from "@workspace/api-zod";
 import { createNotification } from "../lib/notifications.js";
 import { getPlatformSettings, num } from "../lib/platform-settings.js";
 import { applyBookingCountDelta, bookingCountDelta, bookingCounts } from "../lib/listing-counters.js";
+import { recordAuditEvent } from "../lib/audit-events.js";
 
 const router = Router();
 
@@ -644,6 +645,23 @@ router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
     }
   }
 
+  // Stage 26-B (Co-Sharing Final Polish): pre-derive признак "co-owner-броня".
+  // Если эта бронь оформлена совладельцем пула, при completed мы пополним
+  // pools.maintenance_fund_balance на сумму serviceFee (это фиксированная
+  // co-owner-такса coOwnerDailyFeeRub × days, см. Stage 23c). Re-derive — в
+  // том же запросе, что и `coOwner` в POST, но обойтись им мы не можем,
+  // потому что PUT — отдельный handler.
+  // ВАЖНО: расчёт ДО транзакции, чтобы не ходить в БД из критической секции.
+  const [listingForCoOwner] = await db
+    .select({ poolId: listingsTable.poolId })
+    .from(listingsTable)
+    .where(eq(listingsTable.id, booking.listingId))
+    .limit(1);
+  const isCoOwnerBooking = status === "completed"
+    && !!listingForCoOwner?.poolId
+    && (await isCoOwner(booking.renterId, { poolId: listingForCoOwner.poolId }));
+  const fundDelta = isCoOwnerBooking ? Number(booking.serviceFee ?? 0) : 0;
+
   // Stage 19e + Stage 26: атомарный переход — UPDATE WHERE id=... AND status=fromStatus.
   // Если параллельный запрос уже сменил статус, RETURNING вернёт 0 строк, мы
   // откатываем транзакцию (через `return null`) и отдаём 409, не применяя
@@ -656,6 +674,9 @@ router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
   // (например, CHECK (0..10000) на wear meter) booking уже был помечен completed,
   // и состояние desync-ало. Notifications/audit намеренно ВНЕ транзакции — они
   // идут после commit и не должны блокировать критический flow.
+  //
+  // Stage 26-B: + pools.maintenance_fund_balance += booking.serviceFee
+  // (только для co-owner-броней пула — см. fundDelta выше).
   const updated = await db.transaction(async (tx) => {
     const [u] = await tx.update(bookingsTable).set({
       status,
@@ -681,6 +702,14 @@ router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
         tx.update(listingsTable)
           .set({ wearAndTearMeter: sql`${listingsTable.wearAndTearMeter} + 1` })
           .where(eq(listingsTable.id, booking.listingId)),
+        // Stage 26-B: пополнение фонда пула — только при isCoOwnerBooking.
+        // Условный вызов оборачиваем в Promise, чтобы Promise.all всегда
+        // получал валидный thenable.
+        ...(fundDelta > 0 && listingForCoOwner?.poolId
+          ? [tx.update(poolsTable)
+              .set({ maintenanceFundBalance: sql`${poolsTable.maintenanceFundBalance} + ${fundDelta.toFixed(2)}` })
+              .where(eq(poolsTable.id, listingForCoOwner.poolId))]
+          : []),
       ]);
     }
     return u;
@@ -722,6 +751,24 @@ router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
     });
   } catch (err) {
     console.error("[bookings PUT] post-commit recordEvent failed", { bookingId: updated.id, err });
+  }
+
+  // Stage 26-B: audit-event 'fund_accrued' для прозрачности — кто, сколько,
+  // в какой пул. Best-effort, не блокирует ответ.
+  if (fundDelta > 0 && listingForCoOwner?.poolId) {
+    void recordAuditEvent({
+      entityType: "pool",
+      entityId: listingForCoOwner.poolId,
+      actorId: req.userId!,
+      eventType: "fund_accrued",
+      metadata: {
+        bookingId: updated.id,
+        bookingNumber,
+        renterId: updated.renterId,
+        amountRub: fundDelta,
+        source: "co_owner_booking_completed",
+      },
+    });
   }
 
   // Notifications (best-effort, не должны блокировать ответ при сбое БД)

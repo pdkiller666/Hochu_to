@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { eq, desc, sql, and, asc } from "drizzle-orm";
+import { eq, desc, sql, and, asc, inArray } from "drizzle-orm";
 import {
   db,
   digitalActsTable,
@@ -9,11 +9,14 @@ import {
   listingsTable,
   categoriesTable,
   regionsTable,
+  usersTable,
   insertDigitalActSchema,
   type DigitalActType,
 } from "@workspace/db";
 import { requireAuth, type AuthRequest } from "../middleware/auth.js";
 import { logger } from "../lib/logger.js";
+import { recordAuditEvent } from "../lib/audit-events.js";
+import { createNotification } from "../lib/notifications.js";
 
 const router = Router();
 
@@ -411,6 +414,259 @@ router.post("/pools/:poolId/digital-acts", requireAuth, async (req: AuthRequest,
       return;
     }
     logger.error({ err: e, poolId }, "POST /pools/:poolId/digital-acts failed");
+    res.status(500).json({ error: "internal_error" });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Stage 26-B — Pool Custodian Handover (передача физической вещи между совладельцами)
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// POST /api/pools/:poolId/handovers
+//
+// Когда вещь физически передаётся от одного совладельца к другому, создаётся
+// акт `digital_acts(type='pool_handover')` с фото/подписью/GPS, и в ОДНОЙ
+// транзакции `listings.custodian_id` атомарно меняется на нового хранителя.
+//
+// Контекст:
+//   - Genesis-акт пула (POST /pools/:poolId/digital-acts) — это check_in,
+//     создаётся ОДИН РАЗ при активации (см. partial UNIQUE на schema).
+//   - Handover-акты — многократные, история передач. Уникальности нет.
+//
+// Авторизация:
+//   - Создаёт акт ТЕКУЩИЙ хранитель (senderId = listing.custodianId).
+//   - В body передаётся `toUserId` — он обязан быть co-owner этого пула
+//     (есть строка в pool_shares с paymentStatus IN ('creator_confirmed', 'escrow_held')).
+//
+// Атомарность:
+//   - INSERT digital_acts + UPDATE listings.custodian_id (с TOCTOU-guard
+//     custodian_id = senderId) — в одной transaction.
+//
+router.post("/pools/:poolId/handovers", requireAuth, async (req: AuthRequest, res) => {
+  const poolId = Number.parseInt(req.params.poolId as string, 10);
+  if (!Number.isFinite(poolId) || poolId <= 0) {
+    res.status(400).json({ error: "bad_request", message: "Некорректный poolId" });
+    return;
+  }
+
+  const toUserIdRaw = req.body?.toUserId;
+  const toUserId = Number.parseInt(toUserIdRaw, 10);
+  if (!Number.isFinite(toUserId) || toUserId <= 0) {
+    res.status(400).json({ error: "bad_request", message: "Не указан получатель (toUserId)" });
+    return;
+  }
+  if (toUserId === req.userId!) {
+    res.status(400).json({ error: "self_handover", message: "Нельзя передать вещь самому себе" });
+    return;
+  }
+
+  const parsed = insertDigitalActSchema.safeParse({
+    poolId,
+    type: "pool_handover",
+    photos: req.body?.photos,
+    videoUrl: req.body?.videoUrl ?? null,
+    metadata: { ...(req.body?.metadata ?? {}), toUserId, fromUserId: req.userId! },
+    createdByUserId: req.userId!,
+  });
+  if (!parsed.success) {
+    res.status(400).json({
+      error: "validation_failed",
+      message: parsed.error.issues[0]?.message ?? "Некорректные данные",
+      issues: parsed.error.issues,
+    });
+    return;
+  }
+
+  // Те же hardening-проверки, что в booking-актах: photos / video / signature.
+  const SAFE_UPLOAD_RE = /^\/uploads\/[A-Za-z0-9._-]+\.(jpe?g|png|webp|heic|heif)$/i;
+  const badPhoto = parsed.data.photos.find((p: string) => !SAFE_UPLOAD_RE.test(p));
+  if (badPhoto) {
+    res.status(400).json({
+      error: "invalid_photo_url",
+      message: `Фото должно быть загружено через нашу загрузку (/uploads/...): ${badPhoto}`,
+    });
+    return;
+  }
+  const SAFE_UPLOAD_VIDEO_RE = /^\/uploads\/[A-Za-z0-9._-]+\.(mp4|webm|mov|m4v)$/i;
+  const rawVideo = parsed.data.videoUrl;
+  if (rawVideo) {
+    const isInternal = SAFE_UPLOAD_VIDEO_RE.test(rawVideo);
+    let isExternal = false;
+    try {
+      const u = new URL(rawVideo);
+      isExternal = u.protocol === "https:" || u.protocol === "http:";
+    } catch {
+      isExternal = false;
+    }
+    if (!isInternal && !isExternal) {
+      res.status(400).json({
+        error: "invalid_video_url",
+        message: "Видео должно быть загружено через нашу загрузку (/uploads/...) или быть полной ссылкой http(s)://...",
+      });
+      return;
+    }
+  }
+  const sig = validateSignature((parsed.data.metadata as any)?.signature);
+  if (!sig.ok) {
+    res.status(400).json({ error: "signature_required", message: sig.message });
+    return;
+  }
+
+  try {
+    const result = await db.transaction(async (tx) => {
+      // 1) Pool exists, status='active'.
+      const [pool] = await tx.select().from(poolsTable).where(eq(poolsTable.id, poolId)).limit(1);
+      if (!pool) return { kind: "not_found" as const };
+      if (pool.status !== "active") {
+        return { kind: "wrong_pool_status" as const, current: pool.status };
+      }
+
+      // 2) Linked listing exists и его custodian = current user (sender).
+      const [listing] = await tx
+        .select({ id: listingsTable.id, custodianId: listingsTable.custodianId, title: listingsTable.title })
+        .from(listingsTable)
+        .where(eq(listingsTable.poolId, poolId))
+        .limit(1);
+      if (!listing) return { kind: "no_listing" as const };
+      if (listing.custodianId !== req.userId!) {
+        return { kind: "not_custodian" as const, current: listing.custodianId };
+      }
+
+      // 3) Receiver — co-owner с оплаченной долей (creator_confirmed | escrow_held).
+      // Creator пула считается «совладельцем по умолчанию» даже без записи в
+      // pool_shares (см. логику Stage 23b — он не может вносить долю в свой пул).
+      const isReceiverCreator = pool.creatorId === toUserId;
+      let receiverHasShare = isReceiverCreator;
+      if (!receiverHasShare) {
+        const [share] = await tx
+          .select({ id: poolSharesTable.id })
+          .from(poolSharesTable)
+          .where(and(
+            eq(poolSharesTable.poolId, poolId),
+            eq(poolSharesTable.userId, toUserId),
+            inArray(poolSharesTable.paymentStatus, ["creator_confirmed", "escrow_held"]),
+          ))
+          .limit(1);
+        receiverHasShare = !!share;
+      }
+      if (!receiverHasShare) {
+        return { kind: "receiver_not_co_owner" as const };
+      }
+
+      // 4) Insert handover-акт.
+      const [act] = await tx
+        .insert(digitalActsTable)
+        .values({
+          bookingId: null,
+          poolId,
+          type: "pool_handover",
+          photos: parsed.data.photos,
+          videoUrl: parsed.data.videoUrl ?? null,
+          metadata: parsed.data.metadata ?? null,
+          createdByUserId: req.userId!,
+        })
+        .returning();
+
+      // 5) Атомарная смена custodian с TOCTOU-guard (custodian_id = senderId).
+      const updRows = await tx
+        .update(listingsTable)
+        .set({ custodianId: toUserId })
+        .where(and(eq(listingsTable.id, listing.id), eq(listingsTable.custodianId, req.userId!)))
+        .returning({ id: listingsTable.id, custodianId: listingsTable.custodianId });
+      if (updRows.length === 0) {
+        // Кто-то параллельно сменил custodian — откатываемся.
+        throw new Error("custodian_race");
+      }
+
+      return {
+        kind: "ok" as const,
+        act,
+        listingId: listing.id,
+        listingTitle: listing.title,
+        fromUserId: req.userId!,
+        toUserId,
+        poolTitle: pool.title,
+      };
+    });
+
+    if (result.kind === "not_found") {
+      res.status(404).json({ error: "pool_not_found" });
+      return;
+    }
+    if (result.kind === "wrong_pool_status") {
+      res.status(409).json({
+        error: "pool_not_active",
+        message: `Передача возможна только для активированного пула (сейчас: ${result.current})`,
+      });
+      return;
+    }
+    if (result.kind === "no_listing") {
+      res.status(409).json({ error: "no_listing", message: "У пула пока нет связанной вещи" });
+      return;
+    }
+    if (result.kind === "not_custodian") {
+      res.status(403).json({
+        error: "not_current_custodian",
+        message: "Передавать вещь может только текущий Хранитель",
+        currentCustodianId: result.current,
+      });
+      return;
+    }
+    if (result.kind === "receiver_not_co_owner") {
+      res.status(400).json({
+        error: "receiver_not_co_owner",
+        message: "Получатель должен быть совладельцем этого пула с оплаченной долей",
+      });
+      return;
+    }
+
+    res.status(201).json({
+      act: result.act,
+      listingId: result.listingId,
+      fromUserId: result.fromUserId,
+      toUserId: result.toUserId,
+      message: "Передача зафиксирована. Хранитель обновлён.",
+    });
+
+    // Stage 27 — audit + notification (best-effort, после commit).
+    void recordAuditEvent({
+      entityType: "pool",
+      entityId: poolId,
+      actorId: req.userId!,
+      eventType: "custodian_changed",
+      metadata: {
+        listingId: result.listingId,
+        fromUserId: result.fromUserId,
+        toUserId: result.toUserId,
+        actId: result.act.id,
+      },
+    });
+    try {
+      const [sender] = await db
+        .select({ name: usersTable.name })
+        .from(usersTable)
+        .where(eq(usersTable.id, req.userId!))
+        .limit(1);
+      const who = (sender?.name ?? "").trim() || `Пользователь #${req.userId}`;
+      await createNotification({
+        userId: result.toUserId,
+        type: "pool_custodian_received",
+        title: `Вещь передана вам — «${result.poolTitle}»`,
+        message: `${who} оформил Цифровой акт передачи. Теперь вы — Хранитель этой вещи.`,
+        listingTitle: result.poolTitle,
+      });
+    } catch (err) {
+      logger.error({ err, poolId }, "[handover] notify receiver failed");
+    }
+  } catch (e: any) {
+    if (e?.message === "custodian_race") {
+      res.status(409).json({
+        error: "custodian_race",
+        message: "Хранитель уже изменён в другом запросе — обновите страницу.",
+      });
+      return;
+    }
+    logger.error({ err: e, poolId }, "POST /pools/:poolId/handovers failed");
     res.status(500).json({ error: "internal_error" });
   }
 });

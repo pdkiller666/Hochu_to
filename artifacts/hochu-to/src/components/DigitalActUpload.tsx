@@ -10,7 +10,7 @@ const MIN_PHOTOS = 4;
 const MAX_PHOTOS = 10;
 const MAX_VIDEO_BYTES = 100 * 1024 * 1024; // 100 МБ — синхронно с бэком
 
-export type DigitalActKind = "check_in" | "check_out";
+export type DigitalActKind = "check_in" | "check_out" | "pool_handover";
 
 interface UploadedPhoto {
   url: string;
@@ -20,9 +20,13 @@ interface UploadedPhoto {
 interface Props {
   /** Один из двух обязателен: акт привязывается либо к booking, либо к пулу. */
   bookingId?: number;
-  /** Stage 23c — для Genesis-акта пула (Шаг 2 совместной покупки). */
+  /** Stage 23c — для Genesis-акта пула; Stage 26-B — для handover-акта между совладельцами. */
   poolId?: number;
   type: DigitalActKind;
+  /** Stage 26-B — обязателен для type='pool_handover': кому передаём вещь. */
+  toUserId?: number;
+  /** Stage 26-B — отображаемое имя получателя (только для UI handover). */
+  toUserName?: string;
   onClose: () => void;
   onSuccess: () => void;
 }
@@ -37,13 +41,23 @@ interface Props {
  * EXIF может быть удалён при экспорте из мессенджеров — graceful fallback
  * (фото примем без GPS, но в админке это будет видно).
  */
-export function DigitalActUpload({ bookingId, poolId, type, onClose, onSuccess }: Props) {
+export function DigitalActUpload({ bookingId, poolId, type, toUserId, toUserName, onClose, onSuccess }: Props) {
   if ((bookingId == null) === (poolId == null)) {
     throw new Error("DigitalActUpload: укажите ровно один из bookingId / poolId");
   }
-  const endpoint = bookingId != null
-    ? `/api/bookings/${bookingId}/digital-acts`
-    : `/api/pools/${poolId}/digital-acts`;
+  if (type === "pool_handover") {
+    if (poolId == null) {
+      throw new Error("DigitalActUpload: для type='pool_handover' нужен poolId");
+    }
+    if (toUserId == null) {
+      throw new Error("DigitalActUpload: для type='pool_handover' нужен toUserId");
+    }
+  }
+  const endpoint = type === "pool_handover"
+    ? `/api/pools/${poolId}/handovers`
+    : bookingId != null
+      ? `/api/bookings/${bookingId}/digital-acts`
+      : `/api/pools/${poolId}/digital-acts`;
   const [photos, setPhotos] = useState<UploadedPhoto[]>([]);
   const [videoUrl, setVideoUrl] = useState("");
   /** true если ссылка видео указывает на наш /uploads/<uuid>.<ext> — отрисуем превью <video>. */
@@ -56,10 +70,18 @@ export function DigitalActUpload({ bookingId, poolId, type, onClose, onSuccess }
   const videoInputRef = useRef<HTMLInputElement>(null);
   const signatureRef = useRef<SignaturePadHandle>(null);
 
-  const title = type === "check_in" ? "Цифровой акт приёмки" : "Цифровой акт возврата";
+  const title = type === "check_in"
+    ? "Цифровой акт приёмки"
+    : type === "check_out"
+      ? "Цифровой акт возврата"
+      : "Передача вещи Хранителю";
   const subtitle = type === "check_in"
     ? "Сфотографируйте вещь до начала аренды (4+ ракурса). Это защитит вас при споре."
-    : "Зафиксируйте состояние вещи в момент возврата.";
+    : type === "check_out"
+      ? "Зафиксируйте состояние вещи в момент возврата."
+      : `Сфотографируйте вещь в момент передачи${
+          toUserName ? ` пользователю ${toUserName}` : ""
+        } (4+ ракурса). После сохранения ${toUserName ?? "получатель"} станет новым Хранителем.`;
 
   async function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
@@ -173,15 +195,26 @@ export function DigitalActUpload({ bookingId, poolId, type, onClose, onSuccess }
         signature,
       };
 
+      // Stage 26-B: handover-endpoint принимает toUserId, type подразумевается.
+      // Прочие endpoints (booking-acts, pool-genesis) — принимают type явно.
+      const body = type === "pool_handover"
+        ? {
+            toUserId,
+            photos: photos.map(p => p.url),
+            videoUrl: videoUrl.trim() || null,
+            metadata,
+          }
+        : {
+            type,
+            photos: photos.map(p => p.url),
+            videoUrl: videoUrl.trim() || null,
+            metadata,
+          };
+
       const r = await fetch(`${API_BASE}${endpoint}`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
-        body: JSON.stringify({
-          type,
-          photos: photos.map(p => p.url),
-          videoUrl: videoUrl.trim() || null,
-          metadata,
-        }),
+        body: JSON.stringify(body),
       });
 
       if (!r.ok) {

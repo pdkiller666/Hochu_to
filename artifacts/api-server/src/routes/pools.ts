@@ -1175,4 +1175,95 @@ router.get("/:id/events", async (req, res) => {
   }
 });
 
+// ═══════════════════════════════════════════════════════════════════════════
+// Stage 26-B — GET /api/pools/:id/shares/:shareId/suggested-price
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Серверное «зеркало» формулы остаточной стоимости из `lib/pricing.ts`.
+// Source of truth для SellShareModal: фронт всё ещё умеет считать сам
+// (UX-fallback при сетевой ошибке), но нормальный путь — взять цифру отсюда,
+// чтобы admin-настройка `depreciation_per_rental_percent` не дрейфовала.
+//
+// Формула:
+//   sharePct        = share.amountRub / pool.targetAmountRub      (доля в исходной стоимости)
+//   shareInitialRub = pool.targetAmountRub × sharePct = share.amountRub
+//   residualPerWear = max(0.1, 1 − meter × depPct/100)
+//   suggestedRub    = round(shareInitialRub × residualPerWear)
+//
+// Никакой приватной информации — открыто всем (без auth), как и pool/shares
+// в режиме чтения.
+//
+router.get("/:id/shares/:shareId/suggested-price", async (req, res) => {
+  const poolId = Number.parseInt(req.params.id as string, 10);
+  const shareId = Number.parseInt(req.params.shareId as string, 10);
+  if (!Number.isFinite(poolId) || poolId <= 0 || !Number.isFinite(shareId) || shareId <= 0) {
+    res.status(400).json({ error: "bad_request" });
+    return;
+  }
+
+  try {
+    const [share] = await db
+      .select({
+        id: poolSharesTable.id,
+        poolId: poolSharesTable.poolId,
+        amountRub: poolSharesTable.amountRub,
+      })
+      .from(poolSharesTable)
+      .where(and(eq(poolSharesTable.id, shareId), eq(poolSharesTable.poolId, poolId)))
+      .limit(1);
+    if (!share) {
+      res.status(404).json({ error: "share_not_found" });
+      return;
+    }
+
+    const [pool] = await db
+      .select({
+        id: poolsTable.id,
+        targetAmountRub: poolsTable.targetAmountRub,
+      })
+      .from(poolsTable)
+      .where(eq(poolsTable.id, poolId))
+      .limit(1);
+    if (!pool) {
+      res.status(404).json({ error: "pool_not_found" });
+      return;
+    }
+
+    // Связанный листинг — есть только когда пул активирован (status='active').
+    // До активации wear=0, depreciationPercent игнорируется → suggested = amountRub.
+    const [listing] = await db
+      .select({ wearAndTearMeter: listingsTable.wearAndTearMeter })
+      .from(listingsTable)
+      .where(eq(listingsTable.poolId, poolId))
+      .limit(1);
+
+    const settings = await getPlatformSettings();
+    const depPct = Math.max(0, settings.depreciationPerRentalPercent ?? 1);
+    const meter = Math.max(0, listing?.wearAndTearMeter ?? 0);
+
+    const FLOOR_RATIO = 0.1;
+    const residualRatio = Math.max(FLOOR_RATIO, 1 - (meter * depPct) / 100);
+    const sharePct = pool.targetAmountRub > 0 ? share.amountRub / pool.targetAmountRub : 0;
+    const shareInitialRub = share.amountRub; // == pool.targetAmountRub × sharePct
+    const suggestedRub = Math.round(shareInitialRub * residualRatio);
+    const depreciationPercent = Math.round((1 - residualRatio) * 100);
+
+    res.json({
+      poolId,
+      shareId,
+      shareInitialRub,
+      sharePct: Math.round(sharePct * 10000) / 100, // bp → %
+      wearAndTearMeter: meter,
+      depreciationPerRentalPercent: depPct,
+      depreciationPercent,
+      residualRatio: Math.round(residualRatio * 10000) / 10000,
+      suggestedRub,
+      currency: "RUB",
+    });
+  } catch (e) {
+    logger.error({ err: e }, "GET /pools/:id/shares/:shareId/suggested-price failed");
+    res.status(500).json({ error: "internal_error" });
+  }
+});
+
 export default router;

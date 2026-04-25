@@ -208,6 +208,70 @@ export function cancelShareOffer(poolId: number, offerId: number): Promise<{ off
   });
 }
 
+// ── Stage 26-B: Suggested price (server-side mirror of pricing.ts) ────────
+
+export interface SuggestedPriceResponse {
+  poolId: number;
+  shareId: number;
+  shareInitialRub: number;
+  sharePct: number;
+  wearAndTearMeter: number;
+  depreciationPerRentalPercent: number;
+  depreciationPercent: number;
+  residualRatio: number;
+  suggestedRub: number;
+  currency: "RUB";
+}
+
+export function getSuggestedPrice(
+  poolId: number,
+  shareId: number,
+): Promise<SuggestedPriceResponse> {
+  return jsonFetch<SuggestedPriceResponse>(
+    `/api/pools/${poolId}/shares/${shareId}/suggested-price`,
+  );
+}
+
+// ── Stage 26-B: Pool custodian handover ───────────────────────────────────
+
+export interface HandoverPoolPayload {
+  toUserId: number;
+  photos: string[];
+  videoUrl?: string | null;
+  metadata: {
+    signature: string;
+    location?: { latitude: number; longitude: number; accuracy?: number } | null;
+    notes?: string;
+    [k: string]: unknown;
+  };
+}
+
+export interface HandoverPoolResponse {
+  act: {
+    id: number;
+    poolId: number;
+    type: "pool_handover";
+    photos: string[];
+    videoUrl: string | null;
+    metadata: Record<string, unknown> | null;
+    createdAt: string;
+  };
+  listingId: number;
+  fromUserId: number;
+  toUserId: number;
+  message: string;
+}
+
+export function handoverPool(
+  poolId: number,
+  body: HandoverPoolPayload,
+): Promise<HandoverPoolResponse> {
+  return jsonFetch<HandoverPoolResponse>(`/api/pools/${poolId}/handovers`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
 // ── Stage 27: Audit timeline ──────────────────────────────────────────────
 
 export type PoolEventType =
@@ -218,7 +282,10 @@ export type PoolEventType =
   | "offer_created"
   | "offer_reserved"
   | "share_transferred"
-  | "offer_canceled";
+  | "offer_canceled"
+  // Stage 26-B
+  | "fund_accrued"
+  | "custodian_changed";
 
 export interface PoolEvent {
   id: number;

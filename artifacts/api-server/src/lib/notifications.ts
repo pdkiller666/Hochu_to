@@ -27,7 +27,9 @@ export type NotifType =
   | "pool_share_received_funds"   // creator: «Пользователь X перевёл деньги, подтвердите получение»
   | "pool_purchasing"             // все участники: «Сбор завершён, переходим к закупке»
   | "pool_offer_reserved"         // продавец: «Пользователь X хочет выкупить вашу долю»
-  | "pool_share_received";        // покупатель: «Продавец подтвердил, доля у вас»
+  | "pool_share_received"         // покупатель: «Продавец подтвердил, доля у вас»
+  // Stage 26-B — Co-Sharing Final Polish
+  | "pool_custodian_received";    // получатель: «Вам передали вещь — теперь вы Хранитель»
 
 export async function createNotification(params: {
   userId: number;
