@@ -2678,12 +2678,41 @@ function EconomyTab() {
       </div>
 
       <div className="bg-white rounded-xl border border-stone-200 p-6">
-        <h2 className="text-lg font-semibold text-stone-800 mb-1">Подписки и совместные покупки</h2>
+        <h2 className="text-lg font-semibold text-stone-800 mb-1">Подписки</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <SettingsField label="PRO подписка / месяц"><NumInput suffix="₽" value={data.subscriptionProMonthly} onChange={v => set("subscriptionProMonthly", v)} /></SettingsField>
           <SettingsField label="Business подписка / месяц"><NumInput suffix="₽" value={data.subscriptionBusinessMonthly} onChange={v => set("subscriptionBusinessMonthly", v)} /></SettingsField>
           <SettingsField label="Business: пониженная комиссия"><NumInput step="0.1" suffix="%" value={data.subscriptionBusinessCommissionPercent} onChange={v => set("subscriptionBusinessCommissionPercent", v)} /></SettingsField>
-          <SettingsField label="Сбор за совместные покупки"><NumInput step="0.1" suffix="%" value={data.jointPurchaseFeePercent} onChange={v => set("jointPurchaseFeePercent", v)} /></SettingsField>
+          <SettingsField label="Сбор: legacy joint_purchases" hint="Старый трекер сборов (мини-кампании). Не путать с пулами Co-Sharing ниже."><NumInput step="0.1" suffix="%" value={data.jointPurchaseFeePercent} onChange={v => set("jointPurchaseFeePercent", v)} /></SettingsField>
+        </div>
+      </div>
+
+      {/* ─── Stage 23a: Co-Sharing (Совместные покупки с долями) ──────────── */}
+      <div className="bg-white rounded-xl border border-stone-200 p-6">
+        <h2 className="text-lg font-semibold text-stone-800 mb-1">Совместные покупки (Co-Sharing)</h2>
+        <p className="text-sm text-stone-500 mb-4">
+          Пулы фракционного владения: дольщики скидываются на вещь, становятся совладельцами и получают доход от внешних аренд.
+          Пока модуль на стадии бэкенд-фундамента — UI пользователей появится в Stage 23b.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <SettingsField
+            label="Комиссия: самостоятельная закупка"
+            hint="% от target суммы пула. Инициатор покупает сам, получает реимбурсимент после Цифрового Акта."
+          >
+            <NumInput step="0.1" suffix="%" value={data.poolFeeSelfManagedPercent ?? 5} onChange={v => set("poolFeeSelfManagedPercent", v)} />
+          </SettingsField>
+          <SettingsField
+            label="Комиссия: консьерж-сервис"
+            hint="VIP: платформа закупает по безналу в DNS/Ozon, выдаёт штрих-код. Ноль скам-риска для дольщиков."
+          >
+            <NumInput step="0.1" suffix="%" value={data.poolFeeConciergePercent ?? 12} onChange={v => set("poolFeeConciergePercent", v)} />
+          </SettingsField>
+          <SettingsField
+            label="Сбор с совладельца за день личного использования"
+            hint="Совладелец берёт вещь для себя — аренда бесплатна, но ежедневный тех-сбор идёт в фонд обслуживания пула."
+          >
+            <NumInput suffix="₽" value={data.coOwnerDailyFeeRub ?? 100} onChange={v => set("coOwnerDailyFeeRub", v)} />
+          </SettingsField>
         </div>
       </div>
 

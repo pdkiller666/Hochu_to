@@ -432,7 +432,9 @@ GITHUB_TOKEN=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 bash scripts/github-push.s
 | 21b | **Бета-дисклеймеры:** info-блок «Бета-режим» под «Итого к оплате» в `ListingDetail` (читает `publicSettings.isCommercialMode`); warning-баннер вверху `SubmitClaimModal` в `Dashboard` — компенсации в бета-режиме обрабатываются вручную |
 | 22a | **Цифровой Акт — каркас:** таблица `digital_acts` (booking_id FK, type='check_in'/'check_out', photos jsonb≥4, video_url, metadata jsonb с EXIF/GPS, created_by_user_id), routes `GET/POST /api/bookings/:id/digital-acts`, **блокировка перехода `confirmed → active` без check_in акта (409 `digital_act_required`)**, фронтовый `DigitalActUpload.tsx` с EXIF через `exifr`, кнопки в карточках брони (confirmed/active для обеих сторон), 409-перехват в `handleStatusChange` с авто-открытием модалки; в админке `BookingOverrideModal` — сетка превью актов с GPS-маркерами для арбитража |
 | 22a-hardening | **Hardening Цифрового Акта (25.04.2026):** `UNIQUE(booking_id, type)` в схеме (один акт каждого типа на бронь) + Postgres `23505 → HTTP 409 act_already_exists`, photo URL whitelist regex `/^\/uploads\/[A-Za-z0-9._-]+\.(jpe?g\|png\|webp\|heic\|heif)$/i` (блок внешних URL, `data:`-URI, path-traversal), фронтовый детект 409 через `ApiError.status` (а не парсинг сообщения). **E2E регрессия `/tmp/test-stage22a-v2.sh` — 31/31** на реальных юзерах из снапшота (3 owner + 3 renter + admin + stranger): RBAC всех ролей, форджи фото, дубликаты, happy-path, public-settings |
-| 22b | **Карта арбитража + электронная подпись (25.04.2026):** новый `SignaturePad.tsx` (нативный HTML5 canvas + PointerEvents для мышь/палец/стилус, retina-aware через `devicePixelRatio`, метод `clear/isEmpty/toDataURL` через `useImperativeHandle`); новый `DigitalActMap.tsx` (компактная Leaflet-карта read-only, фирменный `#C65D3B` пин); подпись обязательна на стороне фронта (`disabled` кнопки «Сохранить акт») и бэка (`validateSignature()` — regex `/^data:image\/png;base64,[A-Za-z0-9+/=]+$/` + лимит 300КБ → 400 `signature_required`). Хранение в `metadata.signature` без миграции БД. Админский `DigitalActsBlock` отображает карту по первой GPS-точке из `metadata.photoExif` + PNG-подпись + бейджи 📍/✍️ |
+| 22b | **Карта арбитража + электронная подпись (25.04.2026):** новый `SignaturePad.tsx` (нативный HTML5 canvas + PointerEvents для мышь/палец/стилус, retina-aware через `devicePixelRatio`, метод `clear/isEmpty/toDataURL` через `useImperativeHandle`); новый `DigitalActMap.tsx` (компактная Leaflet-карта read-only, фирменный `#C65D3B` пин); подпись обязательна на стороне фронта (`disabled` кнопки «Сохранить акт») и бэка (`validateSignature()` — regex `/^data:image\/png;base64,[A-Za-z0-9+/=]+$/` + лимит 300КБ + PNG-magic-байты → 400 `signature_required`). Хранение в `metadata.signature` без миграции БД. Админский `DigitalActsBlock` отображает карту по первой GPS-точке из `metadata.photoExif` + PNG-подпись + бейджи 📍/✍️ |
+| 23a-hardening | **Hardening Stage 23a (25.04.2026, по итогам код-ревью):** все FK через `references()` — RESTRICT на user-references (creator/user/seller), CASCADE на pool→shares→offers, SET NULL на listings.pool_id/custodian_id. 5 `pgEnum` для state-полей (`pool_status`, `pool_collection_method`, `pool_procurement_strategy`, `pool_share_payment_status`, `share_offer_status`) — БД отвергает мусорные значения. 7 CHECK constraints: `pools_target_amount_positive` (>0), `pool_shares_percent_range` (0..100, строго >0), amount/price `>= 0`, `listings_wear_meter_range` (0..10000 bp). `UNIQUE(pool_id, user_id)` блокирует «фантомные дубликаты» долей. Индексы: `pools(status, expires_at)`, `pool_shares(pool_id)`, `(user_id)`, `share_offers(share_id, status)`, `listings(pool_id)`, `(custodian_id)`. **8/8 негативных и 4/4 позитивных smoke-теста на реальных юзерах.** |
+| 23a | **Co-Sharing — фундамент БД (25.04.2026):** 3 новые таблицы `pools` (creator/title/target/actual/maintenance_fund/collection_method `p2p_direct`/`platform_escrow`/procurement_strategy `self_managed`/`platform_concierge`/status `funding/purchasing/active/liquidated/canceled`), `pool_shares` (% владения с двумя знаками + `payment_status` `pending/user_transferred/creator_confirmed/escrow_held`), `share_offers` (вторичный рынок долей). `listings` получил `pool_id` / `custodian_id` (динамический Хранитель) / `wear_and_tear_meter`. `platform_settings` + админ-UI: `pool_fee_self_managed_percent` (5%), `pool_fee_concierge_percent` (12%), `co_owner_daily_fee_rub` (100₽). User-UI пулов и флоу СБП — в Stage 23b. Старая `joint_purchases` сохранена как legacy-трекер. ID = `serial` (не uuid — конвенция проекта). |
 
 ### 🚧 Следующие приоритеты
 
@@ -853,6 +855,45 @@ V6–V8 — Trust Score, делается после накопления дан
 ---
 
 ## 12. Журнал релизов
+
+### 25.04.2026 — Stage 23a: Co-Sharing — фундамент БД и админ-настройки
+
+**Цель:** заложить архитектуру для модуля «Совместные покупки» (фракционное владение физическими активами). Без user-facing UI — только БД и админка.
+
+**Новые таблицы (`lib/db/src/schema/co_sharing.ts`, ID = `serial`):**
+
+| Таблица | Назначение |
+|---|---|
+| `pools` | Кампания сбора + параметры пула: цель, факт, фонд обслуживания, метод сбора (`p2p_direct`/`platform_escrow`), стратегия (`self_managed`/`platform_concierge`), статус (`funding/purchasing/active/liquidated/canceled`), `creator_payment_details` (СБП-телефон при p2p), `expires_at`, `protection_mode` |
+| `pool_shares` | Доли участников (% с двумя знаками + сумма ₽), статус оплаты (`pending`/`user_transferred`/`creator_confirmed`/`escrow_held`) |
+| `share_offers` | Вторичный рынок: продажа долей между пользователями |
+
+**Расширение `listings`:** `pool_id` (FK на пул, NULL для обычных), `custodian_id` (динамический Хранитель — меняется через Цифровой Акт), `wear_and_tear_meter` (для честной цены при продаже доли).
+
+**Новые `platform_settings` + админ-UI:**
+- `pool_fee_self_managed_percent` numeric, default **`5`** — самостоятельная закупка с реимбурсиментом
+- `pool_fee_concierge_percent` numeric, default **`12`** — VIP-консьерж (DNS/Ozon, штрих-код)
+- `co_owner_daily_fee_rub` integer, default **`100`** — ежедневный сбор с совладельца за личное использование
+
+**Бэкенд-каркас (без бизнес-роутов):**
+- `lib/platform-settings.ts` → DEFAULTS + `publicSettings()` отдают новые 3 поля.
+- `routes/admin.ts` → 3 поля в whitelist `allowed`, 2% поля в `PERCENT_FIELDS` (валидация 0..100), 1 в `NON_NEG_INT_FIELDS`.
+
+**Smoke-тесты бэкенда (5/5):**
+1. `GET /api/admin/settings` → новые поля видны (`5.00`/`12.00`/`100`)
+2. `PUT` валидное (7/15/150) → 200, значения сохраняются
+3. `PUT poolFeeConciergePercent=150` → 400 invalid_value «Должно быть число от 0 до 100»
+4. `PUT coOwnerDailyFeeRub=-50` → 400 invalid_value «целое неотрицательное число»
+5. `INSERT INTO pools` с минимальным набором → row создаётся с дефолтами `status='funding'`, `protection_mode=true`, `maintenance_fund_balance=0`
+
+**Совместимость со старым `joint_purchases`:**
+Эта legacy-таблица (простой трекер сборов) не трогается — на неё может быть ссылка из старого UI. Помечена в админ-форме как «legacy joint_purchases». Новый модуль `pools` живёт параллельно. Решение о sunset legacy — позже, когда Stage 23b закроет все её сценарии.
+
+**ID convention:** `serial` (как везде в проекте). User изначально просил `uuid`, но смешивать `serial` и `uuid` ID — это проблема joins и системное правило безопасности БД проекта.
+
+**Файлы изменены:** 7 (1 новая схема + 3 правки схем + 2 правки бэка + 1 правка админки + 2 правки docs). Миграция применена через `pnpm --filter @workspace/db push`.
+
+**Что разблокировано для Stage 23b:** UI создания пулов, флоу СБП-перевода с подтверждением, авто-листинг при `pools.status = active`, передача Хранителя через Цифровой Акт, расчёт износа на каждой бронировке.
 
 ### 25.04.2026 — Stage 22b: карта арбитража + электронная подпись
 

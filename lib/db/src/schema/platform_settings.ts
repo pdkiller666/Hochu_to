@@ -60,8 +60,16 @@ export const platformSettingsTable = pgTable("platform_settings", {
   subscriptionBusinessMonthly: integer("subscription_business_monthly").default(1990).notNull(),
   subscriptionBusinessCommissionPercent: numeric("subscription_business_commission_percent", { precision: 5, scale: 2 }).default("5").notNull(),
 
-  // ── Совместные покупки ────────────────────────────────────────────────
+  // ── Совместные покупки (legacy joint_purchases — только сбор-трекер) ──
   jointPurchaseFeePercent: numeric("joint_purchase_fee_percent", { precision: 5, scale: 2 }).default("3").notNull(),
+
+  // ── Stage 23a: Co-Sharing (новый модуль с долями и хранителем) ────────
+  /** Комиссия платформы за самостоятельную покупку (инициатор покупает сам, потом реимбурсимент) */
+  poolFeeSelfManagedPercent: numeric("pool_fee_self_managed_percent", { precision: 5, scale: 2 }).default("5").notNull(),
+  /** Комиссия за консьерж-сервис (платформа закупает по безналу, штрих-код) — VIP, выше */
+  poolFeeConciergePercent: numeric("pool_fee_concierge_percent", { precision: 5, scale: 2 }).default("12").notNull(),
+  /** Ежедневный тех. сбор с совладельца, когда он берёт вещь для себя (₽) */
+  coOwnerDailyFeeRub: integer("co_owner_daily_fee_rub").default(100).notNull(),
 
   // ── Бесплатный тариф «Объявление» (Free) ───────────────────────────────
   /** Глобальный переключатель бесплатного тарифа */

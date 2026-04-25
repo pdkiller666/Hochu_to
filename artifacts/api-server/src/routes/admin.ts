@@ -1196,6 +1196,8 @@ router.put("/settings", requireAuth, requireAdmin, async (req: AuthRequest, res)
     "urgentPrice3d", "urgentPrice7d", "boostPrice24h",
     "subscriptionProMonthly", "subscriptionBusinessMonthly", "subscriptionBusinessCommissionPercent",
     "jointPurchaseFeePercent",
+    // ── Stage 23a: Co-Sharing ───────────────────────────────────────────
+    "poolFeeSelfManagedPercent", "poolFeeConciergePercent", "coOwnerDailyFeeRub",
     "paymentMode",
     "yookassaEnabled", "yookassaShopId", "yookassaSecretKey", "yookassaTestMode",
     "sbpEnabled", "sbpMerchantId",
@@ -1219,6 +1221,8 @@ router.put("/settings", requireAuth, requireAdmin, async (req: AuthRequest, res)
   const PERCENT_FIELDS = [
     "serviceFeePercent", "taxFeePercent", "shieldFeePercent", "riskCoveragePercent",
     "subscriptionBusinessCommissionPercent", "jointPurchaseFeePercent",
+    // Stage 23a
+    "poolFeeSelfManagedPercent", "poolFeeConciergePercent",
   ] as const;
   const DECIMAL_FIELDS = ["depositMultiplier"] as const;
   const NON_NEG_INT_FIELDS = [
@@ -1232,6 +1236,8 @@ router.put("/settings", requireAuth, requireAdmin, async (req: AuthRequest, res)
     "freeListingsMaxPerOwner",
     "contactPriceSingle", "contactPricePack10", "contactPriceUnlimited30d",
     "freeContactsBonus", "contactLifetimeDays", "contactPackRefundWindowDays",
+    // Stage 23a
+    "coOwnerDailyFeeRub",
   ] as const;
   const PERCENT_INT_FIELDS = ["minPremiumShareInResults"] as const;
   const BOOL_FIELDS = [

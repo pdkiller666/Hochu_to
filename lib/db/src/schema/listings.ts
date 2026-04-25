@@ -1,6 +1,9 @@
-import { pgTable, text, serial, integer, numeric, boolean, timestamp, real } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, numeric, boolean, timestamp, real, index, check } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
+import { usersTable } from "./users";
+import { poolsTable } from "./co_sharing";
 
 export const listingsTable = pgTable("listings", {
   id: serial("id").primaryKey(),
@@ -50,8 +53,34 @@ export const listingsTable = pgTable("listings", {
   /** Сколько раз добавлено в избранное. */
   favoritesCount: integer("favorites_count").default(0).notNull(),
 
+  // ── Stage 23a: Co-Sharing (совместные покупки) ─────────────────────────
+  /**
+   * Если объявление создано из пула совместной покупки — здесь его id.
+   * NULL для обычных объявлений одного владельца.
+   * SET NULL при удалении пула — листинг сохраняется как историческая запись.
+   */
+  poolId: integer("pool_id").references(() => poolsTable.id, { onDelete: "set null" }),
+  /**
+   * Текущий Хранитель (Master Owner) физической вещи.
+   * Динамический: меняется при каждом Цифровом Акте передачи.
+   * Для обычных объявлений = ownerId. Для пула — это совладелец, у которого вещь сейчас.
+   * SET NULL при удалении пользователя.
+   */
+  custodianId: integer("custodian_id").references(() => usersTable.id, { onDelete: "set null" }),
+  /**
+   * Счётчик износа (0..10000, базисные пункты от стоимости — 100 bp = 1%).
+   * Каждая аренда списывает % амортизации — нужно для честной цены продажи доли.
+   * 10000 bp = вещь полностью амортизирована.
+   */
+  wearAndTearMeter: integer("wear_and_tear_meter").default(0).notNull(),
+
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (t) => ({
+  // Stage 23a — Co-Sharing
+  poolIdx: index("listings_pool_idx").on(t.poolId),
+  custodianIdx: index("listings_custodian_idx").on(t.custodianId),
+  wearMeterRange: check("listings_wear_meter_range", sql`${t.wearAndTearMeter} >= 0 AND ${t.wearAndTearMeter} <= 10000`),
+}));
 
 export const insertListingSchema = createInsertSchema(listingsTable).omit({ id: true, createdAt: true });
 export type InsertListing = z.infer<typeof insertListingSchema>;

@@ -36,6 +36,10 @@ const DEFAULTS = {
   subscriptionBusinessMonthly: 1990,
   subscriptionBusinessCommissionPercent: "5",
   jointPurchaseFeePercent: "3",
+  // Stage 23a — Co-Sharing
+  poolFeeSelfManagedPercent: "5",
+  poolFeeConciergePercent: "12",
+  coOwnerDailyFeeRub: 100,
   isCommercialMode: false,
   paymentMode: "self_employed",
   yookassaEnabled: false,
@@ -131,6 +135,10 @@ export function publicSettings(s: PlatformSettings) {
     newUserProtectionCap: s.newUserProtectionCap,
     newUserDealsThreshold: s.newUserDealsThreshold,
     jointPurchaseFeePercent: num(s.jointPurchaseFeePercent),
+    // Stage 23a — Co-Sharing (публично: для калькулятора будущего UI пулов)
+    poolFeeSelfManagedPercent: num(s.poolFeeSelfManagedPercent),
+    poolFeeConciergePercent: num(s.poolFeeConciergePercent),
+    coOwnerDailyFeeRub: s.coOwnerDailyFeeRub,
     isCommercialMode: s.isCommercialMode,
     paymentMode: s.paymentMode,
     yookassaEnabled: s.yookassaEnabled,

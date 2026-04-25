@@ -522,6 +522,31 @@ claims, отзывы, акты, чаты) **визуально не измени
 
 При переключении в коммерческий режим дисклеймеры автоматически исчезают — это страховка от ситуации «пользователь думал что платит/получит выплату, а оно мок».
 
+## Stage 23a — Co-Sharing: фундамент БД и админ-настройки (25.04.2026)
+
+Юридическая база: «Договор простого товарищества» (ГК РФ). Пользователи покупают **Доли** в физическом имуществе, а не ценные бумаги — платформа выступает IT-агентом. Stage 23a даёт **только** скелет БД и админ-настройки; user-facing UI пулов будет в Stage 23b.
+
+**Новые таблицы (`lib/db/src/schema/co_sharing.ts`):**
+- **`pools`** — кампания сбора. Поля: `creator_id`, `title`, `item_url`, `target_amount_rub`, `actual_purchase_price_rub`, `maintenance_fund_balance` (касса излишков сбора + 10% с внешних аренд + ежедневный сбор совладельцев), `collection_method` (`p2p_direct` для бета через СБП | `platform_escrow` для commercial через ЮKassa), `creator_payment_details`, `procurement_strategy` (`self_managed` | `platform_concierge` — VIP с штрих-кодом из DNS/Ozon), `status` (`funding` → `purchasing` → `active` → `liquidated`/`canceled`), `protection_mode`, `expires_at`.
+- **`pool_shares`** — доли. `pool_id`, `user_id`, `share_percentage` (0–100, два знака), `amount_rub`, `payment_status` (`pending` → `user_transferred` → `creator_confirmed` для СБП **или** `escrow_held` для эскроу).
+- **`share_offers`** — вторичный рынок долей. `share_id`, `seller_id`, `price_rub`, `status` (`open`/`sold`/`canceled`).
+
+**Расширение `listings`:**
+- `pool_id` — если объявление создано из пула (`NULL` для обычных).
+- `custodian_id` — текущий **Хранитель** физической вещи (динамически меняется при Цифровом Акте передачи).
+- `wear_and_tear_meter` — счётчик износа (нужен для честной цены продажи доли через `share_offers`).
+
+**Новые поля `platform_settings` + UI «Совместные покупки (Co-Sharing)» в админке:**
+- `pool_fee_self_managed_percent` (default **5%**) — самостоятельная покупка с реимбурсиментом.
+- `pool_fee_concierge_percent` (default **12%**) — VIP консьерж-сервис.
+- `co_owner_daily_fee_rub` (default **100₽**) — ежедневный тех-сбор с совладельца за личное использование.
+
+**Защита БД (после code-review):** все FK реальные через `references()` — `creator_id`/`user_id`/`seller_id` с `RESTRICT` (нельзя удалить юзера с активной долей), `pool_id`/`share_id` с `CASCADE` (удалили пул → автоматически снесло доли и оффера), `listings.pool_id`/`custodian_id` с `SET NULL` (history-friendly). State-поля сделаны `pgEnum` (5 штук) — БД не пустит мусорные значения вроде `status='wrong_status'`. CHECK constraints: `target_amount > 0`, `share_percentage между 0.01 и 100`, `amount/price >= 0`, `wear_and_tear_meter 0..10000` (bp). `UNIQUE(pool_id, user_id)` — один пользователь = одна строка-доля на пул. Индексы на горячих путях: `pools(status, expires_at)`, `pool_shares(pool_id)`, `pool_shares(user_id)`, `share_offers(share_id, status)`, `listings(pool_id)`, `listings(custodian_id)`.
+
+Старая таблица `joint_purchases` остаётся как legacy-трекер (помечен в админке) — нельзя ломать существующие сборы. Новый модуль живёт параллельно.
+
+**Что это даёт сейчас:** платформа умеет регистрировать пулы, доли и предложения о продаже долей. Админ управляет 4 источниками монетизации (комиссия сбора, 10% с внешних аренд + фонд, ежедневный сбор совладельцев, вторичный рынок). Готов фундамент для Stage 23b — UI пулов, флоу СБП-перевода, динамический Хранитель через Цифровой Акт.
+
 ## Stage 22b — Карта арбитража и электронная подпись (25.04.2026)
 
 Завершающий слой Цифрового Акта — визуализация GPS и юридическая фиксация согласия сторон.
