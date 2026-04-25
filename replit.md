@@ -26,13 +26,15 @@ Full-stack rental marketplace "Хочу_То" (I Want That) — a platform for r
 - Расходуется на компенсацию ущерба через `claims`, если залога недостаточно.
 - Лимиты анти-фрода: `fundReserveRatioPct`, `maxClaimAmountSingleRub`, `maxClaimsPerUserMonth`, `maxClaimAmountPerListingPct` (Stage 17b-limits).
 
-### 2. Цифровой Акт (Check-in/Check-out) — Stage 22a: каркас готов
+### 2. Цифровой Акт (Check-in/Check-out) — Stage 22a: каркас готов + hardening
 Сделка не считается начатой/завершённой без фиксации состояния:
 - **Минимум 4 фото** с разных ракурсов (ограничение валидируется на бэке через Zod `.refine(photos.length≥4)`).
+- **Whitelist URL фото** — принимаются только `/uploads/<safe-name>.{jpg,jpeg,png,webp,heic,heif}`; внешние URL, `data:`-URI и path-traversal блокируются.
 - **Опциональное видео** (URL ссылка).
 - **Метаданные:** EXIF + GPS извлекаются клиентом (`exifr`) и сохраняются в `metadata jsonb` для защиты от подлога.
+- **Иммутабельность:** `UNIQUE(booking_id, type)` в БД — один акт приёмки и один акт возврата на бронь, повтор → 409 `act_already_exists`.
 
-> Статус (Stage 22a): таблица `digital_acts` + endpoints `GET/POST /api/bookings/:id/digital-acts` + блокировка перехода `confirmed → active` без check_in акта (409 `digital_act_required`) + UI в Dashboard и AdminPage готовы. Дальше: видео-аплоад, GPS-pin на карте в админке, цифровая подпись сторон, расширение до Check-out при `active → return_pending`.
+> Статус (Stage 22a, hardening 25.04.2026): таблица `digital_acts` + endpoints `GET/POST /api/bookings/:id/digital-acts` + блокировка перехода `confirmed → active` без check_in акта (409 `digital_act_required`) + UI в Dashboard и AdminPage. Регрессия 31/31 на 4 ролях. Дальше: видео-аплоад, GPS-pin на карте в админке, цифровая подпись сторон, авто-предложение акта при подходе даты передачи/возврата.
 
 ### 3. Ступенчатый Арбитраж
 - **Категория А (визуальный ущерб):** царапины, сколы. Удерживается из залога мгновенно по фото-сравнению.
@@ -518,15 +520,17 @@ claims, отзывы, акты, чаты) **визуально не измени
 
 При переключении в коммерческий режим дисклеймеры автоматически исчезают — это страховка от ситуации «пользователь думал что платит/получит выплату, а оно мок».
 
-## Stage 22a — Цифровой Акт (каркас, 24.04.2026 вечер)
+## Stage 22a — Цифровой Акт (каркас, 24.04.2026 вечер; hardening 25.04.2026)
 
 Реализован минимально-жизнеспособный каркас «Стального Щита #2»:
-- **Schema** `digital_acts(id, booking_id FK, type 'check_in'|'check_out', photos jsonb≥4, video_url?, metadata jsonb, created_by_user_id FK, created_at)`.
-- **Endpoints** `GET/POST /api/bookings/:id/digital-acts` — auth, проверка участника, Zod-валидация (`photos.length>=4`).
+- **Schema** `digital_acts(id, booking_id FK, type 'check_in'|'check_out', photos jsonb≥4, video_url?, metadata jsonb, created_by_user_id FK, created_at)` + **`UNIQUE(booking_id, type)`** — один акт каждого типа на бронь, дубликаты отбиваются на уровне БД.
+- **Endpoints** `GET/POST /api/bookings/:id/digital-acts` — auth, проверка участника, Zod-валидация (`photos.length>=4`), photo URL whitelist (regex `SAFE_UPLOAD_RE = /^\/uploads\/[A-Za-z0-9._-]+\.(jpe?g|png|webp|heic|heif)$/i`) — блокирует внешние URL, `data:`-URI и path-traversal. Postgres ошибка `23505` маппится в **HTTP 409 `act_already_exists`**.
 - **Блокирующий гард** в `PUT /api/bookings/:id`: переход `confirmed → active` проверяет существование `check_in` акта. Нет акта → **HTTP 409 `digital_act_required`** с русским сообщением. Это означает: бронь физически невозможно перевести в активную фазу без зафиксированного состояния вещи.
 - **Frontend** `DigitalActUpload.tsx` — модалка с file input multi, preview-сеткой, EXIF+GPS через `exifr`. Использует существующий `/api/upload` для фото и POST на digital-acts с метаданными.
-- **Dashboard** — кнопки «🛡️ Цифровой акт приёмки» (`confirmed`, обе стороны) и «🛡️ Цифровой акт возврата» (`active`, обе стороны). `handleStatusChange` ловит 409 → авто-открывает модалку.
+- **Dashboard** — кнопки «🛡️ Цифровой акт приёмки» (`confirmed`, обе стороны) и «🛡️ Цифровой акт возврата» (`active`, обе стороны). `handleStatusChange` детектит 409 через `ApiError.status === 409` (а не парсит сообщение) и авто-открывает модалку.
 - **AdminPage** — `DigitalActsBlock` в `BookingOverrideModal`: список актов с бейджами Check-in/Check-out, GPS-маркером, сеткой превью 4-в-ряд для арбитража.
+
+**Регрессия (25.04.2026):** скрипт `/tmp/test-stage22a-v2.sh` — 31/31 сценариев на реальных юзерах из снапшота (3 owner + 3 renter + admin + stranger). Покрыты: блок confirmed→active, RBAC всех 4 ролей, форджи URL/path-traversal/data:-URI, валидация <4 фото, неверный type, дубликат через UNIQUE, переход с актом, check_out, public-settings.
 
 Дальнейший roadmap: видео-апплоад, GPS-pin на карте, цифровая подпись сторон, авто-предложение акта при подходе даты передачи/возврата.
 

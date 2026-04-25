@@ -381,7 +381,7 @@ GITHUB_TOKEN=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 bash scripts/github-push.s
 
 ---
 
-## 11. Дорожная карта (актуально на 24.04.2026 вечер)
+## 11. Дорожная карта (актуально на 25.04.2026)
 
 ### ✅ Готово
 | Этап | Описание |
@@ -431,6 +431,7 @@ GITHUB_TOKEN=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 bash scripts/github-push.s
 | 21a | **Soft Launch Toggle + YooKassa Core:** master-флаг `is_commercial_mode`, таблица `payments`, REST-клиент ЮKassa, webhook `/api/webhooks/yookassa`, BetaBanner, mock/real branching в promotions, soft-обнуление serviceFee/taxFee/fund для bookings/contacts при OFF. **Пост-review фиксы:** allowlist для master-toggle, listing_promotion создаётся только в webhook, выручка по `payments.succeeded`, детерм. Idempotence-Key, HMAC + timingSafeEqual + fail-closed, raw body, FOR UPDATE anti-replay |
 | 21b | **Бета-дисклеймеры:** info-блок «Бета-режим» под «Итого к оплате» в `ListingDetail` (читает `publicSettings.isCommercialMode`); warning-баннер вверху `SubmitClaimModal` в `Dashboard` — компенсации в бета-режиме обрабатываются вручную |
 | 22a | **Цифровой Акт — каркас:** таблица `digital_acts` (booking_id FK, type='check_in'/'check_out', photos jsonb≥4, video_url, metadata jsonb с EXIF/GPS, created_by_user_id), routes `GET/POST /api/bookings/:id/digital-acts`, **блокировка перехода `confirmed → active` без check_in акта (409 `digital_act_required`)**, фронтовый `DigitalActUpload.tsx` с EXIF через `exifr`, кнопки в карточках брони (confirmed/active для обеих сторон), 409-перехват в `handleStatusChange` с авто-открытием модалки; в админке `BookingOverrideModal` — сетка превью актов с GPS-маркерами для арбитража |
+| 22a-hardening | **Hardening Цифрового Акта (25.04.2026):** `UNIQUE(booking_id, type)` в схеме (один акт каждого типа на бронь) + Postgres `23505 → HTTP 409 act_already_exists`, photo URL whitelist regex `/^\/uploads\/[A-Za-z0-9._-]+\.(jpe?g\|png\|webp\|heic\|heif)$/i` (блок внешних URL, `data:`-URI, path-traversal), фронтовый детект 409 через `ApiError.status` (а не парсинг сообщения). **E2E регрессия `/tmp/test-stage22a-v2.sh` — 31/31** на реальных юзерах из снапшота (3 owner + 3 renter + admin + stranger): RBAC всех ролей, форджи фото, дубликаты, happy-path, public-settings |
 
 ### 🚧 Следующие приоритеты
 
@@ -851,6 +852,48 @@ V6–V8 — Trust Score, делается после накопления дан
 ---
 
 ## 12. Журнал релизов
+
+### 25.04.2026 — Stage 22a hardening + полная e2e регрессия (31/31)
+
+**Контекст:** после code-review каркаса Stage 22a выявлены 4 ужесточающих фикса. Одновременно запрошена полноценная регрессия не только smoke (которая была на токене админа), а на реальных ролях.
+
+**Hardening (4 фикса):**
+1. **`UNIQUE(booking_id, type)` в `lib/db/src/schema/digital_acts.ts`** — один акт каждого типа на бронь физически невозможно создать дважды. Применено через `pnpm --filter @workspace/db push --force`.
+2. **Postgres `23505 → HTTP 409 `act_already_exists`** в `artifacts/api-server/src/routes/digital_acts.ts` (POST handler ловит ошибку UNIQUE и отдаёт «Цифровой акт этого типа уже создан»).
+3. **Photo URL whitelist** в том же файле: `const SAFE_UPLOAD_RE = /^\/uploads\/[A-Za-z0-9._-]+\.(jpe?g|png|webp|heic|heif)$/i;` — Zod `.refine()` отбивает внешние URL, `data:`-URI и path-traversal (`/uploads/../etc/passwd`). Это закрывает дыру: до фикса можно было прислать любой текст в `photos[]`.
+4. **Фронтовый детект 409 через `ApiError.status`** в `artifacts/hochu-to/src/pages/Dashboard.tsx` (`handleStatusChange`) — раньше парсилось `e.message.includes('digital_act_required')`, что ломалось при i18n; теперь `e instanceof ApiError && e.status === 409 && e.body?.code === 'digital_act_required'`.
+
+**Подготовка тестовой среды (важно для будущих регрессий):**
+- Снапшот `scripts/db-snapshots/dev-data.sql` несовместим с текущей схемой (boolean vs timestamp на колонках users) — `setup-new-replit.sh` падает на чистом окружении. **TODO:** обновить снапшот через `pg_dump`.
+- Рабочий путь сейчас: руками создать `admin@hochu.to / Admin123!` (через `/api/auth/register` + `UPDATE users SET role='admin'`), затем `POST /api/admin/seed` (85 регионов + 10 категорий + 6 тестовых пользователей + 14 листингов) + `POST /api/admin/seed-test-listings` (50 объявлений).
+- **Тестовые юзеры (все пароль `Test1234!`):**
+  - Owners: `alexey@example.com`, `maria@example.com`, `dmitry@example.com`
+  - Renters: `irina@example.com`, `sergey@example.com`, `anna@example.com`
+- **Login возвращает `{user, token}`** — поле `token`, НЕ `accessToken`. Register требует `role: 'renter'|'owner'`. `itemCategory` enum: `''|electronics|tools|leisure|special_machinery`.
+- Переход `confirmed → active` разрешён **только OWNER** (renter может только cancelled/return_pending).
+
+**E2E регрессия `/tmp/test-stage22a-v2.sh` — 31/31 ✅**
+
+| Группа | Сценарии |
+|---|---|
+| Подготовка | Логины 4 ролей, получение ID, доступный листинг (6) |
+| Бизнес-правила | owner не может арендовать своё; pending→confirmed (2) |
+| Блок digital_act_required | confirmed→active без акта → 409 (1) |
+| Авторизация акта | без auth/чужой/другой renter/другой owner → 401/403 (4) |
+| Валидация фото | внешний URL, path-traversal, data-URI, <4 фото → 400 (4) |
+| Состояние брони | неверный type, check_out на confirmed → 400/422 (2) |
+| Создание акта | check_in renter с GPS+EXIF, check_out owner → 201 (2) |
+| UNIQUE / иммутабельность | повтор check_in/check_out → 409 (2) |
+| GET акта | owner/renter/admin видят акты, чужой → 403 (5) |
+| Happy-path | confirmed→active с актом → 200; sorting (2) |
+| Public-settings | listings detail + `/api/public-settings` (2) |
+| Admin override | `/api/admin/bookings/:id` доступен админу (1) |
+
+**Что НЕ делалось (намеренно):** реальный UI-скриншот не получен (Replit preview ждёт порт 5000, workflow слушает 5173 — не вмешивался в конфиг). Подключение компонентов на фронте проверено grep'ом по коду — все импорты и вызовы на месте.
+
+**Файлы изменены:** `lib/db/src/schema/digital_acts.ts`, `artifacts/api-server/src/routes/digital_acts.ts`, `artifacts/hochu-to/src/pages/Dashboard.tsx`. Регрессионный скрипт сохранён вне репо: `/tmp/test-stage22a-v2.sh` (создаёт нового stranger каждый раз, без конфликтов).
+
+**Push:** `9d6018f Add digital act functionality for proof of item condition` → `origin/main` (синхронизирован).
 
 ### 24.04.2026 вечер — Stage 21b + 22a: Бета-дисклеймеры + Цифровой Акт (каркас)
 
