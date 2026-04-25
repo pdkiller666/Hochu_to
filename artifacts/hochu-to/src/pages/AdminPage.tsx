@@ -2713,6 +2713,12 @@ function EconomyTab() {
           >
             <NumInput suffix="₽" value={data.coOwnerDailyFeeRub ?? 100} onChange={v => set("coOwnerDailyFeeRub", v)} />
           </SettingsField>
+          <SettingsField
+            label="Износ за одну завершённую аренду"
+            hint="Каждая бронь со статусом «завершена» снижает оценочную стоимость вещи на этот процент. Минимум — 10% от исходной (потолок амортизации). Прямо влияет на цену доли при продаже."
+          >
+            <NumInput step="1" suffix="%" value={data.depreciationPerRentalPercent ?? 1} onChange={v => set("depreciationPerRentalPercent", v)} />
+          </SettingsField>
         </div>
       </div>
 

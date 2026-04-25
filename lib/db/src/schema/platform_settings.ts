@@ -70,6 +70,13 @@ export const platformSettingsTable = pgTable("platform_settings", {
   poolFeeConciergePercent: numeric("pool_fee_concierge_percent", { precision: 5, scale: 2 }).default("12").notNull(),
   /** Ежедневный тех. сбор с совладельца, когда он берёт вещь для себя (₽) */
   coOwnerDailyFeeRub: integer("co_owner_daily_fee_rub").default(100).notNull(),
+  /**
+   * Stage 26: % амортизации физической вещи за одну завершённую аренду.
+   * Каждая бронь со статусом `completed` инкрементирует `listings.wear_and_tear_meter` на +1,
+   * а residual = initialPrice * (1 - meter * depreciationPerRentalPercent / 100), но не ниже 10%.
+   * Default 1% означает: после 100 аренд вещь стоит минимум 10% от исходной (потолок амортизации).
+   */
+  depreciationPerRentalPercent: integer("depreciation_per_rental_percent").default(1).notNull(),
 
   // ── Бесплатный тариф «Объявление» (Free) ───────────────────────────────
   /** Глобальный переключатель бесплатного тарифа */

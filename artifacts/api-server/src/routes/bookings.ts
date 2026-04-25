@@ -632,7 +632,7 @@ router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
   // Stage 19e: синхронизируем bookingCount при смене статуса.
   await applyBookingCountDelta(updated.listingId, bookingCountDelta(fromStatus, status));
 
-  // Завершена сделка — увеличиваем счётчик у обеих сторон
+  // Завершена сделка — увеличиваем счётчик у обеих сторон + износ вещи
   if (status === "completed") {
     await Promise.all([
       db.update(usersTable)
@@ -641,6 +641,13 @@ router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
       db.update(usersTable)
         .set({ completedDealsCount: sql`${usersTable.completedDealsCount} + 1` })
         .where(eq(usersTable.id, booking.renterId)),
+      // Stage 26: каждая успешно завершённая аренда добавляет +1 к счётчику износа.
+      // Cancel/reject не доходят сюда (мы внутри ветки `completed`), поэтому
+      // отменённые брони не амортизируют вещь — что и требовалось.
+      // CHECK (0..10000) в схеме защищает от overflow.
+      db.update(listingsTable)
+        .set({ wearAndTearMeter: sql`${listingsTable.wearAndTearMeter} + 1` })
+        .where(eq(listingsTable.id, booking.listingId)),
     ]);
   }
 

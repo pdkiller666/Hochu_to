@@ -381,7 +381,21 @@ GITHUB_TOKEN=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 bash scripts/github-push.s
 
 ---
 
-## 11. Дорожная карта (актуально на 25.04.2026 — Stage 23c закрыт, далее Stage 23d)
+## 11. Дорожная карта (актуально на 25.04.2026 — Stage 26 закрыт, далее Stage 25 — вторичный рынок долей)
+
+### Stage 26 (25.04.2026) — Wear and Tear (амортизация физических активов)
+
+**Зачем.** Подготовка к вторичному рынку долей (Stage 25). Без счётчика износа продажа доли в б/у-вещи шла бы по цене новой → крах экономики.
+
+**БД:** в `platform_settings` добавлено `depreciationPerRentalPercent: integer default 1` (% падения оценочной стоимости за одну успешно завершённую аренду; 100 аренд = floor 10%). Поле `listings.wear_and_tear_meter` с Stage 23a используется как счётчик аренд.
+
+**Backend.** `PUT /api/bookings/:id` при переходе в `completed` инкрементирует `listings.wear_and_tear_meter` на +1 (внутри существующего `Promise.all`). Cancel/reject не доходят до этого блока. `GET /api/pools/:id` возвращает связанный `listing: { id, wearAndTearMeter, pricePerDay, isAvailable, custodianId } | null`. `depreciationPerRentalPercent` экспортируется в `/api/settings`.
+
+**Frontend.** `lib/pricing.ts` — `calculateResidualValue(initialPrice, meter, pct)` с floor 10% и safeguards для `initialPrice <= 0`. `PoolDetail.tsx` — фиолетовый блок «Оценочная стоимость сейчас» (residual + бейдж `N аренд · износ X%` с tooltip). `AdminPage.tsx` — поле «Износ за одну завершённую аренду (%)» в блоке «Совместные покупки».
+
+**Smoke.** alexey бронирует listing#43 (owner=dmitry) → completed → meter 0→1 ✓. Формула 30000₽: 0 аренд → 30000; 50 → 15000; 200 → 3000 (floor) ✓.
+
+### Stage 23c (24.04.2026) — закрыт
 
 ### Stage 22b-followup (25.04.2026) — закрыт бэклог Stage 22b
 

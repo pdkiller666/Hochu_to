@@ -5,6 +5,7 @@ import {
   poolsTable,
   poolSharesTable,
   usersTable,
+  listingsTable,
 } from "@workspace/db";
 import { z } from "zod";
 import { requireAuth, type AuthRequest } from "../middleware/auth.js";
@@ -225,6 +226,20 @@ router.get("/:id", async (req, res) => {
 
     const collected = await getCollectedAmount(id);
 
+    // Stage 26: связанный listing (для расчёта остаточной стоимости на фронте).
+    // Создаётся при активации пула (Stage 23c). До активации listing отсутствует.
+    const [linkedListing] = await db
+      .select({
+        id: listingsTable.id,
+        wearAndTearMeter: listingsTable.wearAndTearMeter,
+        pricePerDay: listingsTable.pricePerDay,
+        isAvailable: listingsTable.isAvailable,
+        custodianId: listingsTable.custodianId,
+      })
+      .from(listingsTable)
+      .where(eq(listingsTable.poolId, id))
+      .limit(1);
+
     // users.name — единое поле; разбиваем на firstName/lastName для UI.
     const splitName = (n: string | null) => {
       const trimmed = (n ?? "").trim();
@@ -240,6 +255,9 @@ router.get("/:id", async (req, res) => {
         ? { id: creator.id, firstName: creatorParts.firstName, lastName: creatorParts.lastName, avatarUrl: creator.avatar }
         : null,
       collectedAmountRub: collected,
+      // Stage 26: linked listing присутствует только если пул активирован
+      // (status='active' и создан genesis-акт). До активации — null.
+      listing: linkedListing ?? null,
       shares: sharesRaw.map((s) => ({
         id: s.id,
         userId: s.userId,

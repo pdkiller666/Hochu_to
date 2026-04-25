@@ -638,7 +638,35 @@ Frontend (`/pools`, `/pools/create`, `/pools/:id`):
 - Динамическая ротация Хранителя по ТКЗ (Тариф Качественного Содержания).
 - Эскроу-флоу через ЮKassa (commercial mode).
 - Вторичный рынок долей через UI `share_offers`.
-- Расчёт износа `wear_and_tear_meter` на каждой бронировке.
+- ~~Расчёт износа `wear_and_tear_meter` на каждой бронировке.~~ — **закрыто Stage 26**.
+
+## Stage 26 — Wear and Tear (амортизация физических активов) (25.04.2026)
+
+Подготовка к вторичному рынку долей: вещь стареет — доля дешевеет. Без счётчика износа продажа доли в б/у-PlayStation шла бы по цене новой → крах экономики и доверия.
+
+**БД (`lib/db/src/schema/platform_settings.ts`):** добавлено `depreciationPerRentalPercent: integer default 1` — % падения оценочной стоимости вещи за одну успешно завершённую аренду. Default 1% означает: после 100 аренд вещь стоит минимум 10% от исходной (потолок амортизации). Поле `listings.wear_and_tear_meter` уже существовало с Stage 23a (CHECK 0..10000), используется как счётчик аренд.
+
+**Backend trigger (`artifacts/api-server/src/routes/bookings.ts`):** в блоке `if (status === "completed")` (PUT `/api/bookings/:id`) внутрь существующего `Promise.all` (рядом с `completedDealsCount`) добавлен `UPDATE listings SET wear_and_tear_meter = wear_and_tear_meter + 1 WHERE id = booking.listingId`. Cancel/reject не доходят сюда — отменённые брони не амортизируют вещь.
+
+**Backend pool detail (`artifacts/api-server/src/routes/pools.ts`):** `GET /api/pools/:id` теперь возвращает поле `listing` с `{id, wearAndTearMeter, pricePerDay, isAvailable, custodianId}` (или `null`, если пул ещё не активирован). Нужно фронту для расчёта остаточной стоимости.
+
+**Backend public settings:** `depreciationPerRentalPercent` экспортируется в `/api/settings` для клиентского калькулятора.
+
+**Frontend helper (`artifacts/hochu-to/src/lib/pricing.ts`):**
+- `calculateResidualValue(initialPrice, meter, depreciationPercent)` — формула `initialPrice × (1 − meter × pct / 100)`, не ниже `initialPrice × 0.1` (10%-ный floor).
+- `calculateDepreciationPercent(meter, pct)` — для UI-бейджа (с тем же ceiling).
+- Edge cases: `initialPrice <= 0 → 0`; отрицательные значения нормализуются.
+
+**Frontend UI (`artifacts/hochu-to/src/pages/PoolDetail.tsx`):** новый блок `ResidualValueBlock` — фиолетовая карточка «Оценочная стоимость сейчас» с крупной суммой residual, бейджем «N аренд · износ X%» (с tooltip про правила амортизации) и подписью с исходной стоимостью. Показывается только при `pool.status='active' && pool.listing` (в funding/purchasing вещи ещё нет).
+
+**Admin form (`artifacts/hochu-to/src/pages/AdminPage.tsx`):** новое поле «Износ за одну завершённую аренду (%)» в блоке «Совместные покупки», рядом с co-owner daily fee. Step 0.1, дефолт 1%.
+
+**Smoke:** alexey бронирует listing#43 (owner=dmitry) → status=completed (через DB-shortcut по return_pending → completed через PUT) → `wear_and_tear_meter` 0 → 1 ✓. Формула: 30000₽ + 50 аренд + 1% → 15000₽; 200 аренд → 3000₽ (floor); 0₽ → 0; отрицательное → 0 ✓.
+
+**Что НЕ сделано (Stage 27+):**
+- Применение остаточной стоимости в цене доли на вторичном рынке (`share_offers`).
+- Серверное зеркало `calculateResidualValue` (когда понадобится для API-расчётов).
+- Декремент wear meter при «капитальном ремонте» / claims из фонда обслуживания.
 
 ## What Is NOT Yet Implemented (roadmap)
 

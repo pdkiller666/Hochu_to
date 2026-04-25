@@ -1198,6 +1198,8 @@ router.put("/settings", requireAuth, requireAdmin, async (req: AuthRequest, res)
     "jointPurchaseFeePercent",
     // ── Stage 23a: Co-Sharing ───────────────────────────────────────────
     "poolFeeSelfManagedPercent", "poolFeeConciergePercent", "coOwnerDailyFeeRub",
+    // ── Stage 26: Wear and Tear ─────────────────────────────────────────
+    "depreciationPerRentalPercent",
     "paymentMode",
     "yookassaEnabled", "yookassaShopId", "yookassaSecretKey", "yookassaTestMode",
     "sbpEnabled", "sbpMerchantId",
@@ -1238,6 +1240,8 @@ router.put("/settings", requireAuth, requireAdmin, async (req: AuthRequest, res)
     "freeContactsBonus", "contactLifetimeDays", "contactPackRefundWindowDays",
     // Stage 23a
     "coOwnerDailyFeeRub",
+    // Stage 26
+    "depreciationPerRentalPercent",
   ] as const;
   const PERCENT_INT_FIELDS = ["minPremiumShareInResults"] as const;
   const BOOL_FIELDS = [

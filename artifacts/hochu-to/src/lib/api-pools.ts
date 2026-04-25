@@ -38,6 +38,14 @@ export interface PoolShareDetail {
   createdAt: string;
 }
 
+export interface PoolLinkedListing {
+  id: number;
+  wearAndTearMeter: number;
+  pricePerDay: string;
+  isAvailable: boolean;
+  custodianId: number | null;
+}
+
 export interface PoolDetail extends PoolListItem {
   description: string | null;
   creatorPaymentDetails: string | null;
@@ -50,6 +58,8 @@ export interface PoolDetail extends PoolListItem {
     lastName: string | null;
     avatarUrl: string | null;
   } | null;
+  /** Stage 26: связанный listing (присутствует только для активированных пулов). */
+  listing: PoolLinkedListing | null;
   shares: PoolShareDetail[];
 }
 

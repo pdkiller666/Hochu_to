@@ -40,6 +40,8 @@ const DEFAULTS = {
   poolFeeSelfManagedPercent: "5",
   poolFeeConciergePercent: "12",
   coOwnerDailyFeeRub: 100,
+  // Stage 26: износ за одну завершённую аренду, %
+  depreciationPerRentalPercent: 1,
   isCommercialMode: false,
   paymentMode: "self_employed",
   yookassaEnabled: false,
@@ -139,6 +141,7 @@ export function publicSettings(s: PlatformSettings) {
     poolFeeSelfManagedPercent: num(s.poolFeeSelfManagedPercent),
     poolFeeConciergePercent: num(s.poolFeeConciergePercent),
     coOwnerDailyFeeRub: s.coOwnerDailyFeeRub,
+    depreciationPerRentalPercent: s.depreciationPerRentalPercent,
     isCommercialMode: s.isCommercialMode,
     paymentMode: s.paymentMode,
     yookassaEnabled: s.yookassaEnabled,

@@ -10,6 +10,8 @@ import {
   type PoolShareDetail,
 } from "@/lib/api-pools";
 import { formatPrice } from "@/lib/utils";
+import { calculateResidualValue, calculateDepreciationPercent } from "@/lib/pricing";
+import { usePublicSettings } from "@/lib/use-public-settings";
 import { useToast } from "@/hooks/use-toast";
 import { useState } from "react";
 import { DigitalActUpload } from "@/components/DigitalActUpload";
@@ -182,6 +184,11 @@ export default function PoolDetailPage() {
         {/* Stage 23c — Шаг 2 для creator при status='purchasing' */}
         {isCreator && pool.status === "purchasing" && (
           <ActivatePoolBlock pool={pool} />
+        )}
+
+        {/* Stage 26 — Оценочная стоимость (амортизация по факту аренд) */}
+        {pool.status === "active" && pool.listing && (
+          <ResidualValueBlock pool={pool} />
         )}
 
         {/* All shares */}
@@ -504,6 +511,43 @@ function ActivatePoolBlock({ pool }: { pool: PoolDetail }) {
           }}
         />
       )}
+    </div>
+  );
+}
+
+// ─── Stage 26: Оценочная стоимость + счётчик износа ───────────────────────
+function ResidualValueBlock({ pool }: { pool: PoolDetail }) {
+  const settings = usePublicSettings();
+  if (!pool.listing) return null;
+
+  const initialPrice = pool.targetAmountRub;
+  const meter = pool.listing.wearAndTearMeter;
+  const depreciationPercent = settings?.depreciationPerRentalPercent ?? 1;
+  const residual = calculateResidualValue(initialPrice, meter, depreciationPercent);
+  const wearPercent = calculateDepreciationPercent(meter, depreciationPercent);
+
+  return (
+    <div className="bg-gradient-to-br from-violet-50 to-stone-50 border border-violet-200 rounded-xl p-5">
+      <div className="flex items-start gap-3">
+        <div className="flex-shrink-0 w-10 h-10 rounded-full bg-violet-100 flex items-center justify-center">
+          <Crown className="w-5 h-5 text-violet-600" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-baseline justify-between gap-2 flex-wrap">
+            <h3 className="text-sm font-semibold text-stone-700">Оценочная стоимость сейчас</h3>
+            <span
+              className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-stone-100 text-stone-600"
+              title={`Каждая успешно завершённая аренда снижает оценку на ${depreciationPercent}%. Минимум — 10% от исходной стоимости.`}
+            >
+              {meter} {meter === 1 ? "аренда" : meter >= 2 && meter <= 4 ? "аренды" : "аренд"} · износ {wearPercent.toFixed(1)}%
+            </span>
+          </div>
+          <div className="mt-1 text-2xl font-bold text-stone-900">{formatPrice(residual)}</div>
+          <p className="mt-1 text-xs text-stone-500">
+            Исходная стоимость: {formatPrice(initialPrice)} · амортизация {depreciationPercent}% за каждую аренду
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
