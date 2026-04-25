@@ -1,8 +1,9 @@
 import { useState, useRef } from "react";
-import { Loader2, Camera, X, MapPin, Clock, ShieldCheck, AlertTriangle } from "lucide-react";
+import { Loader2, Camera, X, MapPin, Clock, ShieldCheck, AlertTriangle, PenLine } from "lucide-react";
 // @ts-expect-error — exifr — pure JS, no bundled .d.ts
 import exifr from "exifr";
 import { getToken } from "@/lib/auth";
+import { SignaturePad, type SignaturePadHandle } from "@/components/SignaturePad";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "";
 const MIN_PHOTOS = 4;
@@ -37,7 +38,9 @@ export function DigitalActUpload({ bookingId, type, onClose, onSuccess }: Props)
   const [videoUrl, setVideoUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [signatureEmpty, setSignatureEmpty] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const signatureRef = useRef<SignaturePadHandle>(null);
 
   const title = type === "check_in" ? "Цифровой акт приёмки" : "Цифровой акт возврата";
   const subtitle = type === "check_in"
@@ -98,15 +101,21 @@ export function DigitalActUpload({ bookingId, type, onClose, onSuccess }: Props)
       setError(`Минимум ${MIN_PHOTOS} фото — у вас ${photos.length}.`);
       return;
     }
+    if (!signatureRef.current || signatureRef.current.isEmpty()) {
+      setError("Поставьте подпись — это обязательное условие акта.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
+      const signature = signatureRef.current.toDataURL();
       const photosWithGps = photos.filter(p => p.exif?.lat && p.exif?.lng).length;
       const metadata = {
         extractedFromExif: photosWithGps > 0,
         photoExif: photos.map(p => p.exif),
         userAgent: navigator.userAgent,
         clientTimestamp: new Date().toISOString(),
+        signature,
       };
 
       const r = await fetch(`${API_BASE}/api/bookings/${bookingId}/digital-acts`, {
@@ -223,6 +232,15 @@ export function DigitalActUpload({ bookingId, type, onClose, onSuccess }: Props)
             </p>
           </div>
 
+          <div>
+            <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1.5">
+              <PenLine className="w-3.5 h-3.5" />
+              Подпись <span className="text-rose-600">*</span>
+              <span className="text-muted-foreground normal-case font-normal">— подтверждение акта</span>
+            </label>
+            <SignaturePad ref={signatureRef} onChange={(emp) => setSignatureEmpty(emp)} />
+          </div>
+
           {error && (
             <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 text-sm text-rose-700 flex gap-2">
               <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" /> {error}
@@ -230,16 +248,31 @@ export function DigitalActUpload({ bookingId, type, onClose, onSuccess }: Props)
           )}
         </div>
 
-        <div className="p-4 border-t border-border flex gap-3">
-          <button onClick={onClose} disabled={busy}
-                  className="flex-1 py-2.5 bg-stone-100 hover:bg-stone-200 rounded-xl text-sm font-bold transition-colors disabled:opacity-50">
-            Отмена
-          </button>
-          <button onClick={submit} disabled={busy || photos.length < MIN_PHOTOS}
-                  className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-bold transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
-            {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
-            Сохранить акт
-          </button>
+        <div className="p-4 border-t border-border space-y-2">
+          {(photos.length < MIN_PHOTOS || signatureEmpty) && !busy && (
+            <p
+              role="status"
+              aria-live="polite"
+              className="text-xs text-stone-500 text-center"
+            >
+              {photos.length < MIN_PHOTOS && signatureEmpty
+                ? `Добавьте ещё ${MIN_PHOTOS - photos.length} фото и подпись для сохранения`
+                : photos.length < MIN_PHOTOS
+                  ? `Добавьте ещё ${MIN_PHOTOS - photos.length} фото для сохранения`
+                  : "Добавьте подпись для сохранения акта"}
+            </p>
+          )}
+          <div className="flex gap-3">
+            <button onClick={onClose} disabled={busy}
+                    className="flex-1 py-2.5 bg-stone-100 hover:bg-stone-200 rounded-xl text-sm font-bold transition-colors disabled:opacity-50">
+              Отмена
+            </button>
+            <button onClick={submit} disabled={busy || photos.length < MIN_PHOTOS || signatureEmpty}
+                    className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-bold transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
+              {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
+              Сохранить акт
+            </button>
+          </div>
         </div>
       </div>
     </div>

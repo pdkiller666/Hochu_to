@@ -381,7 +381,7 @@ GITHUB_TOKEN=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 bash scripts/github-push.s
 
 ---
 
-## 11. Дорожная карта (актуально на 25.04.2026)
+## 11. Дорожная карта (актуально на 25.04.2026 — Stage 22b)
 
 ### ✅ Готово
 | Этап | Описание |
@@ -432,6 +432,7 @@ GITHUB_TOKEN=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 bash scripts/github-push.s
 | 21b | **Бета-дисклеймеры:** info-блок «Бета-режим» под «Итого к оплате» в `ListingDetail` (читает `publicSettings.isCommercialMode`); warning-баннер вверху `SubmitClaimModal` в `Dashboard` — компенсации в бета-режиме обрабатываются вручную |
 | 22a | **Цифровой Акт — каркас:** таблица `digital_acts` (booking_id FK, type='check_in'/'check_out', photos jsonb≥4, video_url, metadata jsonb с EXIF/GPS, created_by_user_id), routes `GET/POST /api/bookings/:id/digital-acts`, **блокировка перехода `confirmed → active` без check_in акта (409 `digital_act_required`)**, фронтовый `DigitalActUpload.tsx` с EXIF через `exifr`, кнопки в карточках брони (confirmed/active для обеих сторон), 409-перехват в `handleStatusChange` с авто-открытием модалки; в админке `BookingOverrideModal` — сетка превью актов с GPS-маркерами для арбитража |
 | 22a-hardening | **Hardening Цифрового Акта (25.04.2026):** `UNIQUE(booking_id, type)` в схеме (один акт каждого типа на бронь) + Postgres `23505 → HTTP 409 act_already_exists`, photo URL whitelist regex `/^\/uploads\/[A-Za-z0-9._-]+\.(jpe?g\|png\|webp\|heic\|heif)$/i` (блок внешних URL, `data:`-URI, path-traversal), фронтовый детект 409 через `ApiError.status` (а не парсинг сообщения). **E2E регрессия `/tmp/test-stage22a-v2.sh` — 31/31** на реальных юзерах из снапшота (3 owner + 3 renter + admin + stranger): RBAC всех ролей, форджи фото, дубликаты, happy-path, public-settings |
+| 22b | **Карта арбитража + электронная подпись (25.04.2026):** новый `SignaturePad.tsx` (нативный HTML5 canvas + PointerEvents для мышь/палец/стилус, retina-aware через `devicePixelRatio`, метод `clear/isEmpty/toDataURL` через `useImperativeHandle`); новый `DigitalActMap.tsx` (компактная Leaflet-карта read-only, фирменный `#C65D3B` пин); подпись обязательна на стороне фронта (`disabled` кнопки «Сохранить акт») и бэка (`validateSignature()` — regex `/^data:image\/png;base64,[A-Za-z0-9+/=]+$/` + лимит 300КБ → 400 `signature_required`). Хранение в `metadata.signature` без миграции БД. Админский `DigitalActsBlock` отображает карту по первой GPS-точке из `metadata.photoExif` + PNG-подпись + бейджи 📍/✍️ |
 
 ### 🚧 Следующие приоритеты
 
@@ -852,6 +853,43 @@ V6–V8 — Trust Score, делается после накопления дан
 ---
 
 ## 12. Журнал релизов
+
+### 25.04.2026 — Stage 22b: карта арбитража + электронная подпись
+
+**Цель:** замкнуть «Стальной Щит #2» — добавить визуализацию GPS-точки съёмки для арбитра и слой юридической дисциплины через подпись участника.
+
+**Новые компоненты:**
+- `artifacts/hochu-to/src/components/SignaturePad.tsx` — нативный HTML5 canvas + PointerEvents (унифицировано для мыши/пальца/стилуса), `touch-action: none` (не скроллится при подписи на мобиле), retina через `devicePixelRatio`, `ResizeObserver` для адаптивности (с сохранением рисунка при resize). Public API через `useImperativeHandle`: `clear()`, `isEmpty()`, `toDataURL()`. Никаких новых npm-зависимостей.
+- `artifacts/hochu-to/src/components/DigitalActMap.tsx` — минимальная Leaflet-карта: один пин по `(lat, lng)`, OSM-тайлы, `scrollWheelZoom: false`, attribution off. Фирменный SVG-pin `#C65D3B`. Высота настраивается prop'ом (по умолчанию 180px).
+
+**Изменения в `artifacts/hochu-to/src/components/DigitalActUpload.tsx`:**
+- Импорт `SignaturePad` + `useRef<SignaturePadHandle>`.
+- Финальный блок «✍️ Подпись *» под видео.
+- В `submit()`: ранний `return` если `signatureRef.current.isEmpty()`. Подпись сохраняется в `metadata.signature` (data:image/png;base64).
+- Кнопка «Сохранить акт» disabled пока холст пуст.
+
+**Backend `artifacts/api-server/src/routes/digital_acts.ts`:**
+- Функция `validateSignature(raw)` — ручная проверка вместо Zod. Причина: api-server bundler (esbuild через `build.mjs`) не резолвит `zod/v4` (DB-схема использует это, но api-server в обычной коде использует `@workspace/api-zod`). Регекс `/^data:image\/png;base64,[A-Za-z0-9+/=]+$/` + лимит 300КБ.
+- Проверка после photo-whitelist, перед state-machine. Ошибки → 400 `signature_required` с разными сообщениями (пустая / большая / неверный формат).
+- БД-миграция не требуется: подпись сидит в существующем `metadata jsonb`.
+
+**Админка `artifacts/hochu-to/src/pages/AdminPage.tsx` → `DigitalActsBlock`:**
+- Извлечение первой GPS-точки: `meta.photoExif.find(e => typeof e?.lat === "number" && typeof e?.lng === "number")` — если есть, рисуем карту высотой 160px с координатами под ней.
+- Извлечение подписи: `typeof meta.signature === "string" && startsWith("data:image/png;base64,")` — если есть, рисуем `<img>` подписи в белом боксе с границей, max-h-32.
+- Бейджи в шапке акта: `📍 GPS` / `✍️ Подпись`.
+
+**Smoke-тесты бэкенда (5/5):**
+| Сценарий | Ответ |
+|---|---|
+| Без подписи в metadata | 400 `signature_required` «Подпись обязательна — нарисуйте её…» |
+| Пустая строка | 400 `signature_required` «Подпись обязательна…» |
+| `data:image/jpeg;base64,…` | 400 `signature_required` «Подпись должна быть PNG…» |
+| XSS внутри base64 (`<script>...`) | 400 `signature_required` «Подпись должна быть PNG…» (alphabet check) |
+| Валидная PNG-подпись на UNIQUE-дубликат | 409 `act_already_exists` (значит signature_check прошёл) |
+
+**Совместимость с бета-режимом (`is_commercial_mode === false`):** Stage 22b живёт целиком на стороне frontend canvas + backend regex, не зависит от платежей. Работает идентично в обоих режимах.
+
+**Файлы изменены:** 5 файлов (2 новых компонента + 3 правки). Миграции БД нет.
 
 ### 25.04.2026 — Stage 22a hardening + полная e2e регрессия (31/31)
 

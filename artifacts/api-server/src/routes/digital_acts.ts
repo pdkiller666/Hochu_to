@@ -11,6 +11,34 @@ import { requireAuth, type AuthRequest } from "../middleware/auth.js";
 
 const router = Router();
 
+// Stage 22b — формат подписи. PNG data-URL, base64 alphabet only,
+// до ~300КБ (типичная подпись 800×180 = 10–60КБ; 300К — запас на ретину).
+// Без зависимости от zod/v4: ручная проверка regex + длины проще и не тянет
+// внешний модуль в bundle (api-server использует только @workspace/api-zod).
+const SIGNATURE_RE = /^data:image\/png;base64,[A-Za-z0-9+/=]+$/;
+const MAX_SIGNATURE_LEN = 300_000;
+// Базовый префикс base64 для magic-байт PNG (0x89 0x50 0x4E 0x47 0x0D 0x0A 0x1A 0x0A) = "iVBORw0KGgo".
+// Это исключает «PNG»-фейки с другим форматом данных под видом mime.
+const PNG_BASE64_MAGIC_PREFIX = "iVBORw0KGgo";
+
+function validateSignature(raw: unknown): { ok: true; value: string } | { ok: false; message: string } {
+  if (typeof raw !== "string" || raw.length === 0) {
+    return { ok: false, message: "Подпись обязательна — нарисуйте её в модалке акта." };
+  }
+  if (raw.length > MAX_SIGNATURE_LEN) {
+    return { ok: false, message: "Подпись слишком большая (>300КБ)." };
+  }
+  if (!SIGNATURE_RE.test(raw)) {
+    return { ok: false, message: "Подпись должна быть PNG в формате data:image/png;base64,…" };
+  }
+  // Проверка реальных PNG-магик-байт (не просто mime-приписка).
+  const base64Body = raw.slice("data:image/png;base64,".length);
+  if (!base64Body.startsWith(PNG_BASE64_MAGIC_PREFIX)) {
+    return { ok: false, message: "Подпись повреждена: ожидаются настоящие PNG-данные." };
+  }
+  return { ok: true, value: raw };
+}
+
 /**
  * Stage 22a — Цифровой Акт.
  *
@@ -109,6 +137,13 @@ router.post("/bookings/:bookingId/digital-acts", requireAuth, async (req: AuthRe
       error: "invalid_photo_url",
       message: `Фото должно быть загружено через нашу загрузку (/uploads/...): ${badPhoto}`,
     });
+    return;
+  }
+
+  // Stage 22b — обязательная электронная подпись участника. Хранится в metadata.
+  const sig = validateSignature((parsed.data.metadata as any)?.signature);
+  if (!sig.ok) {
+    res.status(400).json({ error: "signature_required", message: sig.message });
     return;
   }
 

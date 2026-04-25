@@ -1,4 +1,5 @@
 import { Layout } from "@/components/layout/Layout";
+import { DigitalActMap } from "@/components/DigitalActMap";
 import { useGetCurrentUser } from "@workspace/api-client-react";
 import { useLocation } from "wouter";
 import { useEffect, useState, useRef, useMemo } from "react";
@@ -768,11 +769,20 @@ function DigitalActsBlock({ bookingId }: { bookingId: number }) {
       {items.map((act: any) => {
         const photos: string[] = Array.isArray(act.photos) ? act.photos : [];
         const meta = act.metadata || {};
-        const hasGps = meta.extractedFromExif || (meta.photoExif?.some((e: any) => e?.lat));
+        // Stage 22b — координаты для карты: первое фото с GPS из EXIF.
+        const gpsPhoto = Array.isArray(meta.photoExif)
+          ? meta.photoExif.find((e: any) => typeof e?.lat === "number" && typeof e?.lng === "number")
+          : null;
+        const lat: number | null = gpsPhoto?.lat ?? null;
+        const lng: number | null = gpsPhoto?.lng ?? null;
+        const hasGps = lat != null && lng != null;
+        const signature: string | null = typeof meta.signature === "string" && meta.signature.startsWith("data:image/png;base64,")
+          ? meta.signature
+          : null;
         return (
-          <div key={act.id} className="border border-stone-200 rounded-xl p-3 bg-stone-50">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
+          <div key={act.id} className="border border-stone-200 rounded-xl p-3 bg-stone-50 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
                   act.type === "check_in" ? "bg-emerald-100 text-emerald-800" : "bg-violet-100 text-violet-800"
                 }`}>
@@ -783,6 +793,9 @@ function DigitalActsBlock({ bookingId }: { bookingId: number }) {
                 </span>
                 {hasGps && (
                   <span className="text-[10px] text-emerald-700 font-medium">📍 GPS</span>
+                )}
+                {signature && (
+                  <span className="text-[10px] text-violet-700 font-medium">✍️ Подпись</span>
                 )}
               </div>
               <span className="text-[11px] text-stone-500">{photos.length} фото</span>
@@ -797,9 +810,30 @@ function DigitalActsBlock({ bookingId }: { bookingId: number }) {
             </div>
             {act.videoUrl && (
               <a href={act.videoUrl} target="_blank" rel="noreferrer"
-                 className="mt-2 inline-block text-[11px] text-blue-600 hover:underline">
+                 className="inline-block text-[11px] text-blue-600 hover:underline">
                 🎬 Видео доказательство
               </a>
+            )}
+            {hasGps && (
+              <div>
+                <div className="text-[11px] text-stone-500 mb-1 flex items-center gap-1">
+                  📍 Местонахождение съёмки
+                  <span className="text-stone-400">({lat!.toFixed(5)}, {lng!.toFixed(5)})</span>
+                </div>
+                <DigitalActMap lat={lat!} lng={lng!} height={160} />
+              </div>
+            )}
+            {signature && (
+              <div>
+                <div className="text-[11px] text-stone-500 mb-1">✍️ Подпись участника</div>
+                <div className="rounded-xl border border-stone-200 bg-white p-2 inline-block max-w-full">
+                  <img
+                    src={signature}
+                    alt="Подпись"
+                    className="block max-h-32 max-w-full object-contain"
+                  />
+                </div>
+              </div>
             )}
           </div>
         );
