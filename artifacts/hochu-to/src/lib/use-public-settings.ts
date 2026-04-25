@@ -10,6 +10,12 @@ export interface PublicSettings {
   contactLifetimeDays: number;
   freeShowOwnerPhoneMode: string;
   freeListingsEnabled: boolean;
+  /**
+   * Главный «коммерческий рубильник». false = Бета-режим:
+   * никаких комиссий, фонда, эскроу и платных контактов — UI скрывает
+   * соответствующие блоки, оплата аренды происходит напрямую владельцу.
+   */
+  isCommercialMode: boolean;
   [key: string]: any;
 }
 
@@ -39,15 +45,29 @@ async function fetchPublicSettings(): Promise<PublicSettings> {
   return cache.promise;
 }
 
-/** Хук с client-side кэшированием публичных настроек платформы (TTL 60с). */
+/** Хук с client-side кэшированием публичных настроек платформы (TTL 60с).
+ * При сетевой ошибке — экспоненциальный retry (1s, 2s, 4s, до 30с) до успеха.
+ * Это критично: компоненты используют tri-state (loading=commercial-default,
+ * явный false=beta), и постоянный null от единичного фейла даст ложно-commercial
+ * UI в beta-deploy до перезагрузки страницы. */
 export function usePublicSettings(): PublicSettings | null {
   const [data, setData] = useState<PublicSettings | null>(cache.data);
   useEffect(() => {
     let cancelled = false;
-    fetchPublicSettings()
-      .then(d => { if (!cancelled) setData(d); })
-      .catch(() => { /* молча — компонент всё равно работает с null */ });
-    return () => { cancelled = true; };
+    let attempt = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const tryLoad = () => {
+      fetchPublicSettings()
+        .then(d => { if (!cancelled) setData(d); })
+        .catch(() => {
+          if (cancelled) return;
+          attempt += 1;
+          const delay = Math.min(30_000, 1000 * Math.pow(2, attempt - 1));
+          timer = setTimeout(tryLoad, delay);
+        });
+    };
+    tryLoad();
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
   }, []);
   return data;
 }

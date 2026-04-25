@@ -7,6 +7,7 @@ import { ListingPlaceholder } from "@/components/ui/ListingPlaceholder";
 import { useFavorites } from "@/lib/favorites-context";
 import { getToken } from "@/lib/auth";
 import { useLocation } from "wouter";
+import { usePublicSettings } from "@/lib/use-public-settings";
 
 interface ListingCardProps {
   listing: Listing;
@@ -26,23 +27,25 @@ type Badge = {
   tier: "paid" | "earned" | "default";
 };
 
-function getListingBadges(listing: Listing): Badge[] {
+function getListingBadges(listing: Listing, isCommercialMode: boolean): Badge[] {
   const out: Badge[] = [];
   const l = listing as any;
   const now = Date.now();
 
   // ── Платные (приоритет в выдаче) ──────────────────────────────
-  if (l.isFeatured && (!l.featuredUntil || new Date(l.featuredUntil).getTime() > now)) {
+  // В Бета-режиме никаких платных продвижений нет, бейджи скрываем чтобы
+  // не вводить пользователя в заблуждение.
+  if (isCommercialMode && l.isFeatured && (!l.featuredUntil || new Date(l.featuredUntil).getTime() > now)) {
     out.push({ key: "vip", icon: Crown, label: "VIP", className: "bg-amber-100 text-amber-800 border-amber-300", tier: "paid" });
   }
-  if (l.isUrgent && (!l.urgentUntil || new Date(l.urgentUntil).getTime() > now)) {
+  if (isCommercialMode && l.isUrgent && (!l.urgentUntil || new Date(l.urgentUntil).getTime() > now)) {
     out.push({ key: "urgent", icon: Zap, label: "Срочно", className: "bg-red-100 text-red-700 border-red-300", tier: "paid" });
   }
 
   // ── Тип сделки ────────────────────────────────────────────────
-  // Зелёный бейдж только когда владелец подключил фонд. Если выключен — бейдж не показываем
-  // (его отсутствие само по себе сигнал; мотивацию подключить защиту даём в карточке вещи).
-  if (l.ownerProtectionEnabled !== false) {
+  // Зелёный бейдж «Безопасная сделка» — только в коммерческом режиме.
+  // В Бета-режиме защита не работает и обещать её было бы враньём, поэтому бейдж скрыт.
+  if (isCommercialMode && l.ownerProtectionEnabled !== false) {
     out.push({ key: "safe", icon: ShieldCheck, label: "Безопасная сделка", className: "bg-green-50 text-green-700 border-green-200", tier: "default" });
   }
   const rating = typeof l.rating === "number" ? l.rating : 0;
@@ -72,7 +75,11 @@ function getListingBadges(listing: Listing): Badge[] {
 export function ListingCard({ listing }: ListingCardProps) {
   const [imgError, setImgError] = useState(false);
   const [showTooltip, setShowTooltip] = useState(false);
-  const badges = getListingBadges(listing);
+  const settings = usePublicSettings();
+  // Tri-state: settings ещё не загружены → ведём себя как commercial (безопасный
+  // дефолт). Скрываем коммерческие фичи ТОЛЬКО при явном isCommercialMode=false.
+  const isCommercialMode = settings?.isCommercialMode !== false;
+  const badges = getListingBadges(listing, isCommercialMode);
   const hasPhoto = (listing.photos?.length ?? 0) > 0 && !imgError;
   const photoUrl = listing.photos?.[0] ? getPhotoSrc(listing.photos[0]) : null;
   const { isFavorite, toggle } = useFavorites();
@@ -163,7 +170,11 @@ export function ListingCard({ listing }: ListingCardProps) {
           {(() => {
             const cat = ((listing as any).itemCategory ?? "tools") as ItemCategory;
             const ownerProt = (listing as any).ownerProtectionEnabled !== false;
-            const { total, combinedServiceFee } = calculateTotalPrice(listing.pricePerDay, cat, 1, ownerProt);
+            // В Бета-режиме комиссии и фонд отключены — итоговая цена для арендатора
+            // равна базовой цене аренды. Не вызываем calculateTotalPrice, чтобы
+            // случайно не «протекли» коммерческие надбавки.
+            const { total: totalCommercial, combinedServiceFee } = calculateTotalPrice(listing.pricePerDay, cat, 1, ownerProt);
+            const total = isCommercialMode ? totalCommercial : Number(listing.pricePerDay);
             const deposit = calcDeposit(listing.pricePerDay);
             return (
               <>
@@ -187,7 +198,7 @@ export function ListingCard({ listing }: ListingCardProps) {
                         <div className="flex justify-between text-muted-foreground">
                           <span>Аренда</span><span>{formatPrice(listing.pricePerDay)}</span>
                         </div>
-                        {ownerProt && combinedServiceFee > 0 && (
+                        {isCommercialMode && ownerProt && combinedServiceFee > 0 && (
                           <div className="flex justify-between text-muted-foreground">
                             <span>Гарантийный фонд</span><span>{formatPrice(combinedServiceFee)}</span>
                           </div>

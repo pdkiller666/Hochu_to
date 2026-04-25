@@ -27,16 +27,17 @@ type ListingBadge = {
   className: string;
 };
 
-function getDetailBadges(l: any): ListingBadge[] {
+function getDetailBadges(l: any, isCommercialMode: boolean): ListingBadge[] {
   const out: ListingBadge[] = [];
   const now = Date.now();
-  if (l.isFeatured && (!l.featuredUntil || new Date(l.featuredUntil).getTime() > now)) {
+  // В Бета-режиме платных продвижений нет, бейджи скрываем.
+  if (isCommercialMode && l.isFeatured && (!l.featuredUntil || new Date(l.featuredUntil).getTime() > now)) {
     out.push({ key: "vip", icon: Crown, label: "VIP", className: "bg-amber-100 text-amber-800 border-amber-300" });
   }
-  if (l.isUrgent && (!l.urgentUntil || new Date(l.urgentUntil).getTime() > now)) {
+  if (isCommercialMode && l.isUrgent && (!l.urgentUntil || new Date(l.urgentUntil).getTime() > now)) {
     out.push({ key: "urgent", icon: Zap, label: "Срочно", className: "bg-red-100 text-red-700 border-red-300" });
   }
-  if (l.boostedUntil && new Date(l.boostedUntil).getTime() > now) {
+  if (isCommercialMode && l.boostedUntil && new Date(l.boostedUntil).getTime() > now) {
     out.push({ key: "boost", icon: Sparkles, label: "Топ", className: "bg-orange-100 text-orange-800 border-orange-300" });
   }
   const bookingCount = typeof l.bookingCount === "number" ? l.bookingCount : 0;
@@ -112,23 +113,38 @@ export default function ListingDetail() {
   const [showFreeUpgradeDetails, setShowFreeUpgradeDetails] = useState(false);
   const publicSettings = usePublicSettings();
   const contactPriceSingle = publicSettings?.contactPriceSingle ?? 0;
+  // Tri-state semantics:
+  //   • settings ещё не загружены → ведём себя как commercial (это безопасный
+  //     дефолт, чтобы не скрывать коммерческие фичи на миллисекунды загрузки).
+  //   • isBetaMode === true ТОЛЬКО когда сервер явно вернул is_commercial_mode=false.
+  //   • isCommercialMode = !isBetaMode (включает loading-фазу).
+  const isBetaMode = publicSettings?.isCommercialMode === false;
+  const isCommercialMode = !isBetaMode;
 
   // Free-объявление: владелец отключил Гарантийный фонд. По умолчанию арендатор идёт по «Прямому расчёту».
   const isFreeListing = (listing as any)?.ownerProtectionEnabled === false;
-  const [protectionInitialized, setProtectionInitialized] = useState(false);
+  // Re-init при смене listing ИЛИ при загрузке settings (publicSettings).
+  // Раньше одноразовый флаг фиксировал состояние до загрузки настроек, что
+  // могло оставить free-листинг в beta с CTA «Получить контакты (N₽)».
   useEffect(() => {
-    if (!listing || protectionInitialized) return;
-    if (isFreeListing) {
+    if (!listing || !publicSettings) return;
+    if (isBetaMode) {
+      // Бета-режим: коммерция выключена, ветка «Получить контакты за N₽» спрятана.
+      // Используем «защищённую» ветку как контейнер обычной заявки на бронирование,
+      // но без фонда — чекбокс защиты в чекауте тоже скрыт.
+      setProtectionEnabled(true);
+      setRenterFundEnabled(false);
+    } else if (isFreeListing) {
       // На Free-объявлении: по умолчанию «Прямой расчёт» (без бронирования)
       // и фонд арендатора выключен (если арендатор апгрейдит — пусть включит сам)
       setProtectionEnabled(false);
       setRenterFundEnabled(false);
     } else {
       // Premium: фонд по умолчанию включён, чтобы защитить арендатора
+      setProtectionEnabled(true);
       setRenterFundEnabled(true);
     }
-    setProtectionInitialized(true);
-  }, [listing, isFreeListing, protectionInitialized]);
+  }, [listing, isFreeListing, isBetaMode, publicSettings]);
 
   // Reviews state
   const [reviews, setReviews] = useState<ReviewData[]>([]);
@@ -325,7 +341,7 @@ export default function ListingDetail() {
                 </button>
               </div>
               <div className="mt-3">
-                <BadgeRow badges={getDetailBadges(listing)} />
+                <BadgeRow badges={getDetailBadges(listing, isCommercialMode)} />
               </div>
             </div>
 
@@ -419,7 +435,7 @@ export default function ListingDetail() {
                   <Heart className={`w-5 h-5 ${fav ? "fill-current" : ""}`} />
                 </button>
               </div>
-              <BadgeRow badges={getDetailBadges(listing)} />
+              <BadgeRow badges={getDetailBadges(listing, isCommercialMode)} />
 
               <div className="flex items-center gap-6 text-sm text-muted-foreground pb-6 border-b border-border">
                 <div
@@ -609,24 +625,28 @@ export default function ListingDetail() {
                   const { ownerPayout } = calculateTotalPrice(listing.pricePerDay, cat, 1, ownerProt, false);
                   return (
                     <>
-                      <div className="bg-green-50 border border-green-200 rounded-xl p-2.5 mb-2 text-xs">
-                        <p className="text-green-800">
-                          На карту: <strong className="text-green-900 text-sm">{formatPrice(ownerPayout)}</strong> с суток <span className="text-green-700">— чистыми</span>
-                        </p>
-                        <p className="text-[10.5px] text-green-700 leading-snug mt-1">
-                          {ownerProt
-                            ? "Эквайринг, чек, эскроу и поддержку при споре платформа берёт на себя — вы получаете готовую сумму без хлопот."
-                            : "Эквайринг и чек при оплате через платформу — на нас. Сумма указана после комиссий."}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setPromoteOpen(true)}
-                        className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-bold text-sm shadow-sm transition-colors"
-                        title="Продвинуть это объявление в каталоге"
-                      >
-                        <Sparkles className="w-4 h-4" /> Продвигать объявление
-                      </button>
+                      {isCommercialMode && (
+                        <div className="bg-green-50 border border-green-200 rounded-xl p-2.5 mb-2 text-xs">
+                          <p className="text-green-800">
+                            На карту: <strong className="text-green-900 text-sm">{formatPrice(ownerPayout)}</strong> с суток <span className="text-green-700">— чистыми</span>
+                          </p>
+                          <p className="text-[10.5px] text-green-700 leading-snug mt-1">
+                            {ownerProt
+                              ? "Эквайринг, чек, эскроу и поддержку при споре платформа берёт на себя — вы получаете готовую сумму без хлопот."
+                              : "Эквайринг и чек при оплате через платформу — на нас. Сумма указана после комиссий."}
+                          </p>
+                        </div>
+                      )}
+                      {isCommercialMode && (
+                        <button
+                          type="button"
+                          onClick={() => setPromoteOpen(true)}
+                          className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white font-bold text-sm shadow-sm transition-colors"
+                          title="Продвинуть это объявление в каталоге"
+                        >
+                          <Sparkles className="w-4 h-4" /> Продвигать объявление
+                        </button>
+                      )}
                     </>
                   );
                 })()}
@@ -642,13 +662,13 @@ export default function ListingDetail() {
                         <Info className="w-4 h-4 shrink-0 mt-0.5 text-primary" />
                         <div>
                           <p>Залог: <strong className="text-foreground">{formatPrice(deposit)}</strong> — возвращается сразу после сдачи вещи в том же состоянии.</p>
-                          {ownerProt && maxProt && maxProt > 0 && (
+                          {isCommercialMode && ownerProt && maxProt && maxProt > 0 && (
                             <p className="text-xs mt-1 text-primary/80">Защита фонда: до <strong>{maxProt.toLocaleString("ru")} ₽</strong> при повреждении или краже</p>
                           )}
                         </div>
                       </div>
-                      {/* Гарантийный фонд — мотивационный блок для арендатора */}
-                      {ownerProt && !isOwnerRole && (
+                      {/* Гарантийный фонд — мотивационный блок для арендатора (только в коммерч. режиме) */}
+                      {isCommercialMode && ownerProt && !isOwnerRole && (
                         <div className="flex items-start gap-2.5 bg-green-50 border border-green-200 p-3 rounded-xl text-sm text-green-800">
                           <ShieldCheck className="w-4 h-4 shrink-0 mt-0.5 text-green-600" />
                           <div className="space-y-0.5">
@@ -657,14 +677,26 @@ export default function ListingDetail() {
                           </div>
                         </div>
                       )}
-                      {/* Free-сделка: короткий контекст. Цена и кнопка — на чекбоксе при бронировании */}
-                      {!ownerProt && !isOwnerRole && (
+                      {/* Free-сделка: короткий контекст (только в коммерч. режиме). */}
+                      {isCommercialMode && !ownerProt && !isOwnerRole && (
                         <div className="flex items-start gap-2.5 bg-gradient-to-br from-primary/5 to-accent/5 border border-primary/20 p-3 rounded-xl">
                           <ShieldCheck className="w-5 h-5 shrink-0 mt-0.5 text-primary" />
                           <div>
                             <p className="font-semibold text-foreground text-sm">Защитите сделку сами</p>
                             <p className="text-xs text-muted-foreground leading-relaxed mt-0.5">
                               Это объявление без Гарантийного фонда. При бронировании вы можете <b>включить защиту</b> — платформа возьмёт сделку под эскроу и возместит ущерб через арбитраж.
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                      {/* Бета-режим: общий info-баннер для всех пользователей */}
+                      {isBetaMode && !isOwnerRole && (
+                        <div className="flex items-start gap-2.5 bg-amber-50 border border-amber-300 p-3 rounded-xl text-sm">
+                          <Info className="w-4 h-4 shrink-0 mt-0.5 text-amber-600" />
+                          <div className="space-y-0.5">
+                            <p className="font-semibold text-amber-900">Бета-режим</p>
+                            <p className="text-xs leading-relaxed text-amber-800">
+                              Оплата аренды происходит <b>напрямую владельцу</b> при встрече (наличными или по СБП). Платформа сейчас работает как доска объявлений — никаких комиссий и удержаний.
                             </p>
                           </div>
                         </div>
@@ -681,7 +713,17 @@ export default function ListingDetail() {
               ) : isOwnerRole && currentUser?.id === (listing as any).ownerId ? (
                 /* Owner viewing their OWN listing */
                 <div className="space-y-3">
-                  {(() => {
+                  {isBetaMode ? (
+                    <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-4 space-y-2">
+                      <div className="flex items-center gap-2.5">
+                        <Info className="w-5 h-5 text-amber-600 shrink-0" />
+                        <p className="font-bold text-amber-900 text-sm">Бета-режим: объявление активно</p>
+                      </div>
+                      <p className="text-xs text-amber-800 leading-relaxed">
+                        Размещение бесплатное, платформа работает как доска объявлений. Когда арендатор оставит заявку — свяжитесь с ним и договоритесь о встрече и оплате напрямую (наличные или СБП).
+                      </p>
+                    </div>
+                  ) : (() => {
                     const ownerProt = (listing as any).ownerProtectionEnabled !== false;
                     const maxProt = (listing as any).maxProtectionLimit as number | undefined;
                     return ownerProt ? (
@@ -764,7 +806,9 @@ export default function ListingDetail() {
                     </div>
                     <h3 className="font-display font-black text-lg mb-1.5">Войдите, чтобы арендовать</h3>
                     <p className="text-sm text-muted-foreground leading-relaxed mb-4">
-                      После регистрации вы увидите календарь свободных дат, точную стоимость аренды и сможете отправить заявку владельцу — всё под защитой Гарантийного фонда.
+                      {isBetaMode
+                        ? "После регистрации вы увидите календарь свободных дат и сможете отправить заявку владельцу. Оплата проходит напрямую при встрече."
+                        : "После регистрации вы увидите календарь свободных дат, точную стоимость аренды и сможете отправить заявку владельцу — всё под защитой Гарантийного фонда."}
                     </p>
                     <ul className="text-left space-y-2 mb-5 text-sm">
                       <li className="flex items-start gap-2">
@@ -773,12 +817,14 @@ export default function ListingDetail() {
                       </li>
                       <li className="flex items-start gap-2">
                         <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0 mt-0.5" />
-                        <span>Платите только за нужные дни — без переплат</span>
+                        <span>{isBetaMode ? "Заявка отправляется бесплатно" : "Платите только за нужные дни — без переплат"}</span>
                       </li>
-                      <li className="flex items-start gap-2">
-                        <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0 mt-0.5" />
-                        <span>Защита сделки и арбитраж при спорах</span>
-                      </li>
+                      {isCommercialMode && (
+                        <li className="flex items-start gap-2">
+                          <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0 mt-0.5" />
+                          <span>Защита сделки и арбитраж при спорах</span>
+                        </li>
+                      )}
                       <li className="flex items-start gap-2">
                         <CheckCircle2 className="w-4 h-4 text-green-600 shrink-0 mt-0.5" />
                         <span>Чат с владельцем прямо на платформе</span>
@@ -792,7 +838,11 @@ export default function ListingDetail() {
                   {(() => {
                     const cat = ((listing as any).itemCategory ?? "tools") as ItemCategory;
                     const ownerProt = (listing as any).ownerProtectionEnabled !== false;
-                    const { total } = calculateTotalPrice(listing.pricePerDay, cat, 1, ownerProt);
+                    // В Бета-режиме комиссии и фонд отключены — total = pricePerDay.
+                    // Не вызываем calculateTotalPrice, чтобы не «протекли» commercial-надбавки.
+                    const total = isBetaMode
+                      ? Number(listing.pricePerDay)
+                      : calculateTotalPrice(listing.pricePerDay, cat, 1, ownerProt).total;
                     return (
                       <div className="rounded-2xl bg-muted/40 p-4 text-center">
                         <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold mb-1">Стоимость аренды</p>
@@ -904,7 +954,8 @@ export default function ListingDetail() {
 
                   <form onSubmit={handleBooking} className="space-y-4">
 
-                    {/* ─── Protection toggle ────────────────────────────── */}
+                    {/* ─── Protection toggle (только в коммерч. режиме) ── */}
+                    {isCommercialMode && (
                     <div className={`rounded-2xl border-2 p-4 transition-colors ${protectionEnabled ? "border-primary/30 bg-primary/5" : "border-orange-300 bg-orange-50"}`}>
                       <div className="flex items-center justify-between gap-3">
                         <div className="flex items-center gap-2.5">
@@ -969,6 +1020,7 @@ export default function ListingDetail() {
                         </div>
                       )}
                     </div>
+                    )}
 
                     {/* ─── Календарь — всегда виден ──────────────────────── */}
                     <>
@@ -1020,7 +1072,26 @@ export default function ListingDetail() {
                     </>
 
                     {/* Price summary */}
-                    {!protectionEnabled ? (
+                    {isBetaMode ? (
+                      startDate && endDate && totalDays > 0 ? (
+                        <div className="bg-amber-50 border border-amber-300 p-4 rounded-xl space-y-2 text-sm">
+                          <div className="flex justify-between text-muted-foreground">
+                            <span>{totalDays} {totalDays === 1 ? "сутки" : "суток"} × {formatPrice(listing.pricePerDay)}</span>
+                            <span className="text-foreground font-medium">{formatPrice(Number(listing.pricePerDay) * totalDays)}</span>
+                          </div>
+                          <div className="flex justify-between items-center font-bold border-t border-amber-300 pt-2">
+                            <span>К оплате владельцу</span>
+                            <span className="text-xl text-amber-700">{formatPrice(Number(listing.pricePerDay) * totalDays)}</span>
+                          </div>
+                          <div className="flex items-start gap-2 text-[11px] text-amber-900 leading-snug pt-1 border-t border-amber-300">
+                            <Info className="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-600" />
+                            <span>
+                              <b>Бета-режим:</b> оплата происходит напрямую владельцу при встрече (наличными или СБП). Платформа не удерживает комиссий.
+                            </span>
+                          </div>
+                        </div>
+                      ) : null
+                    ) : !protectionEnabled ? (
                       <div className="bg-orange-50 border border-orange-200 p-4 rounded-xl space-y-1.5 text-sm">
                         {startDate && endDate && totalDays > 0 && (
                           <>
@@ -1145,8 +1216,9 @@ export default function ListingDetail() {
                           </div>
 
                           {/* Чекбокс защиты Гарантийным фондом —
-                              для Free-сделки выделяем заметным CTA, для Premium оставляем тонкой опцией */}
-                          {!ownerProt ? (
+                              для Free-сделки выделяем заметным CTA, для Premium оставляем тонкой опцией.
+                              В Бета-режиме коммерция отключена — чекбоксы скрыты. */}
+                          {isCommercialMode && (!ownerProt ? (
                             <label className={`flex items-start gap-2.5 cursor-pointer mt-2 p-2.5 rounded-lg border-2 transition-colors ${
                               renterFundEnabled
                                 ? "border-green-300 bg-green-50"
@@ -1184,7 +1256,7 @@ export default function ListingDetail() {
                                 {renterFundEnabled ? "" : ` (+${formatPrice(fundShare)})`}
                               </span>
                             </label>
-                          )}
+                          ))}
                         </div>
                       );
                     })()}

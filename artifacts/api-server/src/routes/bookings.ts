@@ -176,6 +176,12 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
   // поэтому делаем let.
   let protectionEnabled: boolean = parsed.data.protectionEnabled ?? true;
 
+  // ── Bugfix (beta-mode): подгружаем настройки заранее, чтобы можно было
+  // финально форсить protectionEnabled=false ПОСЛЕ co-owner override (см. ниже).
+  // Ранний форс был бы перезатёрт co-owner блоком в true и ушёл бы в Сценарий А
+  // с начислением co-owner-таксы — что нарушает инвариант beta «комиссии = 0».
+  const _earlySettings = await getPlatformSettings();
+
   // ─── Валидация формата дат (если переданы) ──────────────────────────────
   // Принимаем строго YYYY-MM-DD, иначе 400.
   const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -222,6 +228,14 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
     protectionEnabled = true;
   }
 
+  // ── Bugfix (beta-mode) FINAL force: применяется ПОСЛЕ co-owner override.
+  // В Бета-режиме коммерция отключена для ВСЕХ пользователей, включая совладельцев
+  // пула — co-owner-такса/защитный фонд тоже обнулены, поэтому уводим всех в
+  // Сценарий Б, который пишет protectionEnabled=false и нулевые комиссии.
+  if (_earlySettings.isCommercialMode === false) {
+    protectionEnabled = false;
+  }
+
   // ─── Сценарий Б: Прямой расчёт ───────────────────────────────────────────
   if (!protectionEnabled) {
     const startDate = rawStart ?? todayStr;
@@ -252,6 +266,12 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
       return;
     }
 
+    // Bugfix (beta-mode): в Бета-режиме коммерция отключена — арендатор НЕ платит
+    // contact_fee платформе. Сохраняем totalPrice=0 (вместо CONTACT_FEE), чтобы
+    // Dashboard и уведомления не вводили в заблуждение «оплачено N₽».
+    const isBetaMode = _earlySettings.isCommercialMode === false;
+    const totalPriceB = isBetaMode ? 0 : CONTACT_FEE;
+
     const [booking] = await db.insert(bookingsTable).values({
       listingId,
       renterId: req.userId!,
@@ -259,7 +279,7 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
       startDate,
       endDate,
       totalDays: daysB,
-      totalPrice: CONTACT_FEE.toString(),
+      totalPrice: totalPriceB.toString(),
       rentAmount: rentAmountB.toString(),
       serviceFee: "0",
       taxFee: "0",
@@ -289,22 +309,32 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
       actorRole: "renter",
       eventType: "direct_contact_opened",
       toStatus: "confirmed",
-      comment: `Прямой расчёт: оплачено ${CONTACT_FEE} ₽ за открытие контактов`,
+      comment: isBetaMode
+        ? `Бета-режим: заявка отправлена напрямую владельцу (без оплаты платформе)`
+        : `Прямой расчёт: оплачено ${CONTACT_FEE} ₽ за открытие контактов`,
     });
 
     await createNotification({
       userId: listing.ownerId,
       type: "booking_created",
-      title: `📞 Прямой запрос контактов — «${listing.title}»`,
-      message: `${renterUser?.name ?? "Пользователь"} оплатил открытие ваших контактов (${CONTACT_FEE} ₽). Ожидайте сообщения.`,
+      title: isBetaMode
+        ? `📩 Новая заявка — «${listing.title}»`
+        : `📞 Прямой запрос контактов — «${listing.title}»`,
+      message: isBetaMode
+        ? `${renterUser?.name ?? "Пользователь"} оставил заявку на аренду. Свяжитесь с ним и договоритесь о встрече.`
+        : `${renterUser?.name ?? "Пользователь"} оплатил открытие ваших контактов (${CONTACT_FEE} ₽). Ожидайте сообщения.`,
       bookingId: booking.id,
       listingTitle: listing.title ?? undefined,
     });
     await createNotification({
       userId: req.userId!,
       type: "booking_submitted",
-      title: `📞 Контакты открыты — «${listing.title}»`,
-      message: `Вы оплатили открытие контактов владельца. Свяжитесь с ним напрямую.`,
+      title: isBetaMode
+        ? `📩 Заявка отправлена — «${listing.title}»`
+        : `📞 Контакты открыты — «${listing.title}»`,
+      message: isBetaMode
+        ? `Ваша заявка отправлена владельцу. Он свяжется с вами в ближайшее время — оплата напрямую при встрече.`
+        : `Вы оплатили открытие контактов владельца. Свяжитесь с ним напрямую.`,
       bookingId: booking.id,
       listingTitle: listing.title ?? undefined,
     });

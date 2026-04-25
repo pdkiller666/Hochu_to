@@ -9,6 +9,7 @@ import { Link } from "wouter";
 import { LocationPicker } from "@/components/ui/LocationPicker";
 import { CollapsibleMap } from "@/components/ui/CollapsibleMap";
 import { calculateTotalPrice, calcMaxProtectionLimit, calcDeposit, ITEM_CATEGORY_LABELS, CATEGORY_AVG_PRICE, mapCategorySlugToItemCategory, type ItemCategory } from "@/lib/utils";
+import { usePublicSettings } from "@/lib/use-public-settings";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "";
 const DRAFT_KEY = "hochu_to_listing_draft";
@@ -32,6 +33,13 @@ export default function ListingForm() {
 
   const createMutation = useCreateListing({ request: { headers: { Authorization: `Bearer ${token}` } } });
   const updateMutation = useUpdateListing({ request: { headers: { Authorization: `Bearer ${token}` } } });
+
+  const settings = usePublicSettings();
+  // Tri-state: settings ещё не загружены → ведём себя как commercial (безопасный
+  // дефолт, чтобы не отправить ownerProtectionEnabled=false случайно в commercial
+  // на медленной сети). isBetaMode true ТОЛЬКО при явном false с сервера.
+  const isBetaMode = settings?.isCommercialMode === false;
+  const isCommercialMode = !isBetaMode;
 
   type FormDataShape = {
     title: string;
@@ -129,6 +137,16 @@ export default function ListingForm() {
     }
   }, [isEditing, listingData]);
 
+  // В Бета-режиме форсим локальный state ownerProtectionEnabled=false, чтобы
+  // (а) submit ушёл с правильным значением (см. ownerProtectionForSubmit),
+  // (б) на форме был виден нейтральный блок «Залог по желанию» (он рендерится
+  //     при !formData.ownerProtectionEnabled), и в beta не висел default=true.
+  useEffect(() => {
+    if (isBetaMode && formData.ownerProtectionEnabled) {
+      setFormData(prev => ({ ...prev, ownerProtectionEnabled: false }));
+    }
+  }, [isBetaMode, formData.ownerProtectionEnabled]);
+
   const handleFilesChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
     if (files.length === 0) return;
@@ -223,11 +241,16 @@ export default function ListingForm() {
     const selectedCategory = categories?.find(c => c.id === Number(formData.categoryId));
     const itemCategory = mapCategorySlugToItemCategory(selectedCategory?.slug);
 
+    // В Бета-режиме коммерция отключена: насильно сохраняем
+    // ownerProtectionEnabled=false вне зависимости от прежнего состояния
+    // (черновик / редактируемое объявление мог содержать true).
+    const ownerProtectionForSubmit = isCommercialMode ? formData.ownerProtectionEnabled : false;
+
     // Залог:
     //   • Защищённая сделка — undefined (рассчитается автоматически из настроек фонда).
     //   • Бесплатное объявление — поле опциональное; пустое = без залога; число > 0 = по желанию владельца.
     let depositValue: number | undefined;
-    if (!formData.ownerProtectionEnabled && formData.manualDeposit) {
+    if (!ownerProtectionForSubmit && formData.manualDeposit) {
       const dep = Number(formData.manualDeposit);
       if (!isNaN(dep) && dep > 0) {
         depositValue = dep;
@@ -245,7 +268,7 @@ export default function ListingForm() {
       lng: formData.lng ?? undefined,
       meetingAddress: formData.meetingAddress.trim() || undefined,
       itemCategory: itemCategory as "electronics" | "tools" | "leisure" | "special_machinery",
-      ownerProtectionEnabled: formData.ownerProtectionEnabled,
+      ownerProtectionEnabled: ownerProtectionForSubmit,
       deposit: depositValue,
       isAvailable: formData.isAvailable,
       photos,
@@ -406,6 +429,18 @@ export default function ListingForm() {
             </div>
 
             {/* ─── Выбор формата сделки ─────────────────────────────────── */}
+            {!isCommercialMode ? (
+              <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-4 flex items-start gap-2.5">
+                <Info className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <div className="text-sm text-amber-900 leading-relaxed">
+                  <p className="font-bold mb-1">Бета-режим: размещение бесплатно</p>
+                  <p className="text-xs">
+                    Платформа работает в режиме доски объявлений — никаких комиссий, эскроу или гарантийного фонда.
+                    Сделки вы проводите напрямую с арендатором по личной договорённости (наличными или СБП).
+                  </p>
+                </div>
+              </div>
+            ) : (
             <div className="space-y-3">
               <label className="block text-sm font-bold">Формат сделки</label>
               <p className="text-xs text-muted-foreground -mt-2">
@@ -475,9 +510,12 @@ export default function ListingForm() {
                 </button>
               </div>
             </div>
+            )}
 
             {/* ─── Live Preview ─────────────────────────────────────────── */}
-            {formData.pricePerDay && Number(formData.pricePerDay) >= 100 && (() => {
+            {/* В Бета-режиме комиссии/фонд не действуют — превью с разбивкой
+                цены было бы вводящим в заблуждение, поэтому не рендерим. */}
+            {isCommercialMode && formData.pricePerDay && Number(formData.pricePerDay) >= 100 && (() => {
               const ppd = Number(formData.pricePerDay);
               const selectedCategory = categories?.find(c => c.id === Number(formData.categoryId));
               const cat = mapCategorySlugToItemCategory(selectedCategory?.slug);
@@ -634,7 +672,10 @@ export default function ListingForm() {
               );
             })()}
 
-            {/* ─── Поле залога + честные факты — для бесплатного объявления ─────── */}
+            {/* ─── Поле залога + честные факты — для бесплатного объявления ───────
+                В Бета-режиме весь блок «как на Авито / 21% / контакты у платформы»
+                скрываем, чтобы не противоречить инварианту «комиссий и платных
+                контактов в beta нет». Поле залога показываем нейтрально. */}
             {!formData.ownerProtectionEnabled && (
               <div className="rounded-2xl border-2 border-slate-200 bg-slate-50 p-4 space-y-3">
                 <div className="flex items-start gap-2.5">
@@ -662,22 +703,24 @@ export default function ListingForm() {
                   <p className="text-[11px] text-slate-500 mt-1">Если указываете — рекомендуем не меньше двух стоимостей суток.</p>
                 </div>
 
-                <div className="bg-white rounded-xl p-3 border border-slate-200">
-                  <p className="text-xs font-bold text-slate-800 mb-1.5 flex items-center gap-1.5">
-                    <Info className="w-3.5 h-3.5 text-slate-600" />
-                    Как это работает (как на Авито)
-                  </p>
-                  <ul className="text-[11px] text-slate-700 space-y-1 leading-relaxed pl-1">
-                    <li><span className="text-emerald-600 font-bold">✓</span> Объявление в каталоге, поиск, фото, чат, карта — <strong>бесплатно</strong></li>
-                    <li><span className="text-emerald-600 font-bold">✓</span> Деньги от арендатора получаете <strong>лично, в полном объёме</strong></li>
-                    <li><span className="text-emerald-600 font-bold">✓</span> Платформа берёт плату <strong>с арендатора</strong> за доступ к вашим контактам — спам-обращений нет</li>
-                    <li><span className="text-slate-500">•</span> Сделку, расписку и передачу залога оформляете лично</li>
-                    <li><span className="text-slate-500">•</span> Спорные ситуации решаете самостоятельно</li>
-                  </ul>
-                  <p className="text-[11px] text-slate-700 mt-2 pt-2 border-t border-slate-200">
-                    💡 <strong>Хотите эскроу, страховку и помощь в спорах?</strong> Переключите формат на «🛡 Защищённую сделку» выше — за {21}% от аренды платформа берёт всё на себя.
-                  </p>
-                </div>
+                {isCommercialMode && (
+                  <div className="bg-white rounded-xl p-3 border border-slate-200">
+                    <p className="text-xs font-bold text-slate-800 mb-1.5 flex items-center gap-1.5">
+                      <Info className="w-3.5 h-3.5 text-slate-600" />
+                      Как это работает (как на Авито)
+                    </p>
+                    <ul className="text-[11px] text-slate-700 space-y-1 leading-relaxed pl-1">
+                      <li><span className="text-emerald-600 font-bold">✓</span> Объявление в каталоге, поиск, фото, чат, карта — <strong>бесплатно</strong></li>
+                      <li><span className="text-emerald-600 font-bold">✓</span> Деньги от арендатора получаете <strong>лично, в полном объёме</strong></li>
+                      <li><span className="text-emerald-600 font-bold">✓</span> Платформа берёт плату <strong>с арендатора</strong> за доступ к вашим контактам — спам-обращений нет</li>
+                      <li><span className="text-slate-500">•</span> Сделку, расписку и передачу залога оформляете лично</li>
+                      <li><span className="text-slate-500">•</span> Спорные ситуации решаете самостоятельно</li>
+                    </ul>
+                    <p className="text-[11px] text-slate-700 mt-2 pt-2 border-t border-slate-200">
+                      💡 <strong>Хотите эскроу, страховку и помощь в спорах?</strong> Переключите формат на «🛡 Защищённую сделку» выше — за {21}% от аренды платформа берёт всё на себя.
+                    </p>
+                  </div>
+                )}
               </div>
             )}
           </div>

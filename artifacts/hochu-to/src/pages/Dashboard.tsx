@@ -171,12 +171,27 @@ export default function Dashboard() {
   const search = useSearch();
   const initialTab = new URLSearchParams(search).get("tab");
 
+  // Tri-state: settings ещё не загружены → ведём себя как commercial.
+  // В Бета-режиме скрываем коммерч. вкладки/CTA/promo-бейджи.
+  const publicSettings = usePublicSettings();
+  const isBetaMode = publicSettings?.isCommercialMode === false;
+  const isCommercialMode = !isBetaMode;
+
   type DashTab = "incoming" | "outgoing" | "listings" | "profile" | "history" | "support" | "contacts" | "finance";
-  const validTabs: DashTab[] = ["incoming", "outgoing", "listings", "profile", "history", "support", "contacts", "finance"];
+  // В Бета-режиме «finance» и «contacts» выключены полностью — не принимаем
+  // их даже из URL/persisted state (defense in depth поверх скрытия пунктов меню).
+  const baseTabs: DashTab[] = ["incoming", "outgoing", "listings", "profile", "history", "support"];
+  const validTabs: DashTab[] = isBetaMode ? baseTabs : [...baseTabs, "contacts", "finance"];
   const urlTab = initialTab && validTabs.includes(initialTab as DashTab) ? (initialTab as DashTab) : null;
   const [activeTab, setActiveTab] = usePersistedState<DashTab>("dashboard_tab", urlTab ?? "incoming");
   // URL-параметр tab всегда берёт приоритет над сохранённым значением
   useEffect(() => { if (urlTab) setActiveTab(urlTab); }, []);
+  // Если settings прилетели позже и пользователь сидит на коммерч. вкладке в beta — переключаем.
+  useEffect(() => {
+    if (isBetaMode && (activeTab === "finance" || activeTab === "contacts")) {
+      setActiveTab("incoming");
+    }
+  }, [isBetaMode, activeTab, setActiveTab]);
 
   const [incomingFilter, setIncomingFilter] = usePersistedState<BookingStatusFilter>("dashboard_incoming_filter", "all");
   const [outgoingFilter, setOutgoingFilter] = usePersistedState<BookingStatusFilter>("dashboard_outgoing_filter", "all");
@@ -1068,9 +1083,11 @@ export default function Dashboard() {
                       {isDirect ? (
                         <p className="text-[11px] text-muted-foreground mt-0.5 leading-tight">
                           наличными от арендатора
-                          <span className="block text-[10px] text-muted-foreground/80">
-                            (платформе оплачено {formatPrice(booking.totalPrice)} за контакт)
-                          </span>
+                          {Number(booking.totalPrice) > 0 && (
+                            <span className="block text-[10px] text-muted-foreground/80">
+                              (платформе оплачено {formatPrice(booking.totalPrice)} за контакт)
+                            </span>
+                          )}
                         </p>
                       ) : (
                         <p className="text-[11px] text-muted-foreground mt-0.5 leading-tight">
@@ -1098,9 +1115,11 @@ export default function Dashboard() {
                         </p>
                         <p className="text-[11px] text-muted-foreground mt-0.5 leading-tight">
                           наличными при встрече
-                          <span className="block text-[10px] text-muted-foreground/80">
-                            (платформе оплачено {formatPrice(booking.totalPrice)} за контакт)
-                          </span>
+                          {Number(booking.totalPrice) > 0 && (
+                            <span className="block text-[10px] text-muted-foreground/80">
+                              (платформе оплачено {formatPrice(booking.totalPrice)} за контакт)
+                            </span>
+                          )}
                         </p>
                         {booking.listingDeposit != null && booking.listingDeposit > 0 && (
                           <p className="text-[11px] text-muted-foreground mt-1">
@@ -1448,8 +1467,12 @@ export default function Dashboard() {
       { id: "listings" as const, label: "Мои объявления", icon: LayoutGrid, badge: 0 },
     ] : []),
     { id: "history" as const, label: "История сделок", icon: BadgeCheck, badge: badgeHistory },
-    { id: "finance" as const, label: "Финансы", icon: Coins, badge: 0 },
-    { id: "contacts" as const, label: "Баланс контактов", icon: Wallet, badge: 0 },
+    // В Бета-режиме скрываем «Финансы» (выплаты/комиссии) и «Баланс контактов»
+    // (платный доступ) — функциональности в beta нет.
+    ...(isCommercialMode ? [
+      { id: "finance" as const, label: "Финансы", icon: Coins, badge: 0 },
+      { id: "contacts" as const, label: "Баланс контактов", icon: Wallet, badge: 0 },
+    ] : []),
     { id: "support" as const, label: "Поддержка", icon: LifeBuoy, badge: 0 },
     { id: "profile" as const, label: "Настройки", icon: Settings, badge: 0 },
   ];
@@ -2185,8 +2208,8 @@ export default function Dashboard() {
                             <h3 className="font-bold truncate mb-1">{listing.title}</h3>
                             <p className="text-xs text-muted-foreground mb-3">{listing.categoryName} • {listing.regionName}</p>
 
-                            {/* Промо-статусы */}
-                            {(listing.isFeatured || listing.isUrgent || (listing.boostedUntil && new Date(listing.boostedUntil) > new Date())) && (
+                            {/* Промо-статусы — только в коммерч. режиме */}
+                            {isCommercialMode && (listing.isFeatured || listing.isUrgent || (listing.boostedUntil && new Date(listing.boostedUntil) > new Date())) && (
                               <div className="flex flex-wrap gap-1.5 mb-3">
                                 {listing.isFeatured && (
                                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-100 border border-amber-300 text-amber-800 text-[11px] font-bold">
@@ -2209,14 +2232,16 @@ export default function Dashboard() {
                             <div className="flex justify-between items-center mb-3">
                               <span className="font-bold text-primary">{formatPrice(listing.pricePerDay)}/сут</span>
                               <div className="flex items-center gap-3">
-                                <button
-                                  onClick={() => setPromoteListing({ id: listing.id, title: listing.title })}
-                                  className="text-xs text-amber-700 hover:text-amber-800 font-bold inline-flex items-center gap-1"
-                                  title="Продвинуть объявление"
-                                >
-                                  <Sparkles className="w-3.5 h-3.5" />
-                                  Продвигать
-                                </button>
+                                {isCommercialMode && (
+                                  <button
+                                    onClick={() => setPromoteListing({ id: listing.id, title: listing.title })}
+                                    className="text-xs text-amber-700 hover:text-amber-800 font-bold inline-flex items-center gap-1"
+                                    title="Продвинуть объявление"
+                                  >
+                                    <Sparkles className="w-3.5 h-3.5" />
+                                    Продвигать
+                                  </button>
+                                )}
                                 <Link href={`/dashboard/listings/${listing.id}/edit`}
                                   className="text-xs text-muted-foreground hover:text-primary underline transition-colors font-medium">
                                   Редактировать
