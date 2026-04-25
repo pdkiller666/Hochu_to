@@ -10,9 +10,11 @@ import {
   buyShareOffer,
   confirmShareTransfer,
   cancelShareOffer,
+  listPoolEvents,
   type PoolDetail,
   type PoolShareDetail,
   type ShareOfferDetail,
+  type PoolEvent,
 } from "@/lib/api-pools";
 import { formatPrice } from "@/lib/utils";
 import { calculateResidualValue, calculateDepreciationPercent } from "@/lib/pricing";
@@ -39,6 +41,11 @@ import {
   X,
   TrendingDown,
   Handshake,
+  Sparkles,
+  Coins,
+  ArrowRightLeft,
+  History,
+  Banknote,
 } from "lucide-react";
 
 const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
@@ -206,6 +213,9 @@ export default function PoolDetailPage() {
 
         {/* All shares */}
         <SharesList pool={pool} meId={me?.id ?? null} />
+
+        {/* Stage 27 — История событий пула */}
+        <TimelineBlock poolId={pool.id} />
       </div>
     </Layout>
   );
@@ -229,6 +239,7 @@ function ContributeBlock({
     onSuccess: () => {
       toast({ title: "Готово", description: "Доля зарегистрирована, инициатор подтвердит поступление." });
       qc.invalidateQueries({ queryKey: ["pool", pool.id] });
+      qc.invalidateQueries({ queryKey: ["pool-events", pool.id] });
       qc.invalidateQueries({ queryKey: ["pools"] });
       setOpen(false);
       setAmount("");
@@ -381,6 +392,7 @@ function CreatorPendingBlock({ pool }: { pool: PoolDetail }) {
           : `Получено: ${formatPrice(data.collected)} из ${formatPrice(pool.targetAmountRub)}`,
       });
       qc.invalidateQueries({ queryKey: ["pool", pool.id] });
+      qc.invalidateQueries({ queryKey: ["pool-events", pool.id] });
       qc.invalidateQueries({ queryKey: ["pools"] });
     },
     onError: (err: any) => {
@@ -662,6 +674,7 @@ function SellerOfferActions({ pool, offer }: { pool: PoolDetail; offer: ShareOff
             : "Право собственности переписано на покупателя.",
       });
       qc.invalidateQueries({ queryKey: ["pool", pool.id] });
+      qc.invalidateQueries({ queryKey: ["pool-events", pool.id] });
     },
     onError: (err: any) => {
       const msg = err?.data?.message || err?.message || "Не удалось подтвердить передачу";
@@ -674,6 +687,7 @@ function SellerOfferActions({ pool, offer }: { pool: PoolDetail; offer: ShareOff
     onSuccess: () => {
       toast({ title: "Оффер отменён" });
       qc.invalidateQueries({ queryKey: ["pool", pool.id] });
+      qc.invalidateQueries({ queryKey: ["pool-events", pool.id] });
     },
     onError: (err: any) => {
       const msg = err?.data?.message || err?.message || "Не удалось отменить";
@@ -765,6 +779,7 @@ function SellShareModal({
         description: "Доля выставлена на вторичный рынок. Покупатели увидят её в блоке «Рынок долей».",
       });
       qc.invalidateQueries({ queryKey: ["pool", pool.id] });
+      qc.invalidateQueries({ queryKey: ["pool-events", pool.id] });
       onClose();
     },
     onError: (err: any) => {
@@ -920,6 +935,7 @@ function BuyOfferModal({
         instructions: data.instructions,
       });
       qc.invalidateQueries({ queryKey: ["pool", pool.id] });
+      qc.invalidateQueries({ queryKey: ["pool-events", pool.id] });
     },
     onError: (err: any) => {
       const msg = err?.data?.message || err?.message || "Не удалось зарезервировать";
@@ -1070,6 +1086,7 @@ function ActivatePoolBlock({ pool }: { pool: PoolDetail }) {
               description: "Объявление-черновик создано. Отредактируйте категорию, регион и цену в Кабинете.",
             });
             qc.invalidateQueries({ queryKey: ["pool", pool.id] });
+      qc.invalidateQueries({ queryKey: ["pool-events", pool.id] });
             qc.invalidateQueries({ queryKey: ["pools"] });
             qc.invalidateQueries({ queryKey: ["my-listings"] });
             // Подтолкнём пользователя сразу в Кабинет — там лежит свежий черновик.
@@ -1114,6 +1131,133 @@ function ResidualValueBlock({ pool }: { pool: PoolDetail }) {
           </p>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Stage 27 — История событий пула (TimelineBlock)
+// ───────────────────────────────────────────────────────────────────────────
+
+const EVENT_ICON: Record<string, { icon: any; cls: string }> = {
+  pool_created:       { icon: Sparkles,       cls: "bg-amber-100 text-amber-700" },
+  share_contributed:  { icon: Banknote,       cls: "bg-stone-100 text-stone-700" },
+  share_confirmed:    { icon: CheckCircle2,   cls: "bg-emerald-100 text-emerald-700" },
+  pool_purchasing:    { icon: ShoppingCart,   cls: "bg-blue-100 text-blue-700" },
+  offer_created:      { icon: Tag,            cls: "bg-violet-100 text-violet-700" },
+  offer_reserved:     { icon: Handshake,      cls: "bg-indigo-100 text-indigo-700" },
+  share_transferred:  { icon: ArrowRightLeft, cls: "bg-emerald-100 text-emerald-700" },
+  offer_canceled:     { icon: X,              cls: "bg-stone-200 text-stone-600" },
+};
+
+function describeEvent(ev: PoolEvent): string {
+  const m = ev.metadata ?? {};
+  const actor = ev.actorName ?? "Система";
+  switch (ev.eventType) {
+    case "pool_created":
+      return `${actor} создал пул${m.targetAmountRub ? ` на ${formatPrice(Number(m.targetAmountRub))}` : ""}`;
+    case "share_contributed": {
+      const amount = m.amountRub ? formatPrice(Number(m.amountRub)) : "сумму";
+      const pct = m.sharePercentage ? ` (${m.sharePercentage}%)` : "";
+      return `${actor} перевёл ${amount}${pct} — ждёт подтверждения`;
+    }
+    case "share_confirmed": {
+      const amount = m.amountRub ? formatPrice(Number(m.amountRub)) : "";
+      return `${actor} подтвердил получение ${amount} от участника`.trim();
+    }
+    case "pool_purchasing":
+      return `Сбор завершён — пул перешёл в стадию закупки`;
+    case "offer_created": {
+      const price = m.priceRub != null ? formatPrice(Number(m.priceRub)) : "";
+      const pct = m.sharePercentage ? ` (${m.sharePercentage}%)` : "";
+      return `${actor} выставил долю${pct} на продажу за ${price}`.trim();
+    }
+    case "offer_reserved": {
+      const price = m.priceRub != null ? formatPrice(Number(m.priceRub)) : "";
+      return `${actor} зарезервировал оффер за ${price} — ждёт перевод`.trim();
+    }
+    case "share_transferred": {
+      const price = m.priceRub != null ? formatPrice(Number(m.priceRub)) : "";
+      const mode = m.mergeMode === "merge" ? "доли объединены" : "доля передана";
+      return `${actor} подтвердил получение ${price} — ${mode}`.trim();
+    }
+    case "offer_canceled":
+      return `${actor} отменил продажу доли`;
+    default:
+      return `${actor}: ${ev.eventType}`;
+  }
+}
+
+function formatEventTime(iso: string): string {
+  const d = new Date(iso);
+  const time = d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+  const date = d.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit" });
+  return `${time} · ${date}`;
+}
+
+function TimelineBlock({ poolId }: { poolId: number }) {
+  const { data: events, isLoading, error } = useQuery({
+    queryKey: ["pool-events", poolId],
+    queryFn: () => listPoolEvents(poolId),
+    refetchInterval: 30_000,
+  });
+
+  return (
+    <div className="bg-white rounded-3xl border border-border shadow-sm p-6 md:p-8 mt-6">
+      <div className="flex items-center gap-2 mb-5">
+        <div className="w-9 h-9 rounded-xl bg-stone-100 flex items-center justify-center">
+          <History className="w-4 h-4 text-stone-600" />
+        </div>
+        <div>
+          <h2 className="text-lg font-extrabold leading-tight">История событий</h2>
+          <p className="text-xs text-muted-foreground">Прозрачная хронология всех операций пула</p>
+        </div>
+      </div>
+
+      {isLoading && (
+        <div className="py-8 flex items-center justify-center text-muted-foreground">
+          <Loader2 className="w-5 h-5 animate-spin" />
+        </div>
+      )}
+
+      {error && !isLoading && (
+        <div className="py-6 text-sm text-muted-foreground text-center">
+          Не удалось загрузить историю событий
+        </div>
+      )}
+
+      {!isLoading && !error && events && events.length === 0 && (
+        <div className="py-8 text-center">
+          <div className="text-sm font-medium text-stone-700 mb-1">Здесь появятся события пула</div>
+          <p className="text-xs text-muted-foreground">
+            Взносы, подтверждения, продажи долей — всё будет видно всем участникам
+          </p>
+        </div>
+      )}
+
+      {!isLoading && !error && events && events.length > 0 && (
+        <ol className="relative space-y-3 sm:space-y-4">
+          {events.map((ev) => {
+            const meta = EVENT_ICON[ev.eventType] ?? { icon: Clock, cls: "bg-stone-100 text-stone-600" };
+            const Icon = meta.icon;
+            return (
+              <li key={ev.id} className="flex gap-3 items-start group">
+                <div className={`flex-shrink-0 w-9 h-9 rounded-full flex items-center justify-center ${meta.cls}`}>
+                  <Icon className="w-4 h-4" />
+                </div>
+                <div className="flex-1 min-w-0 pt-1">
+                  <div className="text-sm text-foreground/90 leading-snug">
+                    {describeEvent(ev)}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-0.5">
+                    {formatEventTime(ev.createdAt)}
+                  </div>
+                </div>
+              </li>
+            );
+          })}
+        </ol>
+      )}
     </div>
   );
 }

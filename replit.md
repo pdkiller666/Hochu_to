@@ -718,10 +718,67 @@ Frontend (`/pools`, `/pools/create`, `/pools/:id`):
 
 **Что НЕ сделано (Stage 25 followup, future):**
 - TTL для зарезервированных офферов (если buyer не платит — авто-сброс buyer_id через cron).
-- Уведомления (`createNotification` в seller/buyer о ключевых событиях).
-- Аудит-лог (`recordEvent` для history/forensics).
+- ~~Уведомления (`createNotification` в seller/buyer о ключевых событиях).~~ — **закрыто Stage 27**.
+- ~~Аудит-лог (`recordEvent` для history/forensics).~~ — **закрыто Stage 27**.
 - Комиссия платформы при продаже (Stage 24+ с эскроу).
 - Авто-переоценка существующих офферов при изменении wearAndTearMeter (сейчас цена «замораживается» на момент создания).
+
+## Stage 27 — Co-Sharing Transparency: Notifications + Audit Log (25.04.2026)
+
+Закрытие технического долга Stage 25: P2P-режим работает на доверии (СБП-переводы), но без уведомлений участники узнают о действиях друг друга только при перезагрузке страницы. Stage 27 добавляет реактивную прозрачность.
+
+**Архитектурное решение по audit storage:**
+Промт изначально требовал использовать только существующие таблицы. Но `booking_events.booking_id` — NOT NULL FK, нельзя писать туда события пулов; `admin_audit_log.admin_id` — NOT NULL и admin-only. Решение: **новая универсальная таблица `audit_events`** (`entity_type`, `entity_id`, `actor_id` nullable, `event_type`, `metadata jsonb`) — обобщение паттерна `booking_events`, рассчитанное на любые будущие сущности (offers, payouts, claims) без зоопарка зеркал. `actor_id` ON DELETE SET NULL — история переживает удаление аккаунта.
+
+**Изменения в схеме (`lib/db/src/schema/audit_events.ts`):**
+- Новая таблица `audit_events` с двумя индексами: `(entity_type, entity_id, created_at)` для timeline-выборки и `(actor_id)` для будущих экранов «моя активность».
+- НЕТ FK на entity_id — события переживают удаление сущности (например, удалили pool — история операций сохранится для ретроспективы).
+
+**Backend hooks (`artifacts/api-server/src/lib/audit-events.ts` + `routes/pools.ts`):**
+- Helper `recordAuditEvent` — никогда не бросает наружу (try/catch внутри). Вызывается через `void` после `res.json()`, чтобы аудит не блокировал ответ клиенту.
+- 8 event types в pools.ts:
+  - `pool_created` (POST /api/pools)
+  - `share_contributed` (POST /:id/shares)
+  - `share_confirmed` (POST /:id/shares/:shareId/confirm)
+  - `pool_purchasing` — system event (actor_id=NULL), при переходе funding→purchasing
+  - `offer_created` (POST /:id/shares/:shareId/offers)
+  - `offer_reserved` (POST /:id/offers/:offerId/buy)
+  - `share_transferred` (POST /:id/offers/:offerId/confirm-transfer)
+  - `offer_canceled` (POST /:id/offers/:offerId/cancel)
+
+**Push-уведомления (4 NotifType расширения в `lib/notifications.ts`):**
+- `pool_share_received_funds` → creator: «X перевёл средства за долю»
+- `pool_purchasing` → ВСЕМ участникам + creator: «Сбор завершён, начало закупки»
+- `pool_offer_reserved` → seller: «X хочет выкупить вашу долю»
+- `pool_share_received` → buyer: «Доля перешла к вам!»
+
+Все вызовы `createNotification` обёрнуты в отдельный try/catch — падение нотификации не должно ломать основной поток.
+
+**Frontend (`PoolDetail.tsx` — `TimelineBlock`):**
+- Новый блок «История событий» в самом низу карточки пула.
+- Использует `listPoolEvents(poolId)` (новый endpoint `GET /api/pools/:id/events`, public).
+- `refetchInterval: 30_000` — лёгкий polling, без необходимости в WS на этапе беты.
+- Empty state: «Здесь появятся события пула» — для свежесозданных пулов.
+- Каждое событие = иконка (Sparkles/Banknote/Handshake/etc) + одна строка человекочитаемого описания + локальное время.
+- Метаданные (priceRub, sharePercentage, mergeMode, ownerId) форматируются через `describeEvent()`.
+
+**Smoke-тест Stage 27 (PASS, 25.04.2026):**
+1. alexey создаёт пул → событие `pool_created`.
+2. maria вносит 9000 → `share_contributed` + push alexey'ю.
+3. alexey подтверждает → `share_confirmed`.
+4. dmitry вносит 6000 → `share_contributed` + push alexey'ю.
+5. alexey подтверждает → `share_confirmed` + sum=15000 ≥ target → `pool_purchasing` (actor=NULL) + 3 push'а (alexey, maria, dmitry).
+6. dmitry выставляет долю → `offer_created`.
+7. maria резервирует → `offer_reserved` + push dmitry.
+8. dmitry confirms transfer → `share_transferred` (mergeMode=merge — у maria уже была доля) + push maria.
+9. GET /events → **9 событий** в правильном хронологическом порядке, все metadata валидны.
+10. Notifications: alexey=3, maria=2, dmitry=2 — итого 7 push'ей в правильных адресатах. ✓
+
+**Что НЕ сделано (Stage 27 followup, future):**
+- WebSocket/SSE вместо polling (когда понадобится sub-second latency).
+- Audit-trail для bookings/claims переехать на `audit_events` (унификация с `booking_events`/`admin_audit_log` — разовая миграция).
+- Cleanup audit_events при cascade delete пула (сейчас остаются как «история призраков»; либо триггер, либо ON DELETE soft через периодический GC).
+- Гендерное склонение в текстах уведомлений («перевёл/перевела»).
 
 ## What Is NOT Yet Implemented (roadmap)
 

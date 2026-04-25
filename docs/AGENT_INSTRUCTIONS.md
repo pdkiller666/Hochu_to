@@ -381,7 +381,48 @@ GITHUB_TOKEN=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 bash scripts/github-push.s
 
 ---
 
-## 11. Дорожная карта (актуально на 25.04.2026 — Stage 25 закрыт, далее Stage 24 — эскроу через ЮKassa)
+## 11. Дорожная карта (актуально на 25.04.2026 — Stage 27 закрыт, Stage 24 заморожен до открытия ИП, далее Stage 28 — Buyout)
+
+### Stage 27 (25.04.2026) — Co-Sharing Transparency: Notifications + Audit Log
+
+**Зачем.** Закрытие технического долга Stage 25. P2P-режим работает на доверии (СБП-переводы), но без уведомлений участники узнавали о действиях друг друга только при обновлении страницы — это ломает доверие. Stage 27 даёт реактивную прозрачность: push-уведомления + публичную хронологию.
+
+**Архитектурное решение по audit storage.** Промт изначально требовал использовать только существующие таблицы. Но `booking_events.booking_id` — NOT NULL FK (не подходит для пулов), `admin_audit_log.admin_id` — NOT NULL и admin-only. Создана **новая универсальная** таблица `audit_events` (`entity_type`, `entity_id`, `actor_id` nullable, `event_type`, `metadata jsonb`) — обобщение паттерна `booking_events`, рассчитанное на любые будущие сущности (offers, payouts, claims). НЕТ FK на entity_id — события переживают удаление сущности.
+
+**Backend** (`artifacts/api-server/src/lib/audit-events.ts` + `routes/pools.ts`):
+- Helper `recordAuditEvent({entityType, entityId, actorId, eventType, metadata})` — никогда не бросает наружу (try/catch внутри). Вызывается через `void` после `res.json()` — аудит не блокирует ответ клиенту.
+- 8 event types: `pool_created`, `share_contributed`, `share_confirmed`, `pool_purchasing` (system, actor=NULL), `offer_created`, `offer_reserved`, `share_transferred`, `offer_canceled`.
+- Новый endpoint `GET /api/pools/:id/events` (public, без auth) — возвращает события в `ASC createdAt`-порядке с join `users` для actorName/actorAvatar.
+
+**Push-уведомления** — расширен `NotifType` в `lib/notifications.ts` 4 типами:
+- `pool_share_received_funds` → creator: «X перевёл средства за долю».
+- `pool_purchasing` → ВСЕМ участникам + creator: «Сбор завершён, начало закупки».
+- `pool_offer_reserved` → seller: «X хочет выкупить вашу долю».
+- `pool_share_received` → buyer: «Доля перешла к вам!».
+
+Все вызовы `createNotification` обёрнуты в свой try/catch — падение нотификации не должно ломать основной поток.
+
+**Frontend** (`PoolDetail.tsx` — компонент `TimelineBlock`):
+- Блок «История событий» в самом низу карточки пула. Иконка + 1 строка человекочитаемого описания + локальное время.
+- Polling `refetchInterval: 30_000` (без WS на этапе беты).
+- Empty state, loading state, error state.
+- `describeEvent()` — switch по `eventType`, форматирование metadata (priceRub, sharePercentage, mergeMode, ownerId).
+
+**API client** (`api-pools.ts`):
+- Новый тип `PoolEvent` + функция `listPoolEvents(poolId)`.
+
+**Smoke E2E (PASS):**
+- Полный сценарий 8 действий между alexey/maria/dmitry: create → contribute×2 → confirm×2 (→pool_purchasing) → offer_created → buy → confirm-transfer (merge).
+- Результат: 9 событий в `audit_events` (включая system-event с actor_id=NULL), 7 push'ей в правильных адресатах.
+
+**Что НЕ сделано (Stage 27 followup):**
+- WebSocket/SSE вместо polling.
+- Унификация: перенести `bookings/claims` audit на `audit_events` (миграция-разовая).
+- GC «осиротевших» событий после удаления пула (нет FK по дизайну, но нужен либо триггер, либо периодический cleanup).
+- Гендерное склонение в текстах нотификаций («перевёл/перевела»).
+- Stage 28 (Buyout) — следующий логический шаг: автоматический выкуп всей вещи одним из совладельцев с расчётом остаточной стоимости и автогенерацией офферов остальным.
+
+
 
 ### Stage 25 (25.04.2026) — Вторичный рынок долей (P2P beta)
 

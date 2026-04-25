@@ -1,5 +1,5 @@
 import { Router, type Response } from "express";
-import { eq, and, inArray, sql, desc, isNull } from "drizzle-orm";
+import { eq, and, inArray, sql, desc, asc, isNull } from "drizzle-orm";
 import {
   db,
   poolsTable,
@@ -7,11 +7,14 @@ import {
   shareOffersTable,
   usersTable,
   listingsTable,
+  auditEventsTable,
 } from "@workspace/db";
 import { z } from "zod";
 import { requireAuth, type AuthRequest } from "../middleware/auth.js";
 import { getPlatformSettings } from "../lib/platform-settings.js";
 import { logger } from "../lib/logger.js";
+import { recordAuditEvent } from "../lib/audit-events.js";
+import { createNotification } from "../lib/notifications.js";
 
 const router = Router();
 
@@ -179,6 +182,19 @@ router.post("/", requireAuth, async (req: AuthRequest, res: Response) => {
       .returning();
 
     res.status(201).json(created);
+
+    // Stage 27 — audit log (после ответа, best-effort).
+    void recordAuditEvent({
+      entityType: "pool",
+      entityId: created.id,
+      actorId: req.userId!,
+      eventType: "pool_created",
+      metadata: {
+        title: created.title,
+        targetAmountRub: created.targetAmountRub,
+        collectionMethod: created.collectionMethod,
+      },
+    });
   } catch (e) {
     logger.error({ err: e }, "POST /pools failed");
     res.status(500).json({ error: "internal_error" });
@@ -390,6 +406,39 @@ router.post("/:id/shares", requireAuth, async (req: AuthRequest, res: Response) 
       .returning();
 
     res.status(201).json(created);
+
+    // Stage 27 — audit + notify creator (best-effort, после ответа).
+    void recordAuditEvent({
+      entityType: "pool",
+      entityId: id,
+      actorId: req.userId!,
+      eventType: "share_contributed",
+      metadata: {
+        shareId: created.id,
+        amountRub: created.amountRub,
+        sharePercentage: created.sharePercentage,
+        paymentStatus: created.paymentStatus,
+      },
+    });
+    if (paymentStatus === "user_transferred") {
+      try {
+        const [contributor] = await db
+          .select({ name: usersTable.name })
+          .from(usersTable)
+          .where(eq(usersTable.id, req.userId!))
+          .limit(1);
+        const who = (contributor?.name ?? "").trim() || `Пользователь #${req.userId}`;
+        await createNotification({
+          userId: pool.creatorId,
+          type: "pool_share_received_funds",
+          title: `${who} перевёл средства за долю`,
+          message: `Откройте «${pool.title}» и подтвердите получение ${parsed.data.amountRub} ₽.`,
+          listingTitle: pool.title,
+        });
+      } catch (err) {
+        logger.error({ err, poolId: id }, "[pools] notify creator failed");
+      }
+    }
   } catch (e) {
     logger.error({ err: e }, "POST /pools/:id/shares failed");
     res.status(500).json({ error: "internal_error" });
@@ -472,6 +521,54 @@ router.post(
       });
 
       res.json(result);
+
+      // Stage 27 — audit log + покликовые уведомления (best-effort).
+      void recordAuditEvent({
+        entityType: "pool",
+        entityId: poolId,
+        actorId: req.userId!,
+        eventType: "share_confirmed",
+        metadata: {
+          shareId,
+          ownerId: result.share.userId,
+          amountRub: result.share.amountRub,
+          sharePercentage: result.share.sharePercentage,
+          collectedAfter: result.collected,
+        },
+      });
+
+      // Если переход funding → purchasing — отдельное системное событие + push всем.
+      if (pool.status === "funding" && result.pool.status === "purchasing") {
+        void recordAuditEvent({
+          entityType: "pool",
+          entityId: poolId,
+          actorId: null,
+          eventType: "pool_purchasing",
+          metadata: {
+            collectedAmountRub: result.collected,
+            targetAmountRub: pool.targetAmountRub,
+          },
+        });
+        try {
+          const stakeholderRows = await db
+            .select({ userId: poolSharesTable.userId })
+            .from(poolSharesTable)
+            .where(eq(poolSharesTable.poolId, poolId));
+          const recipients = new Set<number>(stakeholderRows.map((r) => r.userId));
+          recipients.add(pool.creatorId); // creator тоже должен знать.
+          for (const userId of recipients) {
+            await createNotification({
+              userId,
+              type: "pool_purchasing",
+              title: "Сбор завершён!",
+              message: `Пул «${pool.title}» перешёл в стадию закупки.`,
+              listingTitle: pool.title,
+            });
+          }
+        } catch (err) {
+          logger.error({ err, poolId }, "[pools] notify pool_purchasing failed");
+        }
+      }
     } catch (e) {
       logger.error({ err: e }, "POST /pools/:id/shares/:shareId/confirm failed");
       res.status(500).json({ error: "internal_error" });
@@ -566,6 +663,20 @@ router.post(
         .returning();
 
       res.status(201).json(created);
+
+      // Stage 27 — audit log (best-effort).
+      void recordAuditEvent({
+        entityType: "pool",
+        entityId: poolId,
+        actorId: req.userId!,
+        eventType: "offer_created",
+        metadata: {
+          offerId: created.id,
+          shareId,
+          priceRub: created.priceRub,
+          sharePercentage: share.sharePercentage,
+        },
+      });
     } catch (e) {
       logger.error({ err: e }, "POST /pools/:id/shares/:shareId/offers failed");
       res.status(500).json({ error: "internal_error" });
@@ -697,6 +808,42 @@ router.post(
         instructions:
           "Переведите указанную сумму продавцу через СБП. После получения денег продавец подтвердит передачу доли.",
       });
+
+      // Stage 27 — audit log + notify seller (best-effort).
+      void recordAuditEvent({
+        entityType: "pool",
+        entityId: poolId,
+        actorId: req.userId!,
+        eventType: "offer_reserved",
+        metadata: {
+          offerId: reserved.id,
+          sellerId: reserved.sellerId,
+          buyerId: req.userId!,
+          priceRub: reserved.priceRub,
+        },
+      });
+      try {
+        const [buyer] = await db
+          .select({ name: usersTable.name })
+          .from(usersTable)
+          .where(eq(usersTable.id, req.userId!))
+          .limit(1);
+        const [poolRow] = await db
+          .select({ title: poolsTable.title })
+          .from(poolsTable)
+          .where(eq(poolsTable.id, poolId))
+          .limit(1);
+        const who = (buyer?.name ?? "").trim() || `Пользователь #${req.userId}`;
+        await createNotification({
+          userId: reserved.sellerId,
+          type: "pool_offer_reserved",
+          title: `${who} хочет выкупить вашу долю`,
+          message: `Ожидайте перевод ${reserved.priceRub} ₽ по СБП и подтвердите получение в карточке пула${poolRow ? ` «${poolRow.title}»` : ""}.`,
+          listingTitle: poolRow?.title ?? null,
+        });
+      } catch (err) {
+        logger.error({ err, offerId: reserved.id }, "[pools] notify seller failed");
+      }
     } catch (e) {
       logger.error({ err: e }, "POST /pools/:id/offers/:offerId/buy failed");
       res.status(500).json({ error: "internal_error" });
@@ -850,6 +997,41 @@ router.post(
       });
 
       res.json(result);
+
+      // Stage 27 — audit log + notify buyer (best-effort).
+      void recordAuditEvent({
+        entityType: "pool",
+        entityId: poolId,
+        actorId: req.userId!,
+        eventType: "share_transferred",
+        metadata: {
+          offerId,
+          sellerId: result.offer.sellerId,
+          buyerId: result.offer.buyerId,
+          priceRub: result.offer.priceRub,
+          mergeMode: result.mergeMode,
+          shareId: result.share.id,
+          sharePercentage: result.share.sharePercentage,
+        },
+      });
+      try {
+        const [poolRow] = await db
+          .select({ title: poolsTable.title })
+          .from(poolsTable)
+          .where(eq(poolsTable.id, poolId))
+          .limit(1);
+        if (result.offer.buyerId) {
+          await createNotification({
+            userId: result.offer.buyerId,
+            type: "pool_share_received",
+            title: "Доля перешла к вам!",
+            message: `Продавец подтвердил получение средств в пуле${poolRow ? ` «${poolRow.title}»` : ""}. Доля теперь ваша.`,
+            listingTitle: poolRow?.title ?? null,
+          });
+        }
+      } catch (err) {
+        logger.error({ err, offerId }, "[pools] notify buyer failed");
+      }
     } catch (e: any) {
       if (e?.httpStatus && e?.httpBody) {
         res.status(e.httpStatus).json(e.httpBody);
@@ -915,11 +1097,82 @@ router.post(
       }
 
       res.json({ offer: canceled });
+
+      // Stage 27 — audit log (best-effort).
+      void recordAuditEvent({
+        entityType: "pool",
+        entityId: poolId,
+        actorId: req.userId!,
+        eventType: "offer_canceled",
+        metadata: {
+          offerId,
+          priceRub: canceled.priceRub,
+        },
+      });
     } catch (e) {
       logger.error({ err: e }, "POST /pools/:id/offers/:offerId/cancel failed");
       res.status(500).json({ error: "internal_error" });
     }
   },
 );
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Stage 27 — Co-Sharing Transparency: история событий пула
+// ═══════════════════════════════════════════════════════════════════════════
+//
+// Публичный endpoint (без auth) — история операций пула в хронологическом
+// порядке. Используется блоком «История событий» в карточке пула.
+//
+// Возвращает события из audit_events (Stage 27), которые относятся к пулу:
+//   - entity_type='pool' AND entity_id=:id
+// + плюс: события офферов, привязанные к этому пулу через metadata.offerId
+//   (на текущем этапе все наши offer-события пишутся как entity_type='pool',
+//   так что отдельной выборки по 'offer' пока не требуется).
+router.get("/:id/events", async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      res.status(400).json({ error: "invalid_id" });
+      return;
+    }
+    const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 100));
+
+    const rows = await db
+      .select({
+        id: auditEventsTable.id,
+        eventType: auditEventsTable.eventType,
+        actorId: auditEventsTable.actorId,
+        metadata: auditEventsTable.metadata,
+        createdAt: auditEventsTable.createdAt,
+        actorName: usersTable.name,
+        actorAvatar: usersTable.avatar,
+      })
+      .from(auditEventsTable)
+      .leftJoin(usersTable, eq(auditEventsTable.actorId, usersTable.id))
+      .where(
+        and(
+          eq(auditEventsTable.entityType, "pool"),
+          eq(auditEventsTable.entityId, id),
+        ),
+      )
+      .orderBy(asc(auditEventsTable.createdAt))
+      .limit(limit);
+
+    res.json(
+      rows.map((r) => ({
+        id: r.id,
+        eventType: r.eventType,
+        actorId: r.actorId,
+        actorName: r.actorId ? ((r.actorName ?? "").trim() || `Пользователь #${r.actorId}`) : null,
+        actorAvatarUrl: r.actorAvatar,
+        metadata: r.metadata,
+        createdAt: r.createdAt,
+      })),
+    );
+  } catch (e) {
+    logger.error({ err: e }, "GET /pools/:id/events failed");
+    res.status(500).json({ error: "internal_error" });
+  }
+});
 
 export default router;

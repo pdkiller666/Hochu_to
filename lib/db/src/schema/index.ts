@@ -24,3 +24,4 @@ export * from "./listing_views";
 export * from "./payments";
 export * from "./digital_acts";
 export * from "./co_sharing";
+export * from "./audit_events";

@@ -22,7 +22,12 @@ export type NotifType =
   // System auto-transition notifications
   | "auto_cancelled"
   | "auto_activated"
-  | "auto_completed";
+  | "auto_completed"
+  // Stage 27 — Co-Sharing Transparency (pool/share/offer events)
+  | "pool_share_received_funds"   // creator: «Пользователь X перевёл деньги, подтвердите получение»
+  | "pool_purchasing"             // все участники: «Сбор завершён, переходим к закупке»
+  | "pool_offer_reserved"         // продавец: «Пользователь X хочет выкупить вашу долю»
+  | "pool_share_received";        // покупатель: «Продавец подтвердил, доля у вас»
 
 export async function createNotification(params: {
   userId: number;

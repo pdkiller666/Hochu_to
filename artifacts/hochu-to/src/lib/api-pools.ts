@@ -207,3 +207,29 @@ export function cancelShareOffer(poolId: number, offerId: number): Promise<{ off
     method: "POST",
   });
 }
+
+// ── Stage 27: Audit timeline ──────────────────────────────────────────────
+
+export type PoolEventType =
+  | "pool_created"
+  | "share_contributed"
+  | "share_confirmed"
+  | "pool_purchasing"
+  | "offer_created"
+  | "offer_reserved"
+  | "share_transferred"
+  | "offer_canceled";
+
+export interface PoolEvent {
+  id: number;
+  eventType: PoolEventType | string;
+  actorId: number | null;
+  actorName: string | null;
+  actorAvatarUrl: string | null;
+  metadata: Record<string, any> | null;
+  createdAt: string;
+}
+
+export function listPoolEvents(poolId: number): Promise<PoolEvent[]> {
+  return jsonFetch<PoolEvent[]>(`/api/pools/${poolId}/events`);
+}
