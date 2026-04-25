@@ -614,41 +614,54 @@ router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
     }
   }
 
-  // Stage 19e: атомарный переход — UPDATE WHERE id=... AND status=fromStatus.
-  // Если параллельный запрос уже сменил статус, RETURNING вернёт 0 строк, и мы
-  // отдадим 409, не применяя ложную дельту bookingCount.
-  const [updated] = await db.update(bookingsTable).set({
-    status,
-    ...(status === "rejected" && { ownerComment: ownerComment?.trim() || null }),
-  }).where(and(eq(bookingsTable.id, id), eq(bookingsTable.status, fromStatus))).returning();
+  // Stage 19e + Stage 26: атомарный переход — UPDATE WHERE id=... AND status=fromStatus.
+  // Если параллельный запрос уже сменил статус, RETURNING вернёт 0 строк, мы
+  // откатываем транзакцию (через `return null`) и отдаём 409, не применяя
+  // ложную дельту bookingCount.
+  //
+  // Stage 26: оборачиваем status update + bookingCount delta + completed
+  // counters (completedDealsCount × 2 + wearAndTearMeter) в ОДНУ db.transaction.
+  // Это гарантирует, что либо изменения видимы все вместе, либо ни одно из них.
+  // Раньше counters летели отдельными запросами — при падении одного из них
+  // (например, CHECK (0..10000) на wear meter) booking уже был помечен completed,
+  // и состояние desync-ало. Notifications/audit намеренно ВНЕ транзакции — они
+  // идут после commit и не должны блокировать критический flow.
+  const updated = await db.transaction(async (tx) => {
+    const [u] = await tx.update(bookingsTable).set({
+      status,
+      ...(status === "rejected" && { ownerComment: ownerComment?.trim() || null }),
+    }).where(and(eq(bookingsTable.id, id), eq(bookingsTable.status, fromStatus))).returning();
+    if (!u) return null;
+
+    await applyBookingCountDelta(u.listingId, bookingCountDelta(fromStatus, status), tx);
+
+    if (status === "completed") {
+      await Promise.all([
+        tx.update(usersTable)
+          .set({ completedDealsCount: sql`${usersTable.completedDealsCount} + 1` })
+          .where(eq(usersTable.id, booking.ownerId)),
+        tx.update(usersTable)
+          .set({ completedDealsCount: sql`${usersTable.completedDealsCount} + 1` })
+          .where(eq(usersTable.id, booking.renterId)),
+        // Stage 26: каждая успешно завершённая аренда добавляет +1 к счётчику износа.
+        // Cancel/reject не доходят сюда (мы внутри ветки `completed`), поэтому
+        // отменённые брони не амортизируют вещь — что и требовалось.
+        // CHECK (0..10000) в схеме защищает от overflow — при превышении
+        // транзакция упадёт и status тоже не применится (атомарно).
+        tx.update(listingsTable)
+          .set({ wearAndTearMeter: sql`${listingsTable.wearAndTearMeter} + 1` })
+          .where(eq(listingsTable.id, booking.listingId)),
+      ]);
+    }
+    return u;
+  });
+
   if (!updated) {
     res.status(409).json({
       error: "status_conflict",
       message: "Статус уже изменён в другом запросе. Перезагрузите страницу.",
     });
     return;
-  }
-
-  // Stage 19e: синхронизируем bookingCount при смене статуса.
-  await applyBookingCountDelta(updated.listingId, bookingCountDelta(fromStatus, status));
-
-  // Завершена сделка — увеличиваем счётчик у обеих сторон + износ вещи
-  if (status === "completed") {
-    await Promise.all([
-      db.update(usersTable)
-        .set({ completedDealsCount: sql`${usersTable.completedDealsCount} + 1` })
-        .where(eq(usersTable.id, booking.ownerId)),
-      db.update(usersTable)
-        .set({ completedDealsCount: sql`${usersTable.completedDealsCount} + 1` })
-        .where(eq(usersTable.id, booking.renterId)),
-      // Stage 26: каждая успешно завершённая аренда добавляет +1 к счётчику износа.
-      // Cancel/reject не доходят сюда (мы внутри ветки `completed`), поэтому
-      // отменённые брони не амортизируют вещь — что и требовалось.
-      // CHECK (0..10000) в схеме защищает от overflow.
-      db.update(listingsTable)
-        .set({ wearAndTearMeter: sql`${listingsTable.wearAndTearMeter} + 1` })
-        .where(eq(listingsTable.id, booking.listingId)),
-    ]);
   }
 
   const [listing] = await db.select().from(listingsTable).where(eq(listingsTable.id, updated.listingId)).limit(1);
@@ -659,19 +672,30 @@ router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
   // Determine actor role for audit
   const actorRole: "owner" | "renter" = req.userId === updated.ownerId ? "owner" : "renter";
 
-  // Audit log: status change
-  await recordEvent({
-    bookingId: updated.id,
-    bookingNumber,
-    actorId: req.userId!,
-    actorRole,
-    eventType: `status_changed`,
-    fromStatus,
-    toStatus: status,
-    comment: status === "rejected" ? (ownerComment?.trim() ?? undefined) : undefined,
-  });
+  // Stage 26: post-commit side effects (audit + notifications) обёрнуты в try/catch.
+  // Транзакция уже зафиксирована — данные сделки консистентны. Падение
+  // recordEvent/createNotification (например, БД временно недоступна) не должно
+  // приводить к 5xx с уже изменённым статусом. Это вызвало бы у клиента ложный
+  // retry, а второй PUT упадёт в `invalid_transition` из-за TOCTOU guard.
+  // Логируем и едем дальше — клиент получит корректный ответ.
+  try {
+    // Audit log: status change
+    await recordEvent({
+      bookingId: updated.id,
+      bookingNumber,
+      actorId: req.userId!,
+      actorRole,
+      eventType: `status_changed`,
+      fromStatus,
+      toStatus: status,
+      comment: status === "rejected" ? (ownerComment?.trim() ?? undefined) : undefined,
+    });
+  } catch (err) {
+    console.error("[bookings PUT] post-commit recordEvent failed", { bookingId: updated.id, err });
+  }
 
-  // Notifications
+  // Notifications (best-effort, не должны блокировать ответ при сбое БД)
+  try {
   if (status === "confirmed") {
     await createNotification({
       userId: updated.renterId,
@@ -738,6 +762,9 @@ router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
       bookingId: updated.id,
       listingTitle: title,
     });
+  }
+  } catch (err) {
+    console.error("[bookings PUT] post-commit notification failed", { bookingId: updated.id, status, err });
   }
 
   res.json(formatBooking(updated, listing, undefined, owner));

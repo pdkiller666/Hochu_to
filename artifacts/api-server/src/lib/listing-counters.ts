@@ -3,6 +3,13 @@ import { listingsTable, reviewsTable } from "@workspace/db/schema";
 import { eq, sql } from "drizzle-orm";
 
 /**
+ * Минимальный интерфейс «исполнителя SQL» — `db` или активная транзакция (`tx`).
+ * Drizzle namespacing (`PgTransaction<...>`) тащит много generic-параметров,
+ * поэтому ограничиваемся структурным типом тех методов, что мы реально вызываем.
+ */
+type DrizzleExecutor = Pick<typeof db, "update" | "select">;
+
+/**
  * Хелперы для денормализованных счётчиков listings (Stage 19e).
  * Используются роутами bookings/reviews/favorites для синхронизации
  * `bookingCount`, `reviewCount`, `avgRating`, `favoritesCount`.
@@ -34,9 +41,13 @@ export function bookingCountDelta(
   return nowIn ? 1 : -1;
 }
 
-export async function applyBookingCountDelta(listingId: number, delta: number): Promise<void> {
+export async function applyBookingCountDelta(
+  listingId: number,
+  delta: number,
+  executor: DrizzleExecutor = db,
+): Promise<void> {
   if (delta === 0) return;
-  await db
+  await executor
     .update(listingsTable)
     .set({ bookingCount: sql`GREATEST(0, ${listingsTable.bookingCount} + ${delta})` })
     .where(eq(listingsTable.id, listingId));

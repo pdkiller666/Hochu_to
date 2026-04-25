@@ -39,8 +39,14 @@ export function calculateResidualValue(
   depreciationPercent: number,
 ): number {
   if (!Number.isFinite(initialPrice) || initialPrice <= 0) return 0;
-  const safeMeter = Math.max(0, Math.floor(wearAndTearMeter || 0));
-  const safePercent = Math.max(0, depreciationPercent || 0);
+  // Санитизация non-finite значений: NaN/Infinity → 0. Иначе `0 × Infinity = NaN`
+  // и формула возвращает мусор.
+  const safeMeter = Number.isFinite(wearAndTearMeter)
+    ? Math.max(0, Math.floor(wearAndTearMeter))
+    : 0;
+  const safePercent = Number.isFinite(depreciationPercent)
+    ? Math.max(0, depreciationPercent)
+    : 0;
   const ratio = 1 - (safeMeter * safePercent) / 100;
   const raw = initialPrice * ratio;
   const floor = initialPrice * RESIDUAL_VALUE_FLOOR_RATIO;
@@ -55,8 +61,12 @@ export function calculateDepreciationPercent(
   wearAndTearMeter: number,
   depreciationPercent: number,
 ): number {
-  const safeMeter = Math.max(0, Math.floor(wearAndTearMeter || 0));
-  const safePercent = Math.max(0, depreciationPercent || 0);
+  const safeMeter = Number.isFinite(wearAndTearMeter)
+    ? Math.max(0, Math.floor(wearAndTearMeter))
+    : 0;
+  const safePercent = Number.isFinite(depreciationPercent)
+    ? Math.max(0, depreciationPercent)
+    : 0;
   const raw = safeMeter * safePercent;
   const ceiling = (1 - RESIDUAL_VALUE_FLOOR_RATIO) * 100;
   return Math.min(raw, ceiling);
