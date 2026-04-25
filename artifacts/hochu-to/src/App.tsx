@@ -21,6 +21,9 @@ import Dashboard from "@/pages/Dashboard";
 import ListingForm from "@/pages/ListingForm";
 import OwnerProfile from "@/pages/OwnerProfile";
 import JointPurchases from "@/pages/JointPurchases";
+import Pools from "@/pages/Pools";
+import PoolCreate from "@/pages/PoolCreate";
+import PoolDetailPage from "@/pages/PoolDetail";
 import Instructions from "@/pages/Instructions";
 import About from "@/pages/About";
 import Contacts from "@/pages/Contacts";
@@ -64,6 +67,9 @@ function Router() {
       <Route path="/dashboard/listings/:id/edit" component={ListingForm} />
 
       <Route path="/joint-purchases" component={JointPurchases} />
+      <Route path="/pools" component={Pools} />
+      <Route path="/pools/create" component={PoolCreate} />
+      <Route path="/pools/:id" component={PoolDetailPage} />
       <Route path="/how-to-rent" component={Instructions} />
       <Route path="/how-to-list" component={Instructions} />
       <Route path="/guarantee-fund" component={Instructions} />
@@ -88,7 +94,7 @@ function App() {
       await logoutEverywhere();
       // Перенаправляем на страницу входа только с защищённых маршрутов.
       // Каталог, карточки товаров и публичные страницы доступны без авторизации.
-      const PUBLIC_PATHS = ["/", "/catalog", "/listings", "/users", "/about", "/contacts", "/privacy", "/how-to-rent", "/how-to-list", "/guarantee-fund", "/joint-purchases"];
+      const PUBLIC_PATHS = ["/", "/catalog", "/listings", "/users", "/about", "/contacts", "/privacy", "/how-to-rent", "/how-to-list", "/guarantee-fund", "/joint-purchases", "/pools"];
       const path = window.location.pathname;
       const isPublic = PUBLIC_PATHS.some(p => path === p || path.startsWith(p + "/"));
       if (!isPublic && !path.startsWith("/auth")) {

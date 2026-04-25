@@ -1863,3 +1863,59 @@ C) UI «Отозвать заявку на верификацию» (чтобы 
   проде ENV-переменная **обязательна**, иначе webhook возвращает 401.
 - Поле `is_commercial_mode` — отдельный master-toggle, независимый от полей
   «ЮKassa включена» и связанных секретов из Stage 20c.
+## Stage 23b — Co-Sharing UI / P2P-флоу СБП (25.04.2026)
+
+**Backend** (`artifacts/api-server/src/routes/pools.ts`, 5 endpoints):
+- `GET /api/pools` — public, фильтр `?status=funding|purchasing|active|liquidated|canceled`
+  (default `funding`). Возвращает массив с агрегатом `collectedAmountRub` (SUM
+  `pool_shares.amount_rub` где `payment_status IN ('creator_confirmed','escrow_held')`).
+- `POST /api/pools` — auth. Бета-режим жёстко: `collection_method='p2p_direct'`,
+  `procurement_strategy='self_managed'`. Zod-валидация: `title 3..200`,
+  `description ≤2000`, `itemUrl` http(s) only (ftp/data/javascript отбиваются),
+  `targetAmountRub > 0`, `creatorPaymentDetails` обязателен.
+- `GET /api/pools/:id` — public. Через JOIN с `users` возвращает `creator{id,
+  firstName, lastName, avatarUrl}` и `shares[].userName/avatarUrl`.
+- `POST /api/pools/:id/shares` — auth. `(pool_id, user_id)` UNIQUE на уровне БД
+  → 409 `share_already_exists`. Только при `pool.status='funding'` иначе 409
+  `pool_not_funding`. В бете сразу пишется `payment_status='user_transferred'`
+  (юзер заявил «Я перевёл»).
+- `POST /api/pools/:id/shares/:shareId/confirm` — auth + RBAC (только creator).
+  Атомарная транзакция:
+  1. SELECT share FOR UPDATE; если `payment_status != 'user_transferred'` →
+     409 `share_not_transferred` (защита от двойного confirm).
+  2. UPDATE `pool_shares` → `creator_confirmed`.
+  3. SUM `amount_rub` по `COLLECTED_STATUSES = ['creator_confirmed','escrow_held']`.
+  4. Если `collected ≥ target` И `pool.status='funding'` → UPDATE
+     `pools.status='purchasing'` (ровно один раз, race-safe через WHERE-условие).
+
+**Auth-конвенция** (важно для следующих агентов): этот проект использует
+`req.userId` / `req.userRole` (НЕ `req.user.id`!). Это выставляется в
+`middleware/auth.ts`. Если копируете шаблоны из других кодбаз — обязательно
+адаптируйте.
+
+**Frontend** (`artifacts/hochu-to/src/`):
+- `lib/api-pools.ts` — тонкий fetch-клиент с `Authorization: Bearer` через
+  `getAuthHeaders()` из `lib/auth`. Не идёт через orval — эндпоинты ещё не в
+  OpenAPI-spec, добавим вместе со Stage 23c.
+- `pages/Pools.tsx` — табы funding/purchasing/active, hero «Скиньтесь и
+  купите вместе», карточки пулов с прогресс-баром и %.
+- `pages/PoolCreate.tsx` — форма создания. Если `usePublicSettings().settings.isCommercialMode === false`,
+  показывает баннер «Бета-режим: переводы напрямую без эскроу-комиссии».
+- `pages/PoolDetail.tsx` — единая страница для трёх ролей:
+  гость → CTA «Войдите»;
+  не-creator без доли → модалка «Внести долю» с реквизитами СБП creator-а
+  (с кнопкой Copy), чек-листом «откройте банк → переведите → нажмите Я
+  перевёл», обязательным чекбоксом подтверждения;
+  не-creator с долей → бейдж со статусом перевода;
+  creator → блок «Ожидают подтверждения» с кнопкой confirm на каждой
+  `user_transferred`-доле, toast при достижении 100% c переходом в `purchasing`.
+- `App.tsx` — три новых роута + `/pools` добавлен в `PUBLIC_PATHS`.
+- `Header.tsx` — навлинк «Совместные покупки» теперь ведёт на `/pools`.
+
+**Регрессия**: 22/22 backend-сценариев прошли через curl (создание / contribute
+/ дубликат / not-creator confirm / двойной confirm / 100%-trigger / contribute в
+purchasing / ftp-URL / короткий title). Тестовые pools удалены из БД.
+
+**Stage 23c (НЕ В ЭТОМ STAGE)**: авто-листинг при `pools.status='active'`,
+динамический «Хранитель» (ротация), эскроу-флоу через ЮKassa
+(`collection_method='platform_escrow'`), UI выбора `procurement_strategy='platform_concierge'`.

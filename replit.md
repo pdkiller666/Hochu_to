@@ -577,6 +577,33 @@ claims, отзывы, акты, чаты) **визуально не измени
 
 Дальнейший roadmap: видео-апплоад, GPS-pin на карте, цифровая подпись сторон, авто-предложение акта при подходе даты передачи/возврата.
 
+## Stage 23b — Co-Sharing UI и P2P-флоу СБП (25.04.2026)
+
+Backend (5 endpoints в `artifacts/api-server/src/routes/pools.ts`, под `requireAuth` где нужно):
+- `GET /api/pools?status=funding|purchasing|active|liquidated|canceled` — список с агрегатом `collected_amount_rub` (SUM из `pool_shares` по `creator_confirmed`+`escrow_held`).
+- `POST /api/pools` — создание. Бета-режим жёстко: `collection_method='p2p_direct'`, `procurement_strategy='self_managed'`. Валидация zod: `title 3..200`, `description ≤2000`, `itemUrl` — http(s) only (ftp/data/javascript отбиваются), `targetAmountRub > 0`, `creatorPaymentDetails` обязателен.
+- `GET /api/pools/:id` — public, возвращает `creator`, `shares[]` с `userName/avatarUrl` через JOIN, `collectedAmountRub`.
+- `POST /api/pools/:id/shares` — внести долю. Один `(pool_id, user_id)` UNIQUE на уровне БД → 409 `share_already_exists`. В бета-режиме сразу пишется `payment_status='user_transferred'`.
+- `POST /api/pools/:id/shares/:shareId/confirm` — только creator. Атомарная транзакция: `pool_shares.payment_status` `'user_transferred' → 'creator_confirmed'`, пересчёт `SUM(amount_rub)` по `COLLECTED_STATUSES = ['creator_confirmed','escrow_held']`, и при `collected ≥ target` ровно один раз `pools.status: 'funding' → 'purchasing'`. Двойной confirm → 409 `share_not_transferred`. Не-creator → 403 `only_creator_can_confirm`. Contribute в `purchasing` → 409 `pool_not_funding`.
+
+Frontend (`/pools`, `/pools/create`, `/pools/:id`):
+- `lib/api-pools.ts` — тонкий fetch-клиент с `Authorization: Bearer` из `lib/auth`. Не через orval (эндпоинты ещё не в OpenAPI).
+- `pages/Pools.tsx` — hero «Скиньтесь и купите вместе», табы funding/purchasing/active, карточки с прогресс-баром, эмпти-стейты.
+- `pages/PoolCreate.tsx` — форма с явным баннером «Бета-режим: переводы напрямую» (когда `isCommercialMode=false`), валидация, редирект на `/pools/:id` после создания.
+- `pages/PoolDetail.tsx` — публичные данные + собственная роль:
+  - Гость на `funding` → CTA «Войдите, чтобы внести долю» с redirect.
+  - Авторизованный не-creator → модалка «Внести долю» с реквизитами СБП creator-а, кнопкой Copy, чек-листом «откройте банк → переведите → нажмите Я перевёл», обязательным чекбоксом подтверждения.
+  - Уже внёс долю → бейдж со статусом перевода (Ожидание / Перевёл, ждёт подтверждения / Подтверждено).
+  - **Creator** → отдельный блок «Ожидают подтверждения» с кнопкой «Подтвердить получение» по каждой `user_transferred`-доле; toast при достижении 100% с переходом в `purchasing`.
+- `App.tsx` — три новых роута + `/pools` добавлен в `PUBLIC_PATHS` (доступ без авторизации).
+- `Header.tsx` — навлинк «Совместные покупки» теперь ведёт на `/pools` (не на старый `/joint-purchases`).
+
+ЯВНО НЕ СДЕЛАНО (Stage 23c):
+- Авто-листинг (создание `listings`-записи) при `pools.status='active'`.
+- Динамический «Хранитель» — ротация ответственного по ТКЗ.
+- Эскроу-флоу через ЮKassa (`collection_method='platform_escrow'`, capture-by-creator).
+- UI выбора `procurement_strategy='platform_concierge'`.
+
 ## What Is NOT Yet Implemented (roadmap)
 
 - ~~Видео в Цифровом Акте~~ — **закрыто Stage 22b-followup**: отдельный endpoint `POST /api/upload-video` (multer, 100МБ, mime allowlist mp4/webm/quicktime, расширение нормализуется по mime), фронт-компонент `DigitalActUpload.tsx` с переключателем «ссылка / загрузить файл» и превью `<video>`, в роуте `digital_acts` валидация `videoUrl` принимает либо `/uploads/<uuid>.(mp4|webm|mov|m4v)`, либо абсолютный http(s) URL — иначе 400 `invalid_video_url`. data:URI и path-traversal `/uploads/../etc/passwd` отбиваются.

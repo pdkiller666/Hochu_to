@@ -291,7 +291,7 @@ export function Header() {
   const navLinks = [
     { name: "Каталог", path: "/catalog" },
     { name: "Как арендовать", path: "/how-to-rent" },
-    { name: "Совместные покупки", path: "/joint-purchases" },
+    { name: "Совместные покупки", path: "/pools" },
     { name: "О нас", path: "/about" },
   ];
 
