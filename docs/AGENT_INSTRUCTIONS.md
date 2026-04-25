@@ -381,7 +381,61 @@ GITHUB_TOKEN=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 bash scripts/github-push.s
 
 ---
 
-## 11. Дорожная карта (актуально на 25.04.2026 — Stage 26 закрыт, далее Stage 25 — вторичный рынок долей)
+## 11. Дорожная карта (актуально на 25.04.2026 — Stage 25 закрыт, далее Stage 24 — эскроу через ЮKassa)
+
+### Stage 25 (25.04.2026) — Вторичный рынок долей (P2P beta)
+
+**Зачем.** Превращаем платформу в мини-биржу: совладельцы могут продавать свои доли. На beta-этапе деньги переводятся напрямую через СБП (платформа = реестр прав); commercial-режим (Stage 24) добавит эскроу через ЮKassa и платформенную комиссию.
+
+**БД** (`lib/db/src/schema/co_sharing.ts`). В `share_offers` добавлены 3 nullable-поля:
+- `buyer_id integer FK→users` — кто зарезервировал оффер. NULL = свободно.
+- `reserved_at timestamp` — момент резервации. Используется TTL'ом в `/buy` (30 минут — старше = можно перехватить, без cron).
+- `seller_payment_details text` — СБП-реквизиты продавца, показываются buyer'у после `/buy`.
+
+Жизненный цикл оффера: `open + buyer_id=NULL` → `open + buyer_id=X (reserved)` → `sold` (атомарный merge) | `canceled`. Existing-enum `[open, sold, canceled]` без расширения.
+
+**Backend** (`artifacts/api-server/src/routes/pools.ts`) — 5 новых endpoints:
+1. `POST /api/pools/:id/shares/:shareId/offers` (auth) — create. Валидация: ownership, `paymentStatus ∈ {creator_confirmed, escrow_held}` (нельзя продать неоплаченную долю — иначе можно «продать» фейк), нет другого открытого оффера на эту долю. Zod: `priceRub > 0`, `sellerPaymentDetails ≥ 3 символов`.
+2. `GET /api/pools/:id/offers` — list открытых. JOIN `pool_shares` (sharePercentage, amountRub) + `users` (sellerName, sellerAvatar).
+3. `POST /api/pools/:id/offers/:offerId/buy` (auth) — резервация. **TOCTOU + TTL:** `UPDATE … WHERE status='open' AND (buyer_id IS NULL OR reserved_at < NOW() - 30 minutes) RETURNING`. При параллельных «Купить» победит ровно один. Self-check: `cannot_buy_own_offer`. После 30 минут «протухший» резерв перехватывается следующим buyer'ом — без необходимости в cron-задаче.
+4. `POST /api/pools/:id/offers/:offerId/confirm-transfer` (auth, только seller) — **АТОМАРНАЯ ПЕРЕДАЧА ВЛАДЕНИЯ**. Внутри `db.transaction`:
+   - TOCTOU `UPDATE share_offers SET status='sold' WHERE id=? AND status='open' AND seller_id=?` — защита от двойного confirm.
+   - SELECT свежей доли продавца внутри tx; повторная проверка `seller_id == userId` (защита от race с предыдущим merge).
+   - **Merge logic:** если у buyer уже есть `pool_shares` запись для этого `pool_id` (UNIQUE(pool_id, user_id)) → `UPDATE buyer.share SET sharePercentage += seller.percentage, amountRub += seller.amount` + `DELETE seller.share`. Иначе → `UPDATE seller.share SET user_id = buyer_id` (transfer ownership).
+   - Сложение процентов на стороне SQL через `sql\`${sharePercentage} + ${seller.sharePercentage}\`` — DECIMAL(5,2) точность сохраняется, CHECK (>0 AND <=100) валидирует.
+   - Возвращает `{ offer, share, mergeMode: "merge" | "transfer" }`.
+5. `POST /api/pools/:id/offers/:offerId/cancel` (auth, только seller) — отмена с TOCTOU guard (`WHERE status='open'`), сбрасывает `buyer_id` и `reserved_at`.
+
+`GET /api/pools/:id` теперь дополнительно отдаёт `offers[]` (открытые с join'ами) — фронт за один запрос рендерит и доли, и рынок.
+
+**Ошибки в транзакции** возвращаются через `Object.assign(new Error, { httpStatus, httpBody })` — после rollback'а внешний catch вытаскивает `httpStatus/httpBody` и отвечает корректным кодом.
+
+**Frontend** (`artifacts/hochu-to/src/lib/api-pools.ts`). Новые типы (`ShareOfferDetail`, `ShareOfferStatus`, `BuyOfferResponse`, `ConfirmTransferResponse`) и функции: `createShareOffer`, `listOffers`, `buyShareOffer`, `confirmShareTransfer`, `cancelShareOffer`.
+
+**Frontend** (`artifacts/hochu-to/src/pages/PoolDetail.tsx`):
+- В `SharesList` для своей оплаченной доли (без открытого оффера) — кнопка «Продать» (icon `Tag`). Если оффер уже стоит — бейдж «На продаже».
+- Новый `MarketplaceBlock` (между ResidualValueBlock и SharesList): список открытых офферов с `OfferRow`. Для buyer'а — кнопка «Купить»; для seller'а — `SellerOfferActions` (cancel + если зарезервировано «Подтвердить получение и передать долю»); для buyer'а который уже зарезервировал — текст «Переведите по СБП и ждите подтверждения».
+- `SellShareModal`: расчёт справедливой цены = `calculateResidualValue(targetAmount, listing.wearAndTearMeter, depPercent) × sharePercentage / 100`. Блок-tip с residual + износ %, инпут цены с кнопкой «Сбросить к справедливой», инпут СБП-реквизитов, чек-бокс согласия.
+- `BuyOfferModal`: двухфазный (зарезервировать → показать СБП-реквизиты с copy-button + инструкции).
+
+**Smoke E2E на pool#15 (30000₽, 2 совладельца maria + dmitry):**
+- Validation: создание (201), дубль (409 `offer_already_open`), чужая доля (403 `not_share_owner`), пустые реквизиты (400 zod).
+- TOCTOU race: 5 параллельных POST `/buy` от alexey → ровно 1×200 + 4×409 `offer_unavailable`.
+- Self-check: maria → 403 `cannot_buy_own_offer`.
+- **Transfer-mode** (alexey не имел доли): maria → alexey, share#13 user_id 14→13, `mergeMode='transfer'`. Дубль confirm → 409 `offer_not_open`.
+- **Merge-mode** (у alexey уже 50% после A): dmitry продаёт → alexey. Result: share#13 sharePercentage 50→100, amountRub 15000→30000, share#14 удалена. **Целостность:** `SUM(sharePercentage)=100.00`, `SUM(amount)=30000` ✓.
+- Cancel-flow: create + 403 чужой cancel + 200 свой cancel + 409 повтор.
+- Negative auth: confirm-transfer от не-seller → 403 `only_seller_can_confirm`.
+
+**Code review (architect): PASS.** SEVERE-замечание (TTL на резерв) закрыто сразу — атомарным SQL-условием в `/buy`, без cron.
+
+**Что НЕ сделано (Stage 25 followup, future):**
+- Уведомления (`createNotification` для seller/buyer о ключевых событиях).
+- Аудит-лог (`recordEvent`) для history/forensics.
+- Серверное зеркало `calculateResidualValue` (когда понадобится для API-расчётов).
+- Авто-переоценка существующих офферов при изменении wearAndTearMeter (сейчас цена «замораживается» при создании).
+- Комиссия платформы при продаже + эскроу — Stage 24 (commercial mode).
+- UI: замена нативного `confirm()` на shadcn `AlertDialog` в confirmShareTransfer.
 
 ### Stage 26 (25.04.2026) — Wear and Tear (амортизация физических активов)
 
@@ -1934,3 +1988,35 @@ purchasing / ftp-URL / короткий title). Тестовые pools удал�
 **Stage 23c (НЕ В ЭТОМ STAGE)**: авто-листинг при `pools.status='active'`,
 динамический «Хранитель» (ротация), эскроу-флоу через ЮKassa
 (`collection_method='platform_escrow'`), UI выбора `procurement_strategy='platform_concierge'`.
+
+## Stage 25 — Вторичный рынок долей (P2P beta) (25.04.2026)
+
+**Зачем.** Совладельцы могут выйти из пула, продав свою долю — без остановки эксплуатации вещи. На beta-этапе деньги переводятся напрямую через СБП; платформа выступает реестром прав.
+
+**БД** (`lib/db/src/schema/co_sharing.ts`). В `share_offers` добавлены `buyer_id` (резерв), `reserved_at` (для TTL) и `seller_payment_details` (СБП-реквизиты продавца). Жизненный цикл: `open[buyer_id=NULL]` → `open[reserved]` → `sold` (атомарный merge) | `canceled`.
+
+**Backend** (`artifacts/api-server/src/routes/pools.ts`) — 5 endpoints:
+- `POST /pools/:id/shares/:shareId/offers` — create. Только своя оплаченная доля, нет другого открытого оффера.
+- `GET /pools/:id/offers` — список открытых с join'ами.
+- `POST /pools/:id/offers/:offerId/buy` — резерв. **TOCTOU + TTL 30 минут**: `UPDATE … WHERE status='open' AND (buyer_id IS NULL OR reserved_at < NOW() - 30 min)`. Без cron — протухший резерв перехватывается следующим buyer'ом атомарно.
+- `POST /pools/:id/offers/:offerId/confirm-transfer` (только seller) — **АТОМАРНАЯ ПЕРЕДАЧА** в `db.transaction`: TOCTOU UPDATE статуса, повторная проверка ownership внутри tx, **merge** если у buyer уже есть доля в пуле (`UPDATE buyer.share SET %=%+%, ₽=₽+₽; DELETE seller.share`) или **transfer** (`UPDATE seller.share SET user_id=buyer_id`). Сложение DECIMAL(5,2) на стороне SQL, CHECK constraints гарантируют ≤100%.
+- `POST /pools/:id/offers/:offerId/cancel` (только seller) — отмена с TOCTOU guard.
+
+`GET /pools/:id` теперь отдаёт `offers[]` (открытые с join'ами sellerName/sharePercentage) — фронт за один запрос рендерит и доли, и рынок.
+
+**Frontend** (`artifacts/hochu-to/src/`):
+- `lib/api-pools.ts` — типы `ShareOfferDetail`, `ShareOfferStatus`, `BuyOfferResponse`, `ConfirmTransferResponse` + 5 функций.
+- `pages/PoolDetail.tsx` — кнопка «Продать» в SharesList для своей оплаченной доли; новый `MarketplaceBlock` (между ResidualValueBlock и SharesList) с `OfferRow`; `SellShareModal` (расчёт справедливой цены через `calculateResidualValue × sharePercentage / 100`, инпут СБП-реквизитов, чек-бокс согласия); `BuyOfferModal` (двухфазный: резерв → показ СБП с copy-button); `SellerOfferActions` (cancel + confirm-transfer когда зарезервировано).
+
+**Smoke E2E на pool#15 — все ✓:**
+- Validation: 201 / 409 дубль / 403 чужая доля / 400 zod на пустые реквизиты.
+- TOCTOU race: 5 параллельных `/buy` от alexey → 1×200 + 4×409.
+- Self-buy: maria → 403 `cannot_buy_own_offer`.
+- **Transfer-mode**: maria→alexey, share#13 user_id 14→13, `mergeMode='transfer'`. Дубль confirm → 409 `offer_not_open`.
+- **Merge-mode**: dmitry→alexey (у которого уже 50%). share#13 50%→100%, 15000→30000₽, share#14 удалена. Целостность `SUM=100.00%, SUM(amount)=30000` ✓.
+- Cancel-flow: 201 + 403 чужой + 200 свой + 409 повтор.
+- Confirm от не-seller → 403 `only_seller_can_confirm`.
+
+**Code review (architect): PASS.** SEVERE про TTL закрыт сразу — атомарный SQL-предикат в `/buy`, без cron-задачи.
+
+**Followup (Stage 25+, future):** уведомления через `createNotification`, аудит-лог через `recordEvent`, серверное зеркало `calculateResidualValue`, замена нативного `confirm()` на shadcn `AlertDialog`, авто-переоценка офферов при изменении `wearAndTearMeter`. Эскроу + платформенная комиссия — Stage 24 (commercial mode).
