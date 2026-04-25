@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { Loader2, Camera, X, MapPin, Clock, ShieldCheck, AlertTriangle, PenLine } from "lucide-react";
+import { Loader2, Camera, X, MapPin, Clock, ShieldCheck, AlertTriangle, PenLine, Video, Upload } from "lucide-react";
 // @ts-expect-error — exifr — pure JS, no bundled .d.ts
 import exifr from "exifr";
 import { getToken } from "@/lib/auth";
@@ -8,6 +8,7 @@ import { SignaturePad, type SignaturePadHandle } from "@/components/SignaturePad
 const API_BASE = import.meta.env.VITE_API_URL ?? "";
 const MIN_PHOTOS = 4;
 const MAX_PHOTOS = 10;
+const MAX_VIDEO_BYTES = 100 * 1024 * 1024; // 100 МБ — синхронно с бэком
 
 export type DigitalActKind = "check_in" | "check_out";
 
@@ -36,10 +37,14 @@ interface Props {
 export function DigitalActUpload({ bookingId, type, onClose, onSuccess }: Props) {
   const [photos, setPhotos] = useState<UploadedPhoto[]>([]);
   const [videoUrl, setVideoUrl] = useState("");
+  /** true если ссылка видео указывает на наш /uploads/<uuid>.<ext> — отрисуем превью <video>. */
+  const [videoIsInternal, setVideoIsInternal] = useState(false);
+  const [videoUploading, setVideoUploading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [signatureEmpty, setSignatureEmpty] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
   const signatureRef = useRef<SignaturePadHandle>(null);
 
   const title = type === "check_in" ? "Цифровой акт приёмки" : "Цифровой акт возврата";
@@ -96,7 +101,48 @@ export function DigitalActUpload({ bookingId, type, onClose, onSuccess }: Props)
     setPhotos(prev => prev.filter((_, i) => i !== idx));
   }
 
+  async function handleVideoFile(files: FileList | null) {
+    const file = files?.[0];
+    if (!file) return;
+    if (file.size > MAX_VIDEO_BYTES) {
+      setError(`Видео слишком большое (${Math.round(file.size / 1024 / 1024)}МБ). Лимит — 100МБ.`);
+      return;
+    }
+    setVideoUploading(true);
+    setError(null);
+    try {
+      const formData = new FormData();
+      formData.append("video", file);
+      const r = await fetch(`${API_BASE}/api/upload-video`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${getToken()}` },
+        body: formData,
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error(j.message || "Не удалось загрузить видео");
+      }
+      const { url } = await r.json() as { url: string };
+      setVideoUrl(url);
+      setVideoIsInternal(true);
+    } catch (e: any) {
+      setError(e.message || "Ошибка загрузки видео");
+    } finally {
+      setVideoUploading(false);
+      if (videoInputRef.current) videoInputRef.current.value = "";
+    }
+  }
+
+  function clearVideo() {
+    setVideoUrl("");
+    setVideoIsInternal(false);
+  }
+
   async function submit() {
+    if (videoUploading) {
+      setError("Дождитесь окончания загрузки видео.");
+      return;
+    }
     if (photos.length < MIN_PHOTOS) {
       setError(`Минимум ${MIN_PHOTOS} фото — у вас ${photos.length}.`);
       return;
@@ -218,17 +264,68 @@ export function DigitalActUpload({ bookingId, type, onClose, onSuccess }: Props)
 
           <div>
             <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-2 block">
-              Видео <span className="text-muted-foreground">(необязательно — ссылка)</span>
+              Видео <span className="text-muted-foreground">(необязательно)</span>
             </label>
-            <input
-              type="url"
-              value={videoUrl}
-              onChange={e => setVideoUrl(e.target.value)}
-              placeholder="https://… (YouTube, Я.Диск, Облако Mail)"
-              className="w-full px-3 py-2 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300"
-            />
+
+            {/* Превью внутреннего видео или поле ссылки + кнопка аплоада */}
+            {videoIsInternal && videoUrl ? (
+              <div className="rounded-xl border-2 border-emerald-200 bg-stone-50 p-2 space-y-2">
+                <video
+                  src={`${API_BASE}${videoUrl}`}
+                  controls
+                  className="w-full rounded-lg max-h-48 bg-black"
+                />
+                <div className="flex items-center justify-between text-[11px]">
+                  <span className="text-emerald-700 flex items-center gap-1">
+                    <Video className="w-3 h-3" /> Видео загружено
+                  </span>
+                  <button
+                    type="button"
+                    onClick={clearVideo}
+                    className="text-rose-600 hover:underline"
+                  >
+                    Удалить
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <input
+                  type="url"
+                  value={videoUrl}
+                  onChange={e => { setVideoUrl(e.target.value); setVideoIsInternal(false); }}
+                  placeholder="https://… (YouTube, Я.Диск, Облако Mail)"
+                  className="w-full px-3 py-2 border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-300"
+                  disabled={videoUploading}
+                />
+                <div className="flex items-center gap-2 mt-2">
+                  <div className="flex-1 h-px bg-stone-200" />
+                  <span className="text-[10px] uppercase tracking-wide text-stone-400">или</span>
+                  <div className="flex-1 h-px bg-stone-200" />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => videoInputRef.current?.click()}
+                  disabled={videoUploading}
+                  className="mt-2 w-full py-2 border-2 border-dashed border-emerald-300 hover:border-emerald-500 hover:bg-emerald-50 rounded-xl text-sm font-medium text-emerald-700 flex items-center justify-center gap-2 transition-colors disabled:opacity-50"
+                >
+                  {videoUploading
+                    ? <><Loader2 className="w-4 h-4 animate-spin" /> Загружаю видео…</>
+                    : <><Upload className="w-4 h-4" /> Загрузить видео-файл (MP4/MOV/WebM, до 100МБ)</>}
+                </button>
+                <input
+                  ref={videoInputRef}
+                  type="file"
+                  accept="video/mp4,video/webm,video/quicktime"
+                  className="hidden"
+                  onChange={e => handleVideoFile(e.target.files)}
+                />
+              </>
+            )}
+
             <p className="text-[10px] text-muted-foreground mt-1">
               Покажите работоспособность вещи (включение, основные функции).
+              {videoIsInternal ? " Видео хранится на платформе и доступно админу при споре." : ""}
             </p>
           </div>
 
@@ -267,8 +364,9 @@ export function DigitalActUpload({ bookingId, type, onClose, onSuccess }: Props)
                     className="flex-1 py-2.5 bg-stone-100 hover:bg-stone-200 rounded-xl text-sm font-bold transition-colors disabled:opacity-50">
               Отмена
             </button>
-            <button onClick={submit} disabled={busy || photos.length < MIN_PHOTOS || signatureEmpty}
-                    className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-bold transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
+            <button onClick={submit} disabled={busy || videoUploading || photos.length < MIN_PHOTOS || signatureEmpty}
+                    className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-bold transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                    title={videoUploading ? "Дождитесь окончания загрузки видео" : undefined}>
               {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
               Сохранить акт
             </button>

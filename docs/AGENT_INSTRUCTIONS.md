@@ -381,7 +381,46 @@ GITHUB_TOKEN=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 bash scripts/github-push.s
 
 ---
 
-## 11. Дорожная карта (актуально на 25.04.2026 — Stage 22b)
+## 11. Дорожная карта (актуально на 25.04.2026 — Stage 22b-followup закрыт, далее Stage 23b)
+
+### Stage 22b-followup (25.04.2026) — закрыт бэклог Stage 22b
+
+**Видео-аплоад в Цифровых Актах.** Отдельный endpoint `POST /api/upload-video` (multer, 100МБ, mime allowlist mp4/webm/quicktime; расширение нормализуется по mime, чтобы фронт всегда мог проиграть `<video>`). Файлы хранятся в `UPLOADS_DIR`, отдаются через ту же статику что и фото. Multer-ошибки обёрнуты — возвращают JSON 400, а не HTML stack trace.
+
+В `routes/digital_acts.ts` валидация `videoUrl`: либо внутренний путь `/^\/uploads\/[A-Za-z0-9._-]+\.(mp4|webm|mov|m4v)$/i`, либо абсолютный URL (`new URL(...)` + протокол http(s)). Иначе 400 `invalid_video_url`. Это защищает от data:URI, javascript:URI, path-traversal `/uploads/../etc/passwd` и подмены расширения (`.exe`).
+
+В Zod-схеме `insertDigitalActSchema` ослаблено `videoUrl: z.string().url()` → `z.string().min(1)` — финальная валидация форматов на уровне роута.
+
+Фронт `DigitalActUpload.tsx`: после поля «ссылка» добавлен разделитель «или» и кнопка «Загрузить видео-файл». При успехе — компактный превью-плеер `<video controls>` с кнопкой «Удалить». Лимит размера зеркалит бэкенд (100МБ).
+
+**Авто-предложение акта за 24 часа.** В `scheduler.ts` добавлены типы `reminder_checkin_soon` и `reminder_checkout_soon` (внесены в `REMINDER_TYPES` и `NotifType`). Новая «Query 3b» один раз за тик подгружает из `digital_acts` пары `(bookingId, type)` и собирает Set-ы `hasCheckIn` / `hasCheckOut`, чтобы дедупликация была zero-per-booking-queries и пережила тысячи активных броней без деградации.
+
+Логика срабатывания (между rule 2 и rule 4 в `runReminders`):
+- `confirmed` + `startDate === tomorrow` + `!hasCheckIn` → `reminder_checkin_soon` обеим сторонам;
+- `active` + `endDate === tomorrow` + `!hasCheckOut` → `reminder_checkout_soon` обеим сторонам.
+
+Дедупликация через тот же Set `${bookingId}:${type}:${userId}` — повторный тик ровно через 24+ часа не дублирует, и появление акта в БД полностью гасит дальнейшие напоминания этого типа.
+
+**Smoke-тесты Stage 22b-followup (15/15 PASS):**
+1. POST `/api/upload-video` без файла → 400 `no_file`
+2. POST `/api/upload-video` с jpeg → 400 `invalid_file` («Только MP4 / WebM / MOV») + JSON, не HTML
+3. POST `/api/upload-video` с tiny.mp4 → 200 `{url:"/uploads/<uuid>.mp4"}`
+4. Файл реально создан в `artifacts/api-server/uploads/`
+5. Статика отдаёт его как `video/mp4`
+6. POST `/api/upload-video` без auth → 401
+7. POST `/api/upload` (фото) — 4 PNG-файла валидны
+8. POST `/api/bookings/17/digital-acts` с внутренним `videoUrl` → 201, акт создан
+9. БД: `digital_acts.video_url = '/uploads/<uuid>.mp4'`
+10. Дедупликация: рестарт API → существующий check_in акт гасит новые `reminder_checkin_soon` (count=2 до и после)
+11. POST с `videoUrl="https://youtu.be/abc123"` → 201
+12. POST с `videoUrl="data:video/mp4;base64,..."` → 400 `invalid_video_url`
+13. POST с `videoUrl="/uploads/../etc/passwd"` → 400 `invalid_video_url` (regex отвергает `..`)
+14. POST с `videoUrl="/uploads/foo.exe"` → 400 `invalid_video_url` (whitelist расширений)
+15. POST с `videoUrl=null` → 201 (поле необязательное)
+
+Дополнительно подтверждено: при создании тестовой брони `confirmed` со `start_date=tomorrow` без актов scheduler-тик при рестарте API создал ровно 2 уведомления `reminder_checkin_soon` (renter + owner) с правильным названием листинга.
+
+## 11.bak. Дорожная карта (актуально на 25.04.2026 — Stage 22b)
 
 ### ✅ Готово
 | Этап | Описание |

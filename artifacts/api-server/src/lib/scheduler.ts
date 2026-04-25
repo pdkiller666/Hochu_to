@@ -13,7 +13,7 @@
  */
 
 import { schedule } from "node-cron";
-import { db, bookingsTable, listingsTable, notificationsTable, bookingEventsTable } from "@workspace/db";
+import { db, bookingsTable, listingsTable, notificationsTable, bookingEventsTable, digitalActsTable } from "@workspace/db";
 import { inArray, and, eq } from "drizzle-orm";
 import type { NotifType } from "./notifications";
 import { logger } from "./logger";
@@ -25,10 +25,19 @@ const REMINDER_TYPES: NotifType[] = [
   "reminder_return_today",
   "reminder_return_overdue",
   "reminder_return_confirm",
+  // Stage 22b-followup
+  "reminder_checkin_soon",
+  "reminder_checkout_soon",
 ];
 
 function todayStr(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+function tomorrowStr(): string {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  return d.toISOString().slice(0, 10);
 }
 
 function daysBetween(a: string, b: string): number {
@@ -56,8 +65,9 @@ type NewNotif = {
 
 async function runReminders() {
   const today = todayStr();
+  const tomorrow = tomorrowStr();
   const startTime = Date.now();
-  logger.info({ today }, "Scheduler: starting reminder check");
+  logger.info({ today, tomorrow }, "Scheduler: starting reminder check");
 
   // ── Query 1: all open bookings ──────────────────────────────────────────
   const activeBookings = await db
@@ -100,6 +110,20 @@ async function runReminders() {
   const sent = new Set(existingReminders.map((r) => `${r.bookingId}:${r.type}:${r.userId}`));
   const alreadySent = (bookingId: number, type: NotifType, userId: number) =>
     sent.has(`${bookingId}:${type}:${userId}`);
+
+  // ── Query 3b (Stage 22b-followup): какие бронирования уже имеют check_in / check_out акты ───
+  // Нужно, чтобы reminder_checkin_soon / reminder_checkout_soon не слать,
+  // если участник уже оформил акт.
+  const acts = await db
+    .select({ bookingId: digitalActsTable.bookingId, type: digitalActsTable.type })
+    .from(digitalActsTable)
+    .where(inArray(digitalActsTable.bookingId, bookingIds));
+  const hasCheckIn  = new Set<number>();
+  const hasCheckOut = new Set<number>();
+  for (const a of acts) {
+    if (a.type === "check_in")  hasCheckIn.add(a.bookingId);
+    if (a.type === "check_out") hasCheckOut.add(a.bookingId);
+  }
 
   // ── Query 4: booking_return_pending timestamps for return_pending bookings
   const returnPendingIds = activeBookings
@@ -157,6 +181,20 @@ async function runReminders() {
       }
     }
 
+    // 2a. CONFIRMED + startDate = tomorrow — за 24ч до передачи: оформите акт
+    if (status === "confirmed" && startDate === tomorrow && !hasCheckIn.has(bookingId)) {
+      queue({
+        userId: renterId, type: "reminder_checkin_soon", bookingId, listingTitle: title,
+        title: `📸 Завтра передача — оформите Цифровой акт «${title}»`,
+        message: `Завтра вы получите вещь. При встрече оформите Цифровой акт приёмки (4+ фото, видео, подпись) — это ваша единственная защита при споре.`,
+      });
+      queue({
+        userId: ownerId, type: "reminder_checkin_soon", bookingId, listingTitle: title,
+        title: `📸 Завтра передаёте вещь — оформите Цифровой акт «${title}»`,
+        message: `Завтра передадите вещь арендатору. Оформите Цифровой акт приёмки совместно — без него платформа не сможет защитить вас при споре.`,
+      });
+    }
+
     // 2. CONFIRMED + startDate = today — handover day
     if (status === "confirmed" && startDate === today) {
       queue({
@@ -182,6 +220,20 @@ async function runReminders() {
         userId: renterId, type: "reminder_handover_overdue", bookingId, listingTitle: title,
         title: `⚠️ Аренда началась, но вещь не передана — «${title}»`,
         message: `Срок начала аренды (${startDate}) прошёл, но вещь ещё не передана. Уточните у владельца.`,
+      });
+    }
+
+    // 4a. ACTIVE + endDate = tomorrow — за 24ч до возврата: оформите акт
+    if (status === "active" && endDate === tomorrow && !hasCheckOut.has(bookingId)) {
+      queue({
+        userId: renterId, type: "reminder_checkout_soon", bookingId, listingTitle: title,
+        title: `📸 Завтра возврат — оформите акт возврата «${title}»`,
+        message: `Завтра вы возвращаете вещь. При встрече оформите Цифровой акт возврата (4+ фото, видео, подпись) — это докажет, что вы вернули вещь в исправном виде.`,
+      });
+      queue({
+        userId: ownerId, type: "reminder_checkout_soon", bookingId, listingTitle: title,
+        title: `📸 Завтра возврат — оформите акт возврата «${title}»`,
+        message: `Завтра арендатор возвращает вещь. Оформите Цифровой акт возврата совместно — это зафиксирует состояние вещи на момент возврата.`,
       });
     }
 

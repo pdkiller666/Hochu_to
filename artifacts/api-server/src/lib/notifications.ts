@@ -16,6 +16,9 @@ export type NotifType =
   | "reminder_return_today"
   | "reminder_return_overdue"
   | "reminder_return_confirm"
+  // Stage 22b-followup: за 24ч до передачи/возврата — напомни оформить акт
+  | "reminder_checkin_soon"
+  | "reminder_checkout_soon"
   // System auto-transition notifications
   | "auto_cancelled"
   | "auto_activated"

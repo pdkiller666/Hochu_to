@@ -49,7 +49,9 @@ export const digitalActsTable = pgTable("digital_acts", {
 export const insertDigitalActSchema = createInsertSchema(digitalActsTable, {
   type: z.enum(["check_in", "check_out"]),
   photos: z.array(z.string().min(1)).min(4, "Нужно минимум 4 фото"),
-  videoUrl: z.string().url().nullable().optional(),
+  // Stage 22b-followup: либо внешний http(s) URL, либо внутренний /uploads/<uuid>.(mp4|webm|mov|m4v)
+  // Финальная валидация форматов делается в роуте (whitelist), здесь — только базовая непустота.
+  videoUrl: z.string().min(1).nullable().optional(),
   metadata: z.record(z.string(), z.any()).nullable().optional(),
 }).omit({ id: true, createdAt: true });
 

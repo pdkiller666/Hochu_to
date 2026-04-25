@@ -140,6 +140,29 @@ router.post("/bookings/:bookingId/digital-acts", requireAuth, async (req: AuthRe
     return;
   }
 
+  // Stage 22b-followup: видео — либо внутренний /uploads/<uuid>.<видео-ext>,
+  // либо внешний http(s) URL. data:-URI и path-traversal запрещены.
+  const SAFE_UPLOAD_VIDEO_RE = /^\/uploads\/[A-Za-z0-9._-]+\.(mp4|webm|mov|m4v)$/i;
+  const rawVideo = parsed.data.videoUrl;
+  if (rawVideo) {
+    const isInternal = SAFE_UPLOAD_VIDEO_RE.test(rawVideo);
+    let isExternal = false;
+    try {
+      const u = new URL(rawVideo);
+      isExternal = u.protocol === "https:" || u.protocol === "http:";
+    } catch {
+      isExternal = false;
+    }
+    if (!isInternal && !isExternal) {
+      res.status(400).json({
+        error: "invalid_video_url",
+        message:
+          "Видео должно быть загружено через нашу загрузку (/uploads/...) или быть полной ссылкой http(s)://...",
+      });
+      return;
+    }
+  }
+
   // Stage 22b — обязательная электронная подпись участника. Хранится в metadata.
   const sig = validateSignature((parsed.data.metadata as any)?.signature);
   if (!sig.ok) {

@@ -36,7 +36,7 @@ Full-stack rental marketplace "Хочу_То" (I Want That) — a platform for r
 - **Карта в арбитраже (22b):** в админке под фото каждого акта — Leaflet-карта с пином по первой GPS-точке из EXIF (фирменный `#C65D3B`).
 - **Иммутабельность:** `UNIQUE(booking_id, type)` в БД — один акт приёмки и один акт возврата на бронь, повтор → 409 `act_already_exists`.
 
-> Статус (Stage 22a hardening 25.04.2026 + Stage 22b 25.04.2026): таблица `digital_acts` + endpoints `GET/POST /api/bookings/:id/digital-acts` + блокировка перехода `confirmed → active` без check_in акта (409 `digital_act_required`) + обязательная подпись (400 `signature_required`) + UI в Dashboard и AdminPage с картой и подписью. Регрессия Stage 22a: 31/31, Stage 22b: 5/5 веток валидации подписи. Дальше: видео-аплоад, авто-предложение акта при подходе даты передачи/возврата.
+> Статус (Stage 22a hardening 25.04.2026 + Stage 22b 25.04.2026 + Stage 22b-followup 25.04.2026): таблица `digital_acts` + endpoints `GET/POST /api/bookings/:id/digital-acts` + блокировка перехода `confirmed → active` без check_in акта (409 `digital_act_required`) + обязательная подпись (400 `signature_required`) + видео-аплоад через `POST /api/upload-video` (mp4/webm/mov, 100МБ, mime allowlist + magic-mime) с whitelist-валидацией внутренних путей и http(s) URL (400 `invalid_video_url` отбивает data:URI и path-traversal) + UI в Dashboard и AdminPage с картой, подписью и видео-плеером + scheduler за 24ч до handover/return шлёт `reminder_checkin_soon`/`reminder_checkout_soon` обеим сторонам (только если акт ещё не оформлен). Регрессия Stage 22a: 31/31, Stage 22b: 5/5 веток валидации подписи, Stage 22b-followup: 15/15 (видео + scheduler 24ч).
 
 ### 3. Ступенчатый Арбитраж
 - **Категория А (визуальный ущерб):** царапины, сколы. Удерживается из залога мгновенно по фото-сравнению.
@@ -304,10 +304,12 @@ Indexed on `booking_id`, `booking_number`, `actor_id`, `created_at` for fast loo
 
 Located at `artifacts/api-server/src/lib/scheduler.ts`. Runs every hour via `node-cron`. Started in `index.ts` on server boot (also runs once immediately on startup).
 
-**6 reminder rules tied to booking dates:**
+**8 reminder rules tied to booking dates:**
 1. `pending` + created_at > 24h → `reminder_confirm_pending` to **owner** (+ 48h to **renter**)
+2a. `confirmed` + startDate = tomorrow + нет check_in акта → `reminder_checkin_soon` to **both** (Stage 22b-followup, 24ч-предупреждение «оформите Цифровой акт»)
 2. `confirmed` + startDate = today → `reminder_handover_today` to **both**
 3. `confirmed` + startDate < today → `reminder_handover_overdue` to **both** (URGENT ⚠️)
+4a. `active` + endDate = tomorrow + нет check_out акта → `reminder_checkout_soon` to **both** (Stage 22b-followup, 24ч-предупреждение «оформите акт возврата»)
 4. `active` + endDate = today → `reminder_return_today` to **both**
 5. `active` + endDate < today → `reminder_return_overdue` to **both** (URGENT 🚨)
 6. `return_pending` + 48h since `booking_return_pending` notif → `reminder_return_confirm` to **both**
@@ -577,7 +579,7 @@ claims, отзывы, акты, чаты) **визуально не измени
 
 ## What Is NOT Yet Implemented (roadmap)
 
-- Видео в Цифровом Акте (сейчас только `videoUrl` поле, апплоад не реализован)
+- ~~Видео в Цифровом Акте~~ — **закрыто Stage 22b-followup**: отдельный endpoint `POST /api/upload-video` (multer, 100МБ, mime allowlist mp4/webm/quicktime, расширение нормализуется по mime), фронт-компонент `DigitalActUpload.tsx` с переключателем «ссылка / загрузить файл» и превью `<video>`, в роуте `digital_acts` валидация `videoUrl` принимает либо `/uploads/<uuid>.(mp4|webm|mov|m4v)`, либо абсолютный http(s) URL — иначе 400 `invalid_video_url`. data:URI и path-traversal `/uploads/../etc/passwd` отбиваются.
 - GPS-pin на карте в админке (координаты есть в metadata, визуализации нет)
 - Цифровая подпись сторон (renterSignature/ownerSignature)
 - Поток оплаты через СБП/QR + загрузка чека + подтверждение админом
