@@ -1,8 +1,10 @@
-import { pgTable, serial, integer, text, jsonb, timestamp, index, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, text, jsonb, timestamp, index, uniqueIndex, check } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { bookingsTable } from "./bookings";
 import { usersTable } from "./users";
+import { poolsTable } from "./co_sharing";
 
 /**
  * Stage 22a — Цифровой Акт (Check-in / Check-out).
@@ -29,9 +31,16 @@ import { usersTable } from "./users";
  */
 export const digitalActsTable = pgTable("digital_acts", {
   id: serial("id").primaryKey(),
+  // Stage 23c: bookingId стал nullable — Genesis-акт пула (type='check_in')
+  // привязан не к брони, а к pulu (poolId). XOR-инвариант гарантируется CHECK ниже.
   bookingId: integer("booking_id")
-    .notNull()
     .references(() => bookingsTable.id, { onDelete: "cascade" }),
+  // Stage 23c — Genesis-акт совместной покупки.
+  // Когда creator пула загружает первый Цифровой Акт после `pools.status='purchasing'`,
+  // создаётся запись с poolId (а не bookingId). Это триггерит auto-listing и
+  // переход pool → 'active'.
+  poolId: integer("pool_id")
+    .references(() => poolsTable.id, { onDelete: "cascade" }),
   type: text("type").notNull(),
   photos: jsonb("photos").$type<string[]>().notNull(),
   videoUrl: text("video_url"),
@@ -41,9 +50,21 @@ export const digitalActsTable = pgTable("digital_acts", {
     .references(() => usersTable.id, { onDelete: "cascade" }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => ({
-  // Hardening: один акт каждого типа на бронь — иммутабельная доказательная база
-  bookingTypeUniq: uniqueIndex("digital_acts_booking_type_uniq").on(t.bookingId, t.type),
+  // Hardening (Stage 22a): один акт каждого типа на бронь — partial unique
+  // (NULL значения poolId/bookingId не считаются дубликатами).
+  bookingTypeUniq: uniqueIndex("digital_acts_booking_type_uniq")
+    .on(t.bookingId, t.type)
+    .where(sql`booking_id IS NOT NULL`),
+  // Stage 23c: один genesis-акт каждого типа на пул.
+  poolTypeUniq: uniqueIndex("digital_acts_pool_type_uniq")
+    .on(t.poolId, t.type)
+    .where(sql`pool_id IS NOT NULL`),
   createdByIdx: index("digital_acts_created_by_idx").on(t.createdByUserId),
+  // XOR-инвариант: акт привязан либо к брони, либо к пулу — но не к обоим и не «в воздухе».
+  bookingOrPoolXor: check(
+    "digital_acts_booking_or_pool_xor",
+    sql`(booking_id IS NOT NULL)::int + (pool_id IS NOT NULL)::int = 1`,
+  ),
 }));
 
 export const insertDigitalActSchema = createInsertSchema(digitalActsTable, {
@@ -53,6 +74,9 @@ export const insertDigitalActSchema = createInsertSchema(digitalActsTable, {
   // Финальная валидация форматов делается в роуте (whitelist), здесь — только базовая непустота.
   videoUrl: z.string().min(1).nullable().optional(),
   metadata: z.record(z.string(), z.any()).nullable().optional(),
+  // Stage 23c: bookingId/poolId — оба nullable на schema-уровне, XOR обеспечивается роутом + CHECK constraint.
+  bookingId: z.number().int().positive().nullable().optional(),
+  poolId: z.number().int().positive().nullable().optional(),
 }).omit({ id: true, createdAt: true });
 
 export type DigitalAct = typeof digitalActsTable.$inferSelect;

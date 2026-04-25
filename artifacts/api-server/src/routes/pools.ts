@@ -200,9 +200,8 @@ router.get("/:id", async (req, res) => {
     const [creator] = await db
       .select({
         id: usersTable.id,
-        firstName: usersTable.firstName,
-        lastName: usersTable.lastName,
-        avatarUrl: usersTable.avatarUrl,
+        name: usersTable.name,
+        avatar: usersTable.avatar,
       })
       .from(usersTable)
       .where(eq(usersTable.id, pool.creatorId))
@@ -216,9 +215,8 @@ router.get("/:id", async (req, res) => {
         amountRub: poolSharesTable.amountRub,
         paymentStatus: poolSharesTable.paymentStatus,
         createdAt: poolSharesTable.createdAt,
-        userFirstName: usersTable.firstName,
-        userLastName: usersTable.lastName,
-        userAvatarUrl: usersTable.avatarUrl,
+        userName: usersTable.name,
+        userAvatar: usersTable.avatar,
       })
       .from(poolSharesTable)
       .leftJoin(usersTable, eq(poolSharesTable.userId, usersTable.id))
@@ -227,15 +225,26 @@ router.get("/:id", async (req, res) => {
 
     const collected = await getCollectedAmount(id);
 
+    // users.name — единое поле; разбиваем на firstName/lastName для UI.
+    const splitName = (n: string | null) => {
+      const trimmed = (n ?? "").trim();
+      if (!trimmed) return { firstName: null, lastName: null };
+      const [first, ...rest] = trimmed.split(/\s+/);
+      return { firstName: first ?? null, lastName: rest.join(" ") || null };
+    };
+    const creatorParts = splitName(creator?.name ?? null);
+
     res.json({
       ...pool,
-      creator: creator ?? null,
+      creator: creator
+        ? { id: creator.id, firstName: creatorParts.firstName, lastName: creatorParts.lastName, avatarUrl: creator.avatar }
+        : null,
       collectedAmountRub: collected,
       shares: sharesRaw.map((s) => ({
         id: s.id,
         userId: s.userId,
-        userName: [s.userFirstName, s.userLastName].filter(Boolean).join(" ") || `Пользователь #${s.userId}`,
-        userAvatarUrl: s.userAvatarUrl,
+        userName: (s.userName ?? "").trim() || `Пользователь #${s.userId}`,
+        userAvatarUrl: s.userAvatar,
         sharePercentage: s.sharePercentage,
         amountRub: s.amountRub,
         paymentStatus: s.paymentStatus,

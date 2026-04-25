@@ -599,10 +599,46 @@ Frontend (`/pools`, `/pools/create`, `/pools/:id`):
 - `Header.tsx` — навлинк «Совместные покупки» теперь ведёт на `/pools` (не на старый `/joint-purchases`).
 
 ЯВНО НЕ СДЕЛАНО (Stage 23c):
-- Авто-листинг (создание `listings`-записи) при `pools.status='active'`.
-- Динамический «Хранитель» — ротация ответственного по ТКЗ.
+- ~~Авто-листинг (создание `listings`-записи) при `pools.status='active'`.~~ — **закрыто Stage 23c**.
+- ~~Динамический «Хранитель» — первый Хранитель при активации.~~ — **закрыто Stage 23c** (creator = первый custodian; ротация по ТКЗ — отдельный stage).
 - Эскроу-флоу через ЮKassa (`collection_method='platform_escrow'`, capture-by-creator).
 - UI выбора `procurement_strategy='platform_concierge'`.
+
+## Stage 23c — Auto-listing из пула + co-owner pricing (25.04.2026)
+
+Финал «совместной покупки»: после набора 100% (`pools.status='purchasing'`) creator одним действием активирует пул — мы атомарно создаём listing-черновик и переключаем статус.
+
+**БД (`lib/db/src/schema/digital_acts.ts`):** `bookingId` теперь nullable, добавлен `poolId` (FK pools.id ON DELETE CASCADE), два partial unique-индекса (`booking_id,type` WHERE booking_id IS NOT NULL` и `pool_id,type` WHERE pool_id IS NOT NULL`), CHECK XOR `(booking_id IS NOT NULL)::int + (pool_id IS NOT NULL)::int = 1` — каждый акт привязан ровно к одному из двух родителей.
+
+**Backend `POST /api/pools/:poolId/digital-acts` (`artifacts/api-server/src/routes/digital_acts.ts`):**
+- RBAC: только creator пула, только `status='purchasing'`, только `type='check_in'`.
+- Валидация — тот же hardening, что у bookings-актов: `/uploads/<uuid>.(jpg|png|webp|heic|heif)` для photos, mp4/webm/mov/m4v или http(s) для video, PNG-data-URL signature.
+- Атомарная транзакция:
+  1. INSERT `digital_acts(poolId, type='check_in', photos, videoUrl, metadata)` — partial unique блокирует дубль (повторное нажатие → 409 `act_already_exists`).
+  2. SELECT MIN(id) FROM categories/regions как fallback (creator отредактирует в Кабинете).
+  3. INSERT `listings(title=pool.title, photos=act.photos, ownerId=creatorId, custodianId=creatorId, poolId=pool.id, pricePerDay='0', isAvailable=false, ownerProtectionEnabled=pool.protectionMode)`.
+  4. Условный UPDATE `pools SET status='active' WHERE id=? AND status='purchasing'` — race-safe; если 0 rows → `pool_status_race`.
+- Ответ: `{ act, listing, pool, message }`.
+
+**Backend pricing (`artifacts/api-server/src/routes/bookings.ts`):**
+- Helper `isCoOwner(userId, listing) → bool` — проверяет `pool_shares.payment_status IN ('creator_confirmed','escrow_held')` для текущего пользователя на пуле listing-а.
+- В `POST /api/bookings` (Сценарий А) и `PATCH /api/bookings/:id/reschedule`: после стандартного расчёта переопределяем — `rent=0`, `serviceFee = days * coOwnerDailyFeeRub`, `taxFee=0`, `ownerPayout=0`, `ownerFundContrib=0`. Защитный фонд **арендатора** (`renterFundContribution`) сохраняется — это страховка для всех совладельцев. `totalPrice = serviceFee + renterFundContrib`.
+- **Pricing-обход закрыт (Stage 23c hardening, post-architect):** до Сценария Б (`!protectionEnabled`) сервер сначала вычисляет `coOwner = await isCoOwner(...)` и для co-owner принудительно ставит `protectionEnabled=true` — нельзя обойти co-owner-таксу через флаг прямого контакта.
+- **TOCTOU guard:** во всех трёх write-ветках (POST Сценарий А, POST Сценарий Б, PATCH /reschedule) непосредственно перед `INSERT/UPDATE bookings` повторно вызывается `isCoOwner(...)`. Если статус `pool_shares.payment_status` изменился между первичной проверкой и записью → возвращаем 409 `co_owner_state_changed`, клиент должен перезапросить. Optimistic concurrency без блокировок — приемлемо, т.к. изменение статуса доли — редкая админ-операция.
+- Тарификация co-owner живёт в `platform_settings.co_owner_daily_fee_rub` (default 100 ₽) — админ может менять без деплоя.
+
+**Frontend (`artifacts/hochu-to/src/`):**
+- `components/DigitalActUpload.tsx` — props стали `bookingId?` | `poolId?` (взаимоисключающие, runtime-чек). URL endpoint выбирается из заданного.
+- `pages/PoolDetail.tsx` — новый блок `ActivatePoolBlock` («Шаг 2: Подтвердите покупку и создайте объявление») для creator при `status='purchasing'`. Кнопка открывает `DigitalActUpload` с `poolId` + `type='check_in'`. После успеха — toast, инвалидация query, редирект в `/cabinet/listings` через 800мс.
+- Заодно починен пред-существующий баг GET /api/pools/:id (поля `firstName/lastName/avatarUrl` не существуют в `users` — там `name`/`avatar`, теперь сервер сам разбивает `name` на firstName/lastName для совместимости с фронтом).
+
+**Smoke-тест на реальных юзерах:** alexey создаёт пул на 30000₽, maria/dmitry вносят по 15000₽, alexey подтверждает оба → `purchasing`, alexey шлёт genesis-акт → 201, listing#90 создан (`isAvailable=false, poolId=15, custodianId=alexey, ownerId=alexey`), pool→`active`. Forbidden (maria) → 403. Дубль (alexey ещё раз) → 409 `pool_not_purchasing`. Maria-co-owner бронирует listing на 3 дня по 500₽/день → `rent=0, serviceFee=300 (3×100), taxFee=0, ownerPayout=0, totalPrice=300` ✓.
+
+**Что НЕ сделано (Stage 23d+):**
+- Динамическая ротация Хранителя по ТКЗ (Тариф Качественного Содержания).
+- Эскроу-флоу через ЮKassa (commercial mode).
+- Вторичный рынок долей через UI `share_offers`.
+- Расчёт износа `wear_and_tear_meter` на каждой бронировке.
 
 ## What Is NOT Yet Implemented (roadmap)
 

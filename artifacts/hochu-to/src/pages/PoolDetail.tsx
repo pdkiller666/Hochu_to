@@ -12,6 +12,7 @@ import {
 import { formatPrice } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useState } from "react";
+import { DigitalActUpload } from "@/components/DigitalActUpload";
 import {
   ArrowLeft,
   Loader2,
@@ -25,6 +26,7 @@ import {
   Copy,
   Crown,
   Lock,
+  Camera,
 } from "lucide-react";
 
 const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
@@ -175,6 +177,11 @@ export default function PoolDetailPage() {
         {/* Creator-only: pending transfers */}
         {isCreator && (
           <CreatorPendingBlock pool={pool} />
+        )}
+
+        {/* Stage 23c — Шаг 2 для creator при status='purchasing' */}
+        {isCreator && pool.status === "purchasing" && (
+          <ActivatePoolBlock pool={pool} />
         )}
 
         {/* All shares */}
@@ -443,6 +450,60 @@ function SharesList({ pool }: { pool: PoolDetail }) {
           );
         })}
       </ul>
+    </div>
+  );
+}
+
+
+// Stage 23c — Шаг 2: creator подтверждает покупку Genesis-актом.
+// После активации бэк создаёт listing-черновик и переводит pool → 'active'.
+function ActivatePoolBlock({ pool }: { pool: PoolDetail }) {
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const [, navigate] = useLocation();
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="rounded-2xl border-2 border-blue-200 bg-blue-50 p-5 space-y-3">
+      <div className="flex items-start gap-3">
+        <div className="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center shrink-0 font-bold">
+          2
+        </div>
+        <div className="flex-1">
+          <h3 className="font-bold text-base">Подтвердите покупку и создайте объявление</h3>
+          <p className="text-sm text-blue-900/80 mt-1">
+            Сбор завершён. Купите вещь, сфотографируйте её (4+ ракурса) и подпишите Genesis-акт —
+            мы автоматически создадим объявление-черновик в вашем кабинете.
+          </p>
+        </div>
+      </div>
+      <button
+        onClick={() => setOpen(true)}
+        className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold transition-colors flex items-center justify-center gap-2"
+      >
+        <Camera className="w-4 h-4" />
+        Загрузить фото и активировать
+      </button>
+
+      {open && (
+        <DigitalActUpload
+          poolId={pool.id}
+          type="check_in"
+          onClose={() => setOpen(false)}
+          onSuccess={() => {
+            setOpen(false);
+            toast({
+              title: "Готово!",
+              description: "Объявление-черновик создано. Отредактируйте категорию, регион и цену в Кабинете.",
+            });
+            qc.invalidateQueries({ queryKey: ["pool", pool.id] });
+            qc.invalidateQueries({ queryKey: ["pools"] });
+            qc.invalidateQueries({ queryKey: ["my-listings"] });
+            // Подтолкнём пользователя сразу в Кабинет — там лежит свежий черновик.
+            setTimeout(() => navigate("/cabinet/listings"), 800);
+          }}
+        />
+      )}
     </div>
   );
 }

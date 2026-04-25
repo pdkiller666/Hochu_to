@@ -18,7 +18,10 @@ interface UploadedPhoto {
 }
 
 interface Props {
-  bookingId: number;
+  /** Один из двух обязателен: акт привязывается либо к booking, либо к пулу. */
+  bookingId?: number;
+  /** Stage 23c — для Genesis-акта пула (Шаг 2 совместной покупки). */
+  poolId?: number;
   type: DigitalActKind;
   onClose: () => void;
   onSuccess: () => void;
@@ -34,7 +37,13 @@ interface Props {
  * EXIF может быть удалён при экспорте из мессенджеров — graceful fallback
  * (фото примем без GPS, но в админке это будет видно).
  */
-export function DigitalActUpload({ bookingId, type, onClose, onSuccess }: Props) {
+export function DigitalActUpload({ bookingId, poolId, type, onClose, onSuccess }: Props) {
+  if ((bookingId == null) === (poolId == null)) {
+    throw new Error("DigitalActUpload: укажите ровно один из bookingId / poolId");
+  }
+  const endpoint = bookingId != null
+    ? `/api/bookings/${bookingId}/digital-acts`
+    : `/api/pools/${poolId}/digital-acts`;
   const [photos, setPhotos] = useState<UploadedPhoto[]>([]);
   const [videoUrl, setVideoUrl] = useState("");
   /** true если ссылка видео указывает на наш /uploads/<uuid>.<ext> — отрисуем превью <video>. */
@@ -164,7 +173,7 @@ export function DigitalActUpload({ bookingId, type, onClose, onSuccess }: Props)
         signature,
       };
 
-      const r = await fetch(`${API_BASE}/api/bookings/${bookingId}/digital-acts`, {
+      const r = await fetch(`${API_BASE}${endpoint}`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
         body: JSON.stringify({

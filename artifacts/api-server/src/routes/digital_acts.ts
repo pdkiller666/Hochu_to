@@ -1,13 +1,19 @@
 import { Router } from "express";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, sql, and, asc } from "drizzle-orm";
 import {
   db,
   digitalActsTable,
   bookingsTable,
+  poolsTable,
+  poolSharesTable,
+  listingsTable,
+  categoriesTable,
+  regionsTable,
   insertDigitalActSchema,
   type DigitalActType,
 } from "@workspace/db";
 import { requireAuth, type AuthRequest } from "../middleware/auth.js";
+import { logger } from "../lib/logger.js";
 
 const router = Router();
 
@@ -205,6 +211,207 @@ router.post("/bookings/:bookingId/digital-acts", requireAuth, async (req: AuthRe
       return;
     }
     throw e;
+  }
+});
+
+// ─── Stage 23c — Genesis-акт пула + auto-listing ─────────────────────────────
+//
+// POST /api/pools/:poolId/digital-acts — Шаг 2 совместной покупки.
+//
+// Когда creator достиг 100% сбора (`pools.status='purchasing'`), он купил
+// вещь в магазине. Чтобы превратить пул в реальный листинг каталога, он
+// загружает Genesis-акт (фото + видео + подпись). Бэк атомарно:
+//   1) пишет digital_acts с poolId (НЕ bookingId) и type='check_in';
+//   2) создаёт listings (title=pool.title, photos=act.photos, ownerId=creator,
+//      custodianId=creator, poolId=pool.id, pricePerDay=0, isAvailable=false —
+//      «черновик», creator потом отредактирует категорию/регион/цену);
+//   3) переводит pool.status: 'purchasing' → 'active' (race-safe условный UPDATE).
+//
+// Защиты:
+//   - только creator пула;
+//   - только при status='purchasing';
+//   - повторная попытка после успешного создания упирается в poolTypeUniq → 409;
+//   - если listings.create упал — транзакция откатывается, акт не остаётся.
+router.post("/pools/:poolId/digital-acts", requireAuth, async (req: AuthRequest, res) => {
+  const poolId = Number.parseInt(req.params.poolId as string, 10);
+  if (!Number.isFinite(poolId) || poolId <= 0) {
+    res.status(400).json({ error: "bad_request", message: "Некорректный poolId" });
+    return;
+  }
+
+  // Валидация (одноразовый Genesis = всегда check_in).
+  const parsed = insertDigitalActSchema.safeParse({
+    poolId,
+    type: req.body?.type ?? "check_in",
+    photos: req.body?.photos,
+    videoUrl: req.body?.videoUrl ?? null,
+    metadata: req.body?.metadata ?? null,
+    createdByUserId: req.userId!,
+  });
+  if (!parsed.success) {
+    res.status(400).json({
+      error: "validation_failed",
+      message: parsed.error.issues[0]?.message ?? "Некорректные данные",
+      issues: parsed.error.issues,
+    });
+    return;
+  }
+  if (parsed.data.type !== "check_in") {
+    res.status(400).json({
+      error: "invalid_type",
+      message: "Genesis-акт пула может быть только типа check_in (приёмка вещи)",
+    });
+    return;
+  }
+
+  // Те же hardening-проверки, что для bookings-актов: photos / video / signature.
+  const SAFE_UPLOAD_RE = /^\/uploads\/[A-Za-z0-9._-]+\.(jpe?g|png|webp|heic|heif)$/i;
+  const badPhoto = parsed.data.photos.find((p: string) => !SAFE_UPLOAD_RE.test(p));
+  if (badPhoto) {
+    res.status(400).json({
+      error: "invalid_photo_url",
+      message: `Фото должно быть загружено через нашу загрузку (/uploads/...): ${badPhoto}`,
+    });
+    return;
+  }
+  const SAFE_UPLOAD_VIDEO_RE = /^\/uploads\/[A-Za-z0-9._-]+\.(mp4|webm|mov|m4v)$/i;
+  const rawVideo = parsed.data.videoUrl;
+  if (rawVideo) {
+    const isInternal = SAFE_UPLOAD_VIDEO_RE.test(rawVideo);
+    let isExternal = false;
+    try {
+      const u = new URL(rawVideo);
+      isExternal = u.protocol === "https:" || u.protocol === "http:";
+    } catch {
+      isExternal = false;
+    }
+    if (!isInternal && !isExternal) {
+      res.status(400).json({
+        error: "invalid_video_url",
+        message:
+          "Видео должно быть загружено через нашу загрузку (/uploads/...) или быть полной ссылкой http(s)://...",
+      });
+      return;
+    }
+  }
+  const sig = validateSignature((parsed.data.metadata as any)?.signature);
+  if (!sig.ok) {
+    res.status(400).json({ error: "signature_required", message: sig.message });
+    return;
+  }
+
+  try {
+    const result = await db.transaction(async (tx) => {
+      // Загружаем пул и проверяем доступ + статус.
+      const [pool] = await tx.select().from(poolsTable).where(eq(poolsTable.id, poolId)).limit(1);
+      if (!pool) return { kind: "not_found" as const };
+      if (pool.creatorId !== req.userId!) return { kind: "forbidden" as const };
+      if (pool.status !== "purchasing") {
+        return { kind: "wrong_status" as const, current: pool.status };
+      }
+
+      // 1) Genesis-акт. Partial UNIQUE (pool_id, type) WHERE pool_id IS NOT NULL
+      // защищает от дубля (повторное нажатие → 23505).
+      const [act] = await tx
+        .insert(digitalActsTable)
+        .values({
+          bookingId: null,
+          poolId,
+          type: "check_in",
+          photos: parsed.data.photos,
+          videoUrl: parsed.data.videoUrl ?? null,
+          metadata: parsed.data.metadata ?? null,
+          createdByUserId: req.userId!,
+        })
+        .returning();
+
+      // 2) Auto-listing. categoryId/regionId — fallback на минимально-известные id
+      // в БД (т.к. в pools этих полей нет). Creator сможет отредактировать перед
+      // публикацией. isAvailable=false делает листинг скрытым из каталога до правок.
+      const [defaultCat] = await tx.select({ id: categoriesTable.id }).from(categoriesTable).orderBy(asc(categoriesTable.id)).limit(1);
+      const [defaultReg] = await tx.select({ id: regionsTable.id }).from(regionsTable).orderBy(asc(regionsTable.id)).limit(1);
+      if (!defaultCat || !defaultReg) {
+        // База без категорий/регионов — это ошибка конфигурации, не пользователя.
+        throw new Error("no_default_category_or_region");
+      }
+
+      const [listing] = await tx
+        .insert(listingsTable)
+        .values({
+          title: pool.title,
+          description: pool.description ?? null,
+          pricePerDay: "0",
+          categoryId: defaultCat.id,
+          regionId: defaultReg.id,
+          ownerId: pool.creatorId,
+          photos: parsed.data.photos,
+          ownerProtectionEnabled: pool.protectionMode,
+          isAvailable: false, // черновик: creator отредактирует категорию/регион/цену
+          poolId: pool.id,
+          custodianId: pool.creatorId, // первый Хранитель = creator пула
+        })
+        .returning();
+
+      // listing_number обычно проставляется генератором — продублируем здесь.
+      const year = new Date().getFullYear();
+      const listingNumber = `ВТ-${year}-${String(listing.id).padStart(6, "0")}`;
+      await tx.update(listingsTable).set({ listingNumber }).where(eq(listingsTable.id, listing.id));
+      listing.listingNumber = listingNumber;
+
+      // 3) Переход pool: 'purchasing' → 'active' (условный UPDATE на случай гонки).
+      const updRows = await tx
+        .update(poolsTable)
+        .set({ status: "active" })
+        .where(and(eq(poolsTable.id, poolId), eq(poolsTable.status, "purchasing")))
+        .returning();
+      if (updRows.length === 0) {
+        throw new Error("pool_status_race");
+      }
+
+      return { kind: "ok" as const, act, listing, pool: updRows[0] };
+    });
+
+    if (result.kind === "not_found") {
+      res.status(404).json({ error: "pool_not_found" });
+      return;
+    }
+    if (result.kind === "forbidden") {
+      res.status(403).json({ error: "only_creator_can_activate" });
+      return;
+    }
+    if (result.kind === "wrong_status") {
+      res.status(409).json({
+        error: "pool_not_purchasing",
+        message: `Активировать можно только пул в статусе 'purchasing' (сейчас: ${result.current})`,
+      });
+      return;
+    }
+
+    res.status(201).json({
+      act: result.act,
+      listing: result.listing,
+      pool: result.pool,
+      message: "Готово! Пул активирован, объявление-черновик создано — отредактируйте его в Кабинете и опубликуйте.",
+    });
+  } catch (e: any) {
+    const pgCode = e?.cause?.code ?? e?.code;
+    if (pgCode === "23505") {
+      // Дубль Genesis-акта (повторное нажатие после успеха).
+      res.status(409).json({
+        error: "act_already_exists",
+        message: "Genesis-акт для этого пула уже создан — пул должен быть в статусе 'active'.",
+      });
+      return;
+    }
+    if (e?.message === "pool_status_race") {
+      res.status(409).json({
+        error: "pool_status_race",
+        message: "Кто-то уже активировал этот пул, обновите страницу.",
+      });
+      return;
+    }
+    logger.error({ err: e, poolId }, "POST /pools/:poolId/digital-acts failed");
+    res.status(500).json({ error: "internal_error" });
   }
 });
 

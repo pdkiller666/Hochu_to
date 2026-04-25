@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { db, bookingsTable, listingsTable, usersTable, bookingEventsTable, bookingMessagesTable, digitalActsTable } from "@workspace/db";
-import { eq, or, and, sql, ne, asc, desc } from "drizzle-orm";
+import { db, bookingsTable, listingsTable, usersTable, bookingEventsTable, bookingMessagesTable, digitalActsTable, poolSharesTable } from "@workspace/db";
+import { eq, or, and, sql, ne, asc, desc, inArray } from "drizzle-orm";
 import { requireAuth, AuthRequest } from "../middleware/auth.js";
 import { CreateBookingBody } from "@workspace/api-zod";
 import { createNotification } from "../lib/notifications.js";
@@ -15,6 +15,26 @@ function generateBookingNumber(id: number): string {
   const year = new Date().getFullYear();
   const padded = String(id).padStart(6, "0");
   return `ХТ-${year}-${padded}`;
+}
+
+// ─── Stage 23c: Co-owner pricing ────────────────────────────────────────────
+// Совладелец листинга, привязанного к пулу (pool_shares в статусе оплаты),
+// арендует «свою долю» по платформенному тарифу coOwnerDailyFeeRub —
+// БЕЗ rentAmount владельцу (он сам себе владелец) и БЕЗ налогов/payout.
+// Защитный фонд — на общих основаниях (если protectionEnabled), это страховка
+// для всех участников пула, а не только для арендатора.
+async function isCoOwner(userId: number, listing: { poolId: number | null }): Promise<boolean> {
+  if (!listing.poolId) return false;
+  const [share] = await db
+    .select({ id: poolSharesTable.id })
+    .from(poolSharesTable)
+    .where(and(
+      eq(poolSharesTable.poolId, listing.poolId),
+      eq(poolSharesTable.userId, userId),
+      inArray(poolSharesTable.paymentStatus, ["creator_confirmed", "escrow_held"]),
+    ))
+    .limit(1);
+  return !!share;
 }
 
 async function recordEvent(params: {
@@ -151,7 +171,10 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
     return;
   }
 
-  const { listingId, startDate: rawStart, endDate: rawEnd, message, protectionEnabled = true, renterProtectionEnabled = false } = parsed.data;
+  const { listingId, startDate: rawStart, endDate: rawEnd, message, renterProtectionEnabled = false } = parsed.data;
+  // Stage 23c: protectionEnabled может быть форсирован true для co-owner (см. ниже),
+  // поэтому делаем let.
+  let protectionEnabled: boolean = parsed.data.protectionEnabled ?? true;
 
   // ─── Валидация формата дат (если переданы) ──────────────────────────────
   // Принимаем строго YYYY-MM-DD, иначе 400.
@@ -187,6 +210,18 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
     return null;
   };
 
+  // ─── Stage 23c: Co-owner — ВСЕГДА через Сценарий А ────────────────────────
+  // Совладелец пула не может «обойти» co-owner-таксу через protectionEnabled=false:
+  // Сценарий Б (прямой контакт за contact_fee) НЕ применим к листингам, к которым
+  // привязаны pool_shares — там работает фиксированная такса coOwnerDailyFeeRub.
+  // Защитный фонд (renterFundContribution) — страховка для всех совладельцев,
+  // поэтому форсируем protectionEnabled=true. Результат проверки переиспользуется
+  // ниже для override-блока (одна БД-операция вместо двух).
+  const coOwner = await isCoOwner(req.userId!, listing);
+  if (coOwner) {
+    protectionEnabled = true;
+  }
+
   // ─── Сценарий Б: Прямой расчёт ───────────────────────────────────────────
   if (!protectionEnabled) {
     const startDate = rawStart ?? todayStr;
@@ -203,6 +238,19 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
       : 1;
     const pricePerDayB = parseFloat(listing.pricePerDay as unknown as string);
     const rentAmountB = parseFloat((daysB * pricePerDayB).toFixed(2));
+
+    // Stage 23c: TOCTOU guard для Сценария Б — если статус совладения изменился
+    // false→true между первой проверкой и INSERT, отклоняем 409. Это симметрично
+    // защите Сценария А и закрывает обратное окно гонки (когда пользователь стал
+    // co-owner и ожидает льготную цену, но мы уже выбрали ветку прямого контакта).
+    const coOwnerNowB = await isCoOwner(req.userId!, listing);
+    if (coOwnerNowB !== coOwner) {
+      res.status(409).json({
+        error: "co_owner_state_changed",
+        message: "Статус совладения изменился, обновите страницу и попробуйте снова",
+      });
+      return;
+    }
 
     const [booking] = await db.insert(bookingsTable).values({
       listingId,
@@ -295,7 +343,10 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
   ));
 
   const pricePerDay = parseFloat(listing.pricePerDay as unknown as string);
-  const rent = parseFloat((days * pricePerDay).toFixed(2));
+  let rent = parseFloat((days * pricePerDay).toFixed(2));
+
+  // Stage 23c: `coOwner` уже определён выше (до Сценария Б), переиспользуем
+  // в override-блоке после стандартного расчёта Модели А.
 
   // ─── Модель А: Один Гарантийный фонд, две независимые подписки ─────────────
   // Каждая сторона платит долю ТОЛЬКО если сама согласилась участвовать.
@@ -325,7 +376,7 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
     parseFloat((rent * num(settings.shieldFeePercent) / 100).toFixed(2)),
     settings.shieldFeeMin,
   ) : 0;
-  const ownerFundContrib = (commercial && ownerOptedIn) ? fundShare : 0;
+  let ownerFundContrib = (commercial && ownerOptedIn) ? fundShare : 0;
   const renterFundContrib = (commercial && renterOptedIn) ? fundShare : 0;
 
   const serviceFeeAmt = commercial ? parseFloat((rent * num(settings.serviceFeePercent) / 100).toFixed(2)) : 0;
@@ -353,6 +404,20 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
     totalPrice = parseFloat((rent + renterFundContrib).toFixed(2));
   }
 
+  // Stage 23c: co-owner override — после стандартного расчёта обнуляем rent
+  // и payout, кладём фиксированную таксу за день в serviceFee. Защитный фонд
+  // (renterFundContrib) сохраняем — это страховка для всех совладельцев.
+  if (coOwner) {
+    const coOwnerFee = parseFloat((days * num(settings.coOwnerDailyFeeRub)).toFixed(2));
+    rent = 0;
+    serviceFee = coOwnerFee;
+    taxFee = 0;
+    ownerPayout = 0;
+    // owner fund contrib обнуляем — владелец не «зарабатывает» с самого себя.
+    ownerFundContrib = 0;
+    totalPrice = parseFloat((coOwnerFee + renterFundContrib).toFixed(2));
+  }
+
   const listingDeposit = listing.deposit ? parseFloat(listing.deposit as unknown as string) : null;
   const depositAmount = listingDeposit ?? Math.max(settings.depositMin, pricePerDay * num(settings.depositMultiplier));
 
@@ -361,6 +426,20 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
   //   renterFundContribution  ← взнос АРЕНДАТОРА в фонд
   const fundContribution = ownerFundContrib;
   const renterFundContrib_db = renterFundContrib;
+
+  // ─── Stage 23c: TOCTOU guard — re-check co-owner status перед записью ───────
+  // Между первой проверкой `coOwner` (строка ~223) и INSERT мог пройти update
+  // pool_shares.payment_status (например, share отозвана админом). Если статус
+  // изменился — отказываем, клиент должен переотправить запрос с актуальной
+  // ценой. Это защищает от stale-pricing атаки.
+  const coOwnerNow = await isCoOwner(req.userId!, listing);
+  if (coOwnerNow !== coOwner) {
+    res.status(409).json({
+      error: "co_owner_state_changed",
+      message: "Статус совладения изменился, обновите страницу и попробуйте снова",
+    });
+    return;
+  }
 
   const [booking] = await db.insert(bookingsTable).values({
     listingId,
@@ -698,7 +777,10 @@ router.patch("/:id/reschedule", requireAuth, async (req: AuthRequest, res) => {
   const [listing] = await db.select().from(listingsTable).where(eq(listingsTable.id, booking.listingId)).limit(1);
   const days = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / 86_400_000));
   const pricePerDay = Number(listing?.pricePerDay ?? 0);
-  const rent = parseFloat((days * pricePerDay).toFixed(2));
+  let rent = parseFloat((days * pricePerDay).toFixed(2));
+
+  // Stage 23c: Co-owner — определяем заранее, чтобы переопределить расчёт ниже.
+  const coOwnerEdit = listing ? await isCoOwner(booking.renterId, listing) : false;
 
   // Пересчёт по Модели А: учитываем независимый опт-ин владельца и арендатора
   let totalPrice = rent;
@@ -737,6 +819,35 @@ router.patch("/:id/reschedule", requireAuth, async (req: AuthRequest, res) => {
     }
   }
 
+  // Stage 23c: Co-owner override — обнуляем rent/payout/налоги, кладём
+  // фиксированную таксу (coOwnerDailyFeeRub × days) в serviceFee. Защитный
+  // фонд арендатора (renterFundContribNew) сохраняем — это страховка для
+  // всех совладельцев пула.
+  if (coOwnerEdit) {
+    const settings = await getPlatformSettings();
+    const coOwnerFee = parseFloat((days * num(settings.coOwnerDailyFeeRub)).toFixed(2));
+    rent = 0;
+    serviceFeeNew = coOwnerFee;
+    taxFeeNew = 0;
+    ownerFundContribNew = 0;
+    ownerPayoutNew = 0;
+    totalPrice = parseFloat((coOwnerFee + renterFundContribNew).toFixed(2));
+  }
+
+  // Stage 23c: TOCTOU guard — re-check co-owner status перед UPDATE.
+  // Между первой проверкой `coOwnerEdit` и записью могла измениться
+  // pool_shares.payment_status. Если статус сменился — отклоняем 409.
+  if (listing) {
+    const coOwnerNow = await isCoOwner(booking.renterId, listing);
+    if (coOwnerNow !== coOwnerEdit) {
+      res.status(409).json({
+        error: "co_owner_state_changed",
+        message: "Статус совладения изменился, обновите страницу и попробуйте снова",
+      });
+      return;
+    }
+  }
+
   const [updated] = await db.update(bookingsTable)
     .set({
       startDate,
@@ -744,7 +855,10 @@ router.patch("/:id/reschedule", requireAuth, async (req: AuthRequest, res) => {
       totalDays: days,
       totalPrice: String(totalPrice),
       rentAmount: String(rent),
-      ...(booking.protectionEnabled && {
+      // Stage 23c: для co-owner всегда сохраняем fee-поля (даже если booking
+      // создавался без protection — defense in depth, фактически POST форсирует
+      // protectionEnabled=true для co-owner).
+      ...((booking.protectionEnabled || coOwnerEdit) && {
         serviceFee: String(serviceFeeNew),
         taxFee: String(taxFeeNew),
         fundContribution: String(ownerFundContribNew),
