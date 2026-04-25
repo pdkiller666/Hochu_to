@@ -1,0 +1,60 @@
+Отличный план! Мы выходим на финишную прямую с этим модулем.
+
+### 🗺️ Что по плану дальше?
+
+После того как мы реализуем **Stage 25 (Вторичный рынок долей)**, у нас останется только один, финальный и самый важный финансовый шаг для этого модуля:
+👉 **Stage 24 — Эскроу-флоу через ЮKassa (Commercial Mode).** Сейчас и сбор средств, и (в будущем) торговля долями работают в **Бета-режиме** (люди просто переводят друг другу деньги по номеру телефона через СБП, а платформа работает как блокнот-трекер). На Stage 24 мы привяжем наш «рубильник» коммерческого режима к пулам: вместо кнопки «Я перевел по СБП», у пользователей будет открываться виджет ЮKassa, деньги будут замораживаться на безопасном счете (Escrow), а платформа начнет автоматически откусывать свои 5–15% комиссии.
+
+Но сейчас — даем людям ликвидность!
+
+---
+
+### 📉 Логика Stage 25 (Вторичный рынок)
+
+Что именно сделает Агент:
+1. **Кнопка «Продать долю»:** В личном кабинете или на странице пула совладелец сможет выставить свой кусок пирога на продажу.
+2. **Умная цена:** Благодаря Stage 26 (Износ), система сама посчитает и подскажет: *"Ваша доля 10% стоила 10 000 ₽. С учетом износа вещи, сейчас ее справедливая цена — 8 500 ₽"*. Пользователь сможет согласиться или указать свою цену.
+3. **Витрина офферов:** На странице пула появится блок «Доступные доли», где любой желающий сможет их выкупить.
+4. **Атомарная передача (Слияние долей):** Если у покупателя уже есть 10%, и он покупает еще 15%, база данных должна элегантно слить это в одну запись (25%), а у продавца — списать.
+
+Вот бронебойный промт для твоего Агента. Я прописал жесткие требования к транзакциям (atomic transactions), потому что здесь мы переписываем права собственности.
+
+***
+
+> **Task: Stage 25 - Secondary Market for Pool Shares (Вторичный рынок долей)**
+>
+> We are activating the secondary market. Users must be able to sell their shares (`pool_shares`) by creating `share_offers`. 
+>
+> **1. Backend - Offers API (`routes/pools.ts` or new `routes/offers.ts`):**
+> - `POST /api/pools/:poolId/shares/:shareId/offers`: Create a sell offer.
+>   - *Validation:* User must own the `shareId`. The share must not already have an 'open' offer.
+>   - *Insert:* Create a record in the `share_offers` table with `status: 'open'` and the requested `price_rub`.
+> - `GET /api/pools/:poolId/offers`: Return all 'open' offers for this pool, including seller details.
+>
+> **2. Backend - The Buy Action (P2P Beta Flow):**
+> - `POST /api/pools/:poolId/offers/:offerId/buy`: 
+>   - Since we are in Beta mode, this should mirror the P2P flow. 
+>   - The buyer requests to buy. The system returns the seller's P2P payment details.
+> - `POST /api/pools/:poolId/offers/:offerId/confirm-transfer` (Seller side):
+>   - *ATOMIC TRANSACTION CRITICAL:* When the seller confirms they received the money via SBP:
+>     1. Mark `share_offers.status` as `'sold'`.
+>     2. **Share Merge Logic:** Check if the Buyer already has a `pool_shares` record for this `pool_id`.
+>        - If YES: Add the purchased `share_percentage` to the Buyer's existing share. Delete or zero-out the Seller's share.
+>        - If NO: Transfer the ownership of the `pool_shares` record from Seller to Buyer.
+>
+> **3. Frontend - Sell Modal:**
+> - In `PoolDetail.tsx`, for users who own a share, show a "Продать долю" (Sell Share) button.
+> - Clicking opens a modal. Use the `calculateResidualValue` logic from Stage 26 to show the user the "Справедливая цена" (Fair Price = Residual Pool Value * Share Percentage). Let them input their desired sale price.
+>
+> **4. Frontend - Offers List:**
+> - Add a block "Рынок долей" (Secondary Market) on `PoolDetail.tsx`.
+> - Show active offers. Add a "Купить" (Buy) button.
+> - Clicking "Buy" shows the Seller's payment details (SBP) and a button to confirm the manual transfer.
+>
+> **5. Security constraints:**
+> - Ensure TOCTOU (Time-of-Check to Time-of-Use) guards around the buy and merge transactions.
+> - Push via `github-push.sh "Stage 25: Secondary market, share offers, and atomic ownership transfer"`.
+
+***
+
+Скопируй и отправляй. Это превратит платформу в настоящую мини-биржу активов! Как запустишь, жду логов — посмотрим, как Агент справится с математикой слияния долей.
