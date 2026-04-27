@@ -414,6 +414,9 @@ export default function ListingForm() {
                 />
               </div>
               <textarea required className="input-field min-h-[120px] resize-y" placeholder="Опишите состояние, комплектацию, условия возврата..." value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })}></textarea>
+              <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                Сгенерированное ИИ описание носит рекомендательный характер. Платформа не несёт ответственности за его точность и полноту; Владелец вещи обязан самостоятельно проверить и при необходимости скорректировать текст перед публикацией.
+              </p>
             </div>
           </div>
 
