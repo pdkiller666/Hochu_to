@@ -300,3 +300,87 @@ export interface PoolEvent {
 export function listPoolEvents(poolId: number): Promise<PoolEvent[]> {
   return jsonFetch<PoolEvent[]>(`/api/pools/${poolId}/events`);
 }
+
+// ── Stage 28: Полный выкуп пула ─────────────────────────────────────────────
+
+export type BuyoutStatus = "pending" | "completed" | "canceled";
+export type BuyoutParticipantStatus = "pending_approval" | "user_transferred" | "confirmed";
+
+export interface BuyoutRequest {
+  id: number;
+  poolId: number;
+  initiatorId: number;
+  status: BuyoutStatus;
+  createdAt: string;
+  initiatorName: string | null;
+  initiatorPaymentDetails: string | null;
+}
+
+export interface BuyoutParticipant {
+  id: number;
+  userId: number;
+  userName: string | null;
+  shareId: number | null;
+  sharePercentage: string;
+  shareAmountRub: number;
+  priceRub: number;
+  status: BuyoutParticipantStatus;
+  createdAt: string;
+}
+
+export interface BuyoutDetailResponse {
+  buyoutRequest: BuyoutRequest | null;
+  participants: BuyoutParticipant[];
+}
+
+export interface CreateBuyoutResponse {
+  buyoutRequest: BuyoutRequest;
+  participants: BuyoutParticipant[];
+  summary: {
+    residualRatio: number;
+    totalPayoutRub: number;
+    participantsCount: number;
+    targetAmountRub: number;
+  };
+}
+
+export function getPoolBuyout(poolId: number): Promise<BuyoutDetailResponse> {
+  return jsonFetch<BuyoutDetailResponse>(`/api/pools/${poolId}/buyout`);
+}
+
+export function createPoolBuyout(poolId: number): Promise<CreateBuyoutResponse> {
+  return jsonFetch<CreateBuyoutResponse>(`/api/pools/${poolId}/buyout`, {
+    method: "POST",
+  });
+}
+
+export function markBuyoutTransferred(
+  requestId: number,
+  participantId: number,
+): Promise<{ participant: BuyoutParticipant }> {
+  return jsonFetch<{ participant: BuyoutParticipant }>(
+    `/api/buyouts/${requestId}/participants/${participantId}/mark-transferred`,
+    { method: "POST" },
+  );
+}
+
+export function confirmBuyoutParticipant(
+  requestId: number,
+  participantId: number,
+): Promise<{
+  participant: BuyoutParticipant;
+  initiatorShare: { sharePercentage: string; amountRub: number };
+  poolLiquidated: boolean;
+  listing: { id: number } | null;
+}> {
+  return jsonFetch(`/api/buyouts/${requestId}/participants/${participantId}/confirm`, {
+    method: "POST",
+  });
+}
+
+export function cancelBuyout(requestId: number): Promise<{ buyoutRequest: BuyoutRequest }> {
+  return jsonFetch<{ buyoutRequest: BuyoutRequest }>(
+    `/api/buyouts/${requestId}/cancel`,
+    { method: "POST" },
+  );
+}

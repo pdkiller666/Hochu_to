@@ -381,7 +381,54 @@ GITHUB_TOKEN=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 bash scripts/github-push.s
 
 ---
 
-## 11. Дорожная карта (актуально на 25.04.2026 — Stage 27 закрыт, Stage 24 заморожен до открытия ИП, далее Stage 28 — Buyout)
+## 11. Дорожная карта (актуально на 27.04.2026 — Stage 28 закрыт, Stage 24 заморожен до открытия ИП)
+
+### Stage 28 (27.04.2026) — Co-Sharing Full Buyout: полный выкуп пула одним совладельцем
+
+**Зачем.** Финальная точка жизненного цикла пула — выход «жизни без бывших»: один из совладельцев готов забрать вещь себе целиком, выплатив остальным справедливую сумму. До Stage 28 это было невозможно технически: secondary marketplace (Stage 25) позволял торговать долями только по одной, и не было механики «купить всё разом → ликвидировать пул → передать listing в личное владение».
+
+**Архитектурное решение.** Создан **общий buyout-flow** (`routes/buyouts.ts`, ~620 строк) поверх двух новых таблиц `buyout_requests` + `buyout_participants`. Принципиально:
+- Один pending-запрос на пул в каждый момент времени (partial unique index на `(pool_id) WHERE status='pending'` — защита от race conditions).
+- Каждой не-инициаторной доле соответствует ровно одна строка `buyout_participants` со снимком (sharePercentage, shareAmountRub, priceRub).
+- Расчёт payout = `share.amountRub × residualRatio`, где `residualRatio` — то же зеркало формулы Stage 26-B suggested-price (`max(0.1, 1 − meter × depPct/100)`).
+- **Атомарный confirm** в `db.transaction`: TOCTOU-update участника → загрузка живой доли → merge `sharePercentage += participant.sharePercentage, amountRub += participant.amountRub` у инициатора → DELETE доли участника → если инициатор достиг 100% (с запасом 99.99 для DECIMAL-погрешности) → `pool.status='liquidated'`, `listing.pool_id=NULL`, `listing.custodian_id=initiator`, `buyout_request.status='completed'`.
+- Audit + notify — **post-commit, best-effort** (та же модель что в Stage 25/27 confirm-transfer): `void recordAuditEvent` + try/catch вокруг `createNotification`.
+
+**Backend (5 endpoints):**
+
+1. `POST /api/pools/:poolId/buyout` (auth, инициатор) — pre-checks: я владелец доли, ≥1 другой совладелец, нет активного pending-запроса; расчёт payout per participant; tx-вставка request + participants; audit `buyout_requested`; notify всех участников (`pool_buyout_requested`).
+2. `GET /api/pools/:poolId/buyout` (public) — возвращает последний по `createdAt` запрос (любой статус) + всех участников с join `users.name`. UI используется и для активных, и для completed-плашки.
+3. `POST /api/buyouts/:id/participants/:pid/mark-transferred` (auth, инициатор) — атомарный TOCTOU `pending_approval → user_transferred`; audit `buyout_transferred`; notify участника (`pool_buyout_transferred`: «X перевёл вам Y₽»).
+4. `POST /api/buyouts/:id/participants/:pid/confirm` (auth, участник) — основная атомарная транзакция (см. выше); audit `buyout_confirmed` + (при ликвидации) `pool_liquidated`; notify инициатору (`pool_buyout_confirmed`) + всем остальным (`pool_buyout_completed`).
+5. `POST /api/buyouts/:id/cancel` (auth, инициатор) — запрещено если хоть один participant уже `confirmed` (защита от частичного отката после merge); статус → `canceled`; notify всех (`pool_buyout_canceled`).
+
+**Состояние «Step A: Согласиться» — UI-only.** Enum `buyout_participant_status` имеет ровно 3 значения, и каждое означает фактическое состояние сделки. «Согласие» участника — это локальный React-state (`acceptedParticipants: Set<number>`), управляющий показом СБП-реквизитов инициатора. БД-статус не меняется, потому что согласие без действия (перевода) не имеет юридического веса. Это сознательное упрощение: участник может «согласиться», увидеть реквизиты — но если инициатор не переведёт деньги, участник никогда не нажмёт «Деньги получил», и сделка истечёт через `cancel`.
+
+**Уведомления** — расширен `NotifType` 5 типами: `pool_buyout_requested`, `pool_buyout_transferred`, `pool_buyout_confirmed`, `pool_buyout_canceled`, `pool_buyout_completed`. Все обёрнуты в try/catch — падение notify не валит транзакцию.
+
+**Frontend** (`PoolDetail.tsx` — компонент `BuyoutBlock` ~330 строк):
+- Размещён между `MarketplaceBlock` и `SharesList`.
+- Polling `refetchInterval: 15_000` (быстрее чем TimelineBlock — критичные для UX переходы статусов).
+- Если пул `liquidated` + completed-запрос → показывает финальную плашку «X — единственный владелец».
+- Если нет pending-запроса И есть `canInitiateBuyout` → две стадии: «Выкупить весь пул» → confirm-плашка → POST.
+- Если есть pending-запрос:
+  - **Инициатор** видит список участников (`BuyoutInitiatorRow`): статус каждого + кнопка «Я перевёл деньги» для `pending_approval` + ссылка «Отменить запрос» (нативный `confirm()` пока, AlertDialog — followup).
+  - **Участник** видит свою карточку (`BuyoutParticipantCard`): сначала «Согласиться» → раскрывается СБП-блок инициатора → ждёт `user_transferred` → кнопка «Деньги получил» → атомарный merge + ликвидация.
+  - **Сторонний** (админ/наблюдатель) видит read-only список.
+
+**API client** (`api-pools.ts`): новые типы `BuyoutRequest`, `BuyoutParticipant`, `BuyoutDetailResponse`, `CreateBuyoutResponse` + 5 функций (`getPoolBuyout`, `createPoolBuyout`, `markBuyoutTransferred`, `confirmBuyoutParticipant`, `cancelBuyout`).
+
+**E2E smoke test (PASS):** Иван (60%) + Пётр (40%) → Иван POST buyout → Пётр получает priceRub=40000 (residual=1.0, нет listing) → проверка permissions: Пётр пробует confirm без mark → 409, Пётр пробует mark → 403, Иван mark → OK, Иван повторно mark → 409 invalid_transition, Иван пробует confirm → 403, Пётр confirm → атомарный merge: Иван 100%/100000₽, Пётр доля удалена, pool=liquidated, request=completed, participant=confirmed. Все 5 ожидаемых статусов в БД корректны.
+
+**Что НЕ сделано (Stage 28 followup):**
+- Замена нативного `confirm()` на shadcn `AlertDialog`.
+- Эскроу-модель для buyout (Stage 24 — commercial mode): вместо СБП p2p — холд в ЮKassa, авто-релиз при ликвидации.
+- Поддержка частичного выкупа (например, Иван покупает только долю Петра, оставляя Дмитрия) — сейчас ставка «всё или ничего».
+- Авто-cancel запросов после N дней без активности (cron).
+- UI-сценарий «participant отказывается»: сейчас отказ = просто игнор, инициатор должен сам отменить. Можно добавить явную кнопку «Отказаться» с уведомлением инициатору.
+- Гендерное склонение в нотификациях.
+
+
 
 ### Stage 27 (25.04.2026) — Co-Sharing Transparency: Notifications + Audit Log
 

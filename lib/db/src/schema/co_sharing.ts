@@ -69,6 +69,32 @@ export const shareOfferStatusEnum = pgEnum("share_offer_status", [
   "canceled",
 ]);
 
+/**
+ * Stage 28 — Полный выкуп пула.
+ *
+ * Жизненный цикл buyout_request:
+ *   pending → completed     (инициатор довёл свой share до 100%, пул ликвидирован)
+ *   pending → canceled      (инициатор отменил до того, как кто-то confirmed; либо все participants отказались)
+ *
+ * Жизненный цикл buyout_participant:
+ *   pending_approval     — участник ещё не дал согласие; UI у participant: «Согласиться → показать СБП».
+ *                          UI у initiator: «Ждём согласия» (mark-transferred НЕ доступен).
+ *   user_transferred     — инициатор пометил «я перевёл деньги участнику».
+ *                          UI у participant: «Деньги получил» (атомарный merge + удаление его share).
+ *   confirmed            — participant подтвердил → его доля смерджена с initiator'ом.
+ */
+export const buyoutStatusEnum = pgEnum("buyout_status", [
+  "pending",
+  "completed",
+  "canceled",
+]);
+
+export const buyoutParticipantStatusEnum = pgEnum("buyout_participant_status", [
+  "pending_approval",
+  "user_transferred",
+  "confirmed",
+]);
+
 // ── Tables ─────────────────────────────────────────────────────────────────
 
 export const poolsTable = pgTable(
@@ -200,3 +226,92 @@ export type PoolShare = typeof poolSharesTable.$inferSelect;
 export const insertShareOfferSchema = createInsertSchema(shareOffersTable).omit({ id: true, createdAt: true });
 export type InsertShareOffer = z.infer<typeof insertShareOfferSchema>;
 export type ShareOffer = typeof shareOffersTable.$inferSelect;
+
+/**
+ * Stage 28 — Запрос на полный выкуп пула.
+ * Один pending-запрос на пул (partial unique). После завершения/отмены — статус меняется,
+ * unique снимается → можно создавать новый.
+ */
+export const buyoutRequestsTable = pgTable(
+  "buyout_requests",
+  {
+    id: serial("id").primaryKey(),
+    poolId: integer("pool_id")
+      .notNull()
+      .references(() => poolsTable.id, { onDelete: "cascade" }),
+    initiatorId: integer("initiator_id")
+      .notNull()
+      .references(() => usersTable.id, { onDelete: "restrict" }),
+    status: buyoutStatusEnum("status").default("pending").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    poolIdx: index("buyout_requests_pool_idx").on(t.poolId),
+    initiatorIdx: index("buyout_requests_initiator_idx").on(t.initiatorId),
+    /**
+     * Только один pending-выкуп на пул в каждый момент времени.
+     * Partial unique = срабатывает только когда status='pending'.
+     */
+    pendingPerPoolUniq: uniqueIndex("buyout_requests_pending_per_pool_uniq")
+      .on(t.poolId)
+      .where(sql`status = 'pending'`),
+  }),
+);
+
+/**
+ * Участник выкупа = одна доля = одна строка. Каждой не-инициаторной доле
+ * на момент создания запроса соответствует ровно одна запись.
+ *
+ * shareId хранится как «снимок» доли, но при confirmed share может быть удалена
+ * (мы её мерджим с initiator'ом). Поэтому FK с onDelete: 'set null' — для аудита.
+ */
+export const buyoutParticipantsTable = pgTable(
+  "buyout_participants",
+  {
+    id: serial("id").primaryKey(),
+    buyoutRequestId: integer("buyout_request_id")
+      .notNull()
+      .references(() => buyoutRequestsTable.id, { onDelete: "cascade" }),
+    userId: integer("user_id")
+      .notNull()
+      .references(() => usersTable.id, { onDelete: "restrict" }),
+    /** Snapshot: какая доля участвует. После confirmed эта запись в pool_shares удалится. */
+    shareId: integer("share_id").references(() => poolSharesTable.id, { onDelete: "set null" }),
+    /** Snapshot: процент доли на момент создания запроса (нужен для merge). */
+    sharePercentage: numeric("share_percentage", { precision: 5, scale: 2 }).notNull(),
+    /** Snapshot: рублёвая сумма доли на момент создания запроса (для merge amount). */
+    shareAmountRub: integer("share_amount_rub").notNull(),
+    /** Размер выплаты этому участнику (residualValue × sharePct/100). */
+    priceRub: integer("price_rub").notNull(),
+    status: buyoutParticipantStatusEnum("status").default("pending_approval").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    requestIdx: index("buyout_participants_request_idx").on(t.buyoutRequestId),
+    userIdx: index("buyout_participants_user_idx").on(t.userId),
+    /** В рамках одного выкупа — один участник = одна строка. */
+    requestUserUniq: uniqueIndex("buyout_participants_request_user_uniq").on(
+      t.buyoutRequestId,
+      t.userId,
+    ),
+    priceNonNeg: check("buyout_participants_price_non_neg", sql`${t.priceRub} >= 0`),
+    sharePercentRange: check(
+      "buyout_participants_percent_range",
+      sql`${t.sharePercentage} > 0 AND ${t.sharePercentage} <= 100`,
+    ),
+  }),
+);
+
+export const insertBuyoutRequestSchema = createInsertSchema(buyoutRequestsTable).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertBuyoutRequest = z.infer<typeof insertBuyoutRequestSchema>;
+export type BuyoutRequest = typeof buyoutRequestsTable.$inferSelect;
+
+export const insertBuyoutParticipantSchema = createInsertSchema(buyoutParticipantsTable).omit({
+  id: true,
+  createdAt: true,
+});
+export type InsertBuyoutParticipant = z.infer<typeof insertBuyoutParticipantSchema>;
+export type BuyoutParticipant = typeof buyoutParticipantsTable.$inferSelect;

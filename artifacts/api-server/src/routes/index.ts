@@ -25,6 +25,7 @@ import promotionsRouter from "./promotions.js";
 import webhooksRouter from "./webhooks.js";
 import digitalActsRouter from "./digital_acts.js";
 import poolsRouter from "./pools.js";
+import buyoutsRouter from "./buyouts.js";
 
 const router: IRouter = Router();
 
@@ -41,6 +42,7 @@ router.use("/users", usersRouter);
 router.use("/reviews", reviewsRouter);
 router.use("/joint-purchases", jointPurchasesRouter);
 router.use("/pools", poolsRouter);
+router.use(buyoutsRouter);
 router.use("/favorites", favoritesRouter);
 router.use("/support", supportRouter);
 router.use("/reports", reportsRouter);

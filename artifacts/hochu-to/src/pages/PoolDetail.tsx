@@ -12,10 +12,17 @@ import {
   cancelShareOffer,
   listPoolEvents,
   getSuggestedPrice,
+  getPoolBuyout,
+  createPoolBuyout,
+  markBuyoutTransferred,
+  confirmBuyoutParticipant,
+  cancelBuyout,
   type PoolDetail,
   type PoolShareDetail,
   type ShareOfferDetail,
   type PoolEvent,
+  type BuyoutDetailResponse,
+  type BuyoutParticipant,
 } from "@/lib/api-pools";
 import { formatPrice } from "@/lib/utils";
 import { calculateResidualValue, calculateDepreciationPercent } from "@/lib/pricing";
@@ -47,6 +54,8 @@ import {
   ArrowRightLeft,
   History,
   Banknote,
+  ShoppingBag,
+  AlertTriangle,
 } from "lucide-react";
 
 const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
@@ -211,6 +220,9 @@ export default function PoolDetailPage() {
 
         {/* Stage 25 — Вторичный рынок долей */}
         <MarketplaceBlock pool={pool} meId={me?.id ?? null} />
+
+        {/* Stage 28 — Полный выкуп пула */}
+        <BuyoutBlock pool={pool} meId={me?.id ?? null} />
 
         {/* All shares */}
         <SharesList pool={pool} meId={me?.id ?? null} />
@@ -1387,6 +1399,402 @@ function TimelineBlock({ poolId }: { poolId: number }) {
             );
           })}
         </ol>
+      )}
+    </div>
+  );
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Stage 28 — Полный выкуп пула (Co-Sharing Buyout)
+// ────────────────────────────────────────────────────────────────────────────
+
+function BuyoutBlock({ pool, meId }: { pool: PoolDetail; meId: number | null }) {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const [confirmingCreate, setConfirmingCreate] = useState(false);
+  // Какие участники уже «согласились» (показывать СБП). Локальный UI-state, без БД.
+  const [acceptedParticipants, setAcceptedParticipants] = useState<Set<number>>(new Set());
+
+  const buyoutQuery = useQuery({
+    queryKey: ["pool-buyout", pool.id],
+    queryFn: () => getPoolBuyout(pool.id),
+    refetchInterval: 15000, // лёгкий polling, чтобы видеть смену статусов другой стороны
+  });
+
+  const myShare = pool.shares?.find((s) => s.userId === meId);
+  const otherShares = pool.shares?.filter((s) => s.userId !== meId) ?? [];
+
+  // Залогирован, есть моя доля, в пуле >= 2 совладельцев, пул не ликвидирован/canceled.
+  const canInitiateBuyout =
+    !!meId &&
+    !!myShare &&
+    otherShares.length > 0 &&
+    pool.status !== "liquidated" &&
+    pool.status !== "canceled";
+
+  const createMut = useMutation({
+    mutationFn: () => createPoolBuyout(pool.id),
+    onSuccess: () => {
+      toast({ title: "Запрос на выкуп создан", description: "Совладельцы получат уведомление." });
+      queryClient.invalidateQueries({ queryKey: ["pool-buyout", pool.id] });
+      queryClient.invalidateQueries({ queryKey: ["pool", pool.id] });
+      setConfirmingCreate(false);
+    },
+    onError: (e: any) => {
+      const msg = e?.body?.message || e?.body?.error || e?.message || "Не удалось создать запрос";
+      toast({ title: "Ошибка", description: msg, variant: "destructive" });
+      setConfirmingCreate(false);
+    },
+  });
+
+  const cancelMut = useMutation({
+    mutationFn: (requestId: number) => cancelBuyout(requestId),
+    onSuccess: () => {
+      toast({ title: "Выкуп отменён" });
+      queryClient.invalidateQueries({ queryKey: ["pool-buyout", pool.id] });
+    },
+    onError: (e: any) => {
+      const msg = e?.body?.message || e?.body?.error || "Не удалось отменить";
+      toast({ title: "Ошибка", description: msg, variant: "destructive" });
+    },
+  });
+
+  const markMut = useMutation({
+    mutationFn: ({ requestId, participantId }: { requestId: number; participantId: number }) =>
+      markBuyoutTransferred(requestId, participantId),
+    onSuccess: () => {
+      toast({ title: "Отмечено как переведено", description: "Ждём подтверждения получателя." });
+      queryClient.invalidateQueries({ queryKey: ["pool-buyout", pool.id] });
+    },
+    onError: (e: any) => {
+      const msg = e?.body?.message || e?.body?.error || "Не удалось обновить статус";
+      toast({ title: "Ошибка", description: msg, variant: "destructive" });
+    },
+  });
+
+  const confirmMut = useMutation({
+    mutationFn: ({ requestId, participantId }: { requestId: number; participantId: number }) =>
+      confirmBuyoutParticipant(requestId, participantId),
+    onSuccess: (data) => {
+      if (data.poolLiquidated) {
+        toast({
+          title: "Доля передана, пул ликвидирован",
+          description: "Инициатор стал единственным владельцем.",
+        });
+      } else {
+        toast({ title: "Получение подтверждено", description: "Ваша доля передана инициатору." });
+      }
+      queryClient.invalidateQueries({ queryKey: ["pool-buyout", pool.id] });
+      queryClient.invalidateQueries({ queryKey: ["pool", pool.id] });
+    },
+    onError: (e: any) => {
+      const msg = e?.body?.message || e?.body?.error || "Не удалось подтвердить";
+      toast({ title: "Ошибка", description: msg, variant: "destructive" });
+    },
+  });
+
+  // ── Загрузка / нет активного запроса ───────────────────────────────────
+  if (buyoutQuery.isLoading) return null;
+
+  const data = buyoutQuery.data;
+  const request = data?.buyoutRequest ?? null;
+  const participants = data?.participants ?? [];
+
+  // Если пул ликвидирован И есть completed-запрос — показать финальную плашку.
+  if (pool.status === "liquidated" && request?.status === "completed") {
+    return (
+      <div className="border border-stone-200 rounded-2xl p-4 bg-stone-50">
+        <div className="flex items-center gap-2 text-stone-700">
+          <Crown className="w-5 h-5 text-emerald-600" />
+          <h3 className="font-semibold">Пул ликвидирован</h3>
+        </div>
+        <p className="text-sm text-stone-600 mt-2">
+          {request.initiatorName ?? "Совладелец"} выкупил все доли — теперь это его личная вещь.
+        </p>
+      </div>
+    );
+  }
+
+  // Нет активного pending-запроса.
+  if (!request || request.status !== "pending") {
+    if (!canInitiateBuyout) return null;
+    return (
+      <div className="border-2 border-dashed border-stone-200 rounded-2xl p-4 bg-white">
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center flex-shrink-0">
+            <ShoppingBag className="w-5 h-5 text-amber-700" />
+          </div>
+          <div className="flex-1">
+            <h3 className="font-semibold text-stone-900">Выкупить весь пул</h3>
+            <p className="text-sm text-stone-600 mt-1">
+              Выкупите доли всех остальных совладельцев и станьте единственным владельцем вещи.
+              Стоимость = остаточная цена × процент доли.
+            </p>
+            {!confirmingCreate ? (
+              <button
+                onClick={() => setConfirmingCreate(true)}
+                className="mt-3 px-4 py-2 rounded-lg bg-stone-900 text-white text-sm font-medium hover:bg-stone-800"
+                data-testid="button-start-buyout"
+              >
+                Выкупить весь пул
+              </button>
+            ) : (
+              <div className="mt-3 p-3 rounded-lg bg-amber-50 border border-amber-200">
+                <p className="text-sm text-stone-800">
+                  Будет создан запрос для всех совладельцев ({otherShares.length} чел.).
+                  Каждый из них увидит вашу СБП-информацию и сможет согласиться на сделку.
+                </p>
+                <div className="flex gap-2 mt-3">
+                  <button
+                    onClick={() => createMut.mutate()}
+                    disabled={createMut.isPending}
+                    className="px-4 py-2 rounded-lg bg-stone-900 text-white text-sm font-medium hover:bg-stone-800 disabled:opacity-50 inline-flex items-center gap-2"
+                    data-testid="button-confirm-start-buyout"
+                  >
+                    {createMut.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
+                    Подтвердить и создать запрос
+                  </button>
+                  <button
+                    onClick={() => setConfirmingCreate(false)}
+                    disabled={createMut.isPending}
+                    className="px-4 py-2 rounded-lg border border-stone-300 text-sm hover:bg-stone-50"
+                  >
+                    Отмена
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Активный pending-запрос ────────────────────────────────────────────
+  const iAmInitiator = meId === request.initiatorId;
+  const myParticipant = participants.find((p) => p.userId === meId) ?? null;
+  const totalPayout = participants.reduce((s, p) => s + p.priceRub, 0);
+
+  return (
+    <div className="border-2 border-amber-200 rounded-2xl p-4 bg-amber-50/50">
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div className="flex items-center gap-2">
+          <ShoppingBag className="w-5 h-5 text-amber-700" />
+          <h3 className="font-semibold text-stone-900">Идёт выкуп пула</h3>
+        </div>
+        {iAmInitiator && (
+          <button
+            onClick={() => {
+              if (confirm("Отменить запрос на выкуп? Все участники получат уведомление.")) {
+                cancelMut.mutate(request.id);
+              }
+            }}
+            disabled={cancelMut.isPending}
+            className="text-xs text-stone-500 hover:text-red-600 underline disabled:opacity-50"
+            data-testid="button-cancel-buyout"
+          >
+            Отменить запрос
+          </button>
+        )}
+      </div>
+
+      <div className="text-sm text-stone-700 mb-3">
+        <span className="font-medium">{request.initiatorName ?? "Совладелец"}</span> хочет выкупить
+        все остальные доли · итого <span className="font-medium">{formatPrice(totalPayout)}</span>
+      </div>
+
+      {/* Участник видит свою плашку с возможностью согласиться + подтвердить получение */}
+      {myParticipant && !iAmInitiator && (
+        <BuyoutParticipantCard
+          participant={myParticipant}
+          request={request}
+          isAccepted={acceptedParticipants.has(myParticipant.id)}
+          onAccept={() =>
+            setAcceptedParticipants((prev) => new Set(prev).add(myParticipant.id))
+          }
+          onConfirm={() =>
+            confirmMut.mutate({ requestId: request.id, participantId: myParticipant.id })
+          }
+          confirmPending={confirmMut.isPending}
+        />
+      )}
+
+      {/* Инициатор видит всех участников и может помечать переводы */}
+      {iAmInitiator && (
+        <div className="space-y-2">
+          {participants.map((p) => (
+            <BuyoutInitiatorRow
+              key={p.id}
+              participant={p}
+              onMarkTransferred={() =>
+                markMut.mutate({ requestId: request.id, participantId: p.id })
+              }
+              markPending={markMut.isPending}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Сторонний наблюдатель (не инициатор и не участник, например админ) — read-only */}
+      {!iAmInitiator && !myParticipant && (
+        <div className="space-y-1 text-sm text-stone-700">
+          {participants.map((p) => (
+            <div key={p.id} className="flex justify-between py-1 border-b border-amber-100 last:border-0">
+              <span>{p.userName ?? `Пользователь #${p.userId}`} ({p.sharePercentage}%)</span>
+              <span className="text-stone-500">{participantStatusLabel(p.status)} · {formatPrice(p.priceRub)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function participantStatusLabel(s: BuyoutParticipant["status"]): string {
+  switch (s) {
+    case "pending_approval": return "Ожидает согласия";
+    case "user_transferred": return "Деньги переведены";
+    case "confirmed": return "Получение подтверждено";
+  }
+}
+
+function BuyoutParticipantCard({
+  participant,
+  request,
+  isAccepted,
+  onAccept,
+  onConfirm,
+  confirmPending,
+}: {
+  participant: BuyoutParticipant;
+  request: { initiatorName: string | null; initiatorPaymentDetails: string | null };
+  isAccepted: boolean;
+  onAccept: () => void;
+  onConfirm: () => void;
+  confirmPending: boolean;
+}) {
+  const initiatorName = request.initiatorName ?? "Совладелец";
+
+  if (participant.status === "confirmed") {
+    return (
+      <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3">
+        <div className="flex items-center gap-2 text-emerald-700">
+          <CheckCircle2 className="w-5 h-5" />
+          <span className="font-medium">Ваша доля передана</span>
+        </div>
+        <p className="text-sm text-emerald-700 mt-1">
+          Вы получили {formatPrice(participant.priceRub)} за {participant.sharePercentage}% доли.
+        </p>
+      </div>
+    );
+  }
+
+  if (participant.status === "user_transferred") {
+    return (
+      <div className="bg-white border border-amber-300 rounded-xl p-3">
+        <div className="flex items-center gap-2 text-amber-800 mb-2">
+          <Banknote className="w-5 h-5" />
+          <span className="font-medium">{initiatorName} перевёл вам {formatPrice(participant.priceRub)}</span>
+        </div>
+        <p className="text-sm text-stone-700 mb-3">
+          Проверьте поступление по СБП. Если деньги пришли — подтвердите получение,
+          ваша доля будет передана инициатору.
+        </p>
+        <button
+          onClick={onConfirm}
+          disabled={confirmPending}
+          className="px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50 inline-flex items-center gap-2"
+          data-testid={`button-confirm-receipt-${participant.id}`}
+        >
+          {confirmPending && <Loader2 className="w-4 h-4 animate-spin" />}
+          Деньги получил
+        </button>
+      </div>
+    );
+  }
+
+  // pending_approval
+  return (
+    <div className="bg-white border border-amber-300 rounded-xl p-3">
+      <p className="text-sm text-stone-800 mb-2">
+        <span className="font-medium">{initiatorName}</span> предлагает вам{" "}
+        <span className="font-medium">{formatPrice(participant.priceRub)}</span> за вашу долю
+        ({participant.sharePercentage}%).
+      </p>
+      {!isAccepted ? (
+        <button
+          onClick={onAccept}
+          className="px-4 py-2 rounded-lg bg-stone-900 text-white text-sm font-medium hover:bg-stone-800"
+          data-testid={`button-accept-buyout-${participant.id}`}
+        >
+          Согласиться
+        </button>
+      ) : (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mt-2">
+          <div className="flex items-center gap-2 text-amber-800 mb-1">
+            <Banknote className="w-4 h-4" />
+            <span className="text-sm font-medium">Реквизиты для перевода (СБП):</span>
+          </div>
+          <div className="font-mono text-sm text-stone-900 bg-white border border-amber-200 rounded px-2 py-1 mb-2">
+            {request.initiatorPaymentDetails || "— не указаны —"}
+          </div>
+          <p className="text-xs text-stone-600">
+            Это реквизиты инициатора. Дождитесь, пока {initiatorName} переведёт{" "}
+            {formatPrice(participant.priceRub)} вам — затем здесь появится кнопка «Деньги получил».
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BuyoutInitiatorRow({
+  participant,
+  onMarkTransferred,
+  markPending,
+}: {
+  participant: BuyoutParticipant;
+  onMarkTransferred: () => void;
+  markPending: boolean;
+}) {
+  const StatusIcon =
+    participant.status === "confirmed" ? CheckCircle2 :
+    participant.status === "user_transferred" ? Clock : AlertTriangle;
+  const statusCls =
+    participant.status === "confirmed" ? "text-emerald-700" :
+    participant.status === "user_transferred" ? "text-amber-700" : "text-stone-500";
+
+  return (
+    <div className="bg-white border border-amber-200 rounded-xl p-3">
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <div>
+          <div className="font-medium text-sm text-stone-900">
+            {participant.userName ?? `Пользователь #${participant.userId}`}
+          </div>
+          <div className="text-xs text-stone-500">
+            {participant.sharePercentage}% · к выплате {formatPrice(participant.priceRub)}
+          </div>
+        </div>
+        <div className={`flex items-center gap-1 text-xs ${statusCls}`}>
+          <StatusIcon className="w-4 h-4" />
+          {participantStatusLabel(participant.status)}
+        </div>
+      </div>
+      {participant.status === "pending_approval" && (
+        <button
+          onClick={onMarkTransferred}
+          disabled={markPending}
+          className="w-full px-3 py-1.5 rounded-lg border border-stone-300 text-sm hover:bg-stone-50 disabled:opacity-50 inline-flex items-center justify-center gap-2"
+          data-testid={`button-mark-transferred-${participant.id}`}
+        >
+          {markPending && <Loader2 className="w-4 h-4 animate-spin" />}
+          Я перевёл деньги
+        </button>
+      )}
+      {participant.status === "user_transferred" && (
+        <p className="text-xs text-stone-500 italic">
+          Ждём, пока {participant.userName ?? "участник"} подтвердит получение.
+        </p>
       )}
     </div>
   );

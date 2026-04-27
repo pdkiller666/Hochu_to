@@ -842,6 +842,49 @@ Frontend (`/pools`, `/pools/create`, `/pools/:id`):
 - Cleanup audit_events при cascade delete пула (сейчас остаются как «история призраков»; либо триггер, либо ON DELETE soft через периодический GC).
 - Гендерное склонение в текстах уведомлений («перевёл/перевела»).
 
+## Stage 28 — Co-Sharing Full Buyout: полный выкуп пула одним совладельцем (27.04.2026)
+
+Финал жизненного цикла пула. До Stage 28 совладельцы могли продавать доли только по одной через Stage 25 marketplace; не было способа атомарно «выкупить всех → ликвидировать пул → стать единственным владельцем вещи». Это блокировало естественный сценарий «не хочу больше делить — заберу себе».
+
+**Архитектура:**
+
+- 2 новые таблицы (`lib/db/src/schema/co_sharing.ts`):
+  - `buyout_requests` (id, pool_id, initiator_id, status enum `pending/completed/canceled`) с **partial unique index** `(pool_id) WHERE status='pending'` — гарантия одного активного выкупа на пул.
+  - `buyout_participants` (id, buyout_request_id, user_id, share_id, sharePercentage/shareAmountRub/priceRub snapshot, status enum `pending_approval/user_transferred/confirmed`) — по одной строке на каждого не-инициаторного совладельца.
+- 5 endpoints в `routes/buyouts.ts` (~620 LOC). Все мутации идут через `requireAuth`. Helper `calculateResidualRatio(poolId)` — точное зеркало формулы Stage 26-B (`max(0.1, 1 − meter × depPct/100)`), используется при создании запроса для расчёта payout = `share.amountRub × residualRatio`.
+- 5 новых `NotifType` (`pool_buyout_*`) в `lib/notifications.ts`.
+- Frontend: компонент `BuyoutBlock` в `PoolDetail.tsx` (~330 LOC), вставлен между `MarketplaceBlock` и `SharesList`. Polling `15s`. Три ветки UI (initiator / participant / observer).
+
+**Атомарный confirm (главная транзакция):**
+1. TOCTOU `UPDATE buyout_participants SET status='confirmed' WHERE id=? AND user_id=? AND status='user_transferred'` — защита от double-click.
+2. SELECT живой доли participant'а (по pool_id + user_id).
+3. SELECT доли инициатора.
+4. UPDATE доли инициатора: `+= participant.sharePercentage, += participant.amountRub`.
+5. DELETE доли participant'а.
+6. Если новый процент инициатора `>= 99.99` (запас по DECIMAL): `pool.status='liquidated'`, `listing.pool_id=NULL`, `listing.custodian_id=initiator`, `buyout_request.status='completed'`.
+
+`recordAuditEvent` + `createNotification` — post-commit, void-обёрнуты, не валят ответ клиенту.
+
+**Step A «Согласиться» — UI-only.** Enum имеет ровно 3 значения, каждое — фактический бизнес-state. Согласие участника без действия не имеет юридического веса, поэтому хранится только в локальном `useState<Set<number>>`, управляющем раскрытием СБП-реквизитов инициатора.
+
+**E2E smoke (PASS, 27.04.2026):**
+Иван (60%) + Пётр (40%), пул #1, listing нет (residual=1.0).
+1. POST /pools/1/buyout (Иван) → request #1, participant #1 (Петр, priceRub=40000).
+2. POST /participants/1/confirm (Пётр) без mark → 409 `participant_not_in_transferred_state` ✓
+3. POST /participants/1/mark-transferred (Пётр) → 403 `only_initiator_can_mark_transferred` ✓
+4. POST /participants/1/mark-transferred (Иван) → status=`user_transferred` ✓
+5. POST /participants/1/mark-transferred (Иван повторно) → 409 `invalid_transition` ✓
+6. POST /participants/1/confirm (Иван) → 403 `only_participant_can_confirm` ✓
+7. POST /participants/1/confirm (Пётр) → атомарный merge: Иван 100%/100000₽, Петр доля удалена, pool=`liquidated`, request=`completed`, participant=`confirmed`, `poolLiquidated:true` ✓
+
+**Что НЕ сделано (Stage 28 followup):**
+- Замена нативного `confirm()` на shadcn `AlertDialog`.
+- Эскроу для buyout (Stage 24 commercial mode): холд в ЮKassa вместо СБП p2p, авто-релиз при ликвидации.
+- Частичный выкуп (Иван покупает только Петра, не всех) — сейчас «всё или ничего».
+- Авто-cancel зависших запросов через cron.
+- Явная кнопка «Отказаться» у participant'а с уведомлением инициатору (сейчас отказ = молчаливый игнор + `cancel` инициатора).
+- Гендерное склонение в нотификациях.
+
 ## What Is NOT Yet Implemented (roadmap)
 
 - ~~Видео в Цифровом Акте~~ — **закрыто Stage 22b-followup**: отдельный endpoint `POST /api/upload-video` (multer, 100МБ, mime allowlist mp4/webm/quicktime, расширение нормализуется по mime), фронт-компонент `DigitalActUpload.tsx` с переключателем «ссылка / загрузить файл» и превью `<video>`, в роуте `digital_acts` валидация `videoUrl` принимает либо `/uploads/<uuid>.(mp4|webm|mov|m4v)`, либо абсолютный http(s) URL — иначе 400 `invalid_video_url`. data:URI и path-traversal `/uploads/../etc/passwd` отбиваются.
