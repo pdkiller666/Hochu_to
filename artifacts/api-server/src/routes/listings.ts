@@ -59,6 +59,7 @@ async function getListingWithDetails(id: number) {
       ownerPhone: usersTable.phone,
       // Stage 19g — для бейджа «Проверенный владелец» в карточке объявления.
       ownerIsVerified: usersTable.isVerified,
+      ownerTrustScore: usersTable.trustScore,
       isFeatured: listingsTable.isFeatured,
       featuredUntil: listingsTable.featuredUntil,
       isUrgent: listingsTable.isUrgent,
@@ -235,6 +236,7 @@ router.get("/", async (req, res) => {
       ownerPhone: usersTable.phone,
       // Stage 19g — для бейджа «Проверенный владелец» в карточке объявления.
       ownerIsVerified: usersTable.isVerified,
+      ownerTrustScore: usersTable.trustScore,
       isFeatured: listingsTable.isFeatured,
       featuredUntil: listingsTable.featuredUntil,
       isUrgent: listingsTable.isUrgent,

@@ -16,7 +16,7 @@ import { logger } from "./logger.js";
  *   - eventType: short snake_case ('pool_created', 'offer_reserved' и т.д.).
  *   - metadata: произвольный JSON со связанными ID и числами.
  */
-export type AuditEntityType = "pool" | "share" | "offer";
+export type AuditEntityType = "pool" | "share" | "offer" | "user";
 
 export async function recordAuditEvent(params: {
   entityType: AuditEntityType;

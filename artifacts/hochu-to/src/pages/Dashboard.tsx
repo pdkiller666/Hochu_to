@@ -33,6 +33,7 @@ import { formatPrice } from "@/lib/utils";
 import { SBP_BANKS, getSbpBankName, formatPhoneMask, extractCleanPhone } from "@/lib/sbp-banks";
 import { format } from "date-fns";
 import { StarRating } from "@/components/ui/StarRating";
+import { TrustBadge } from "@/components/ui/TrustBadge";
 import { SupportSection } from "@/components/ui/SupportSection";
 import { usePersistedState } from "@/lib/use-persisted-state";
 import { useToast } from "@/hooks/use-toast";
@@ -2479,6 +2480,36 @@ export default function Dashboard() {
                     </div>
                   </div>
                 )}
+
+                {/* ── Stage 29: Trust Score — общий «индекс доверия» (0..100) ── */}
+                {(() => {
+                  const ts = (user as any).trustScore as number | null | undefined;
+                  if (ts === null || ts === undefined) return null;
+                  const updated = (user as any).trustScoreUpdatedAt as string | null | undefined;
+                  const tier =
+                    ts >= 80 ? { name: "Высокий", desc: "Партнёры охотно сотрудничают с вами." }
+                    : ts >= 50 ? { name: "Средний", desc: "Хорошее начало — завершайте сделки и собирайте отзывы, чтобы расти." }
+                    : { name: "Низкий", desc: "Постарайтесь избегать претензий и накапливать положительный опыт." };
+                  return (
+                    <div className="bg-white border border-border rounded-2xl p-5 mb-4 shadow-sm">
+                      <div className="flex items-start gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex flex-wrap items-center gap-2 mb-1">
+                            <h3 className="font-bold text-base">Индекс доверия</h3>
+                            <TrustBadge score={ts} size="md" showLabel />
+                          </div>
+                          <p className="text-sm text-muted-foreground">
+                            <span className="font-semibold text-foreground">{tier.name} уровень.</span> {tier.desc}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-2">
+                            Считается из среднего рейтинга отзывов, числа завершённых сделок, статуса верификации и претензий.
+                            {updated ? ` Обновлено ${format(new Date(updated), "d MMMM yyyy")}.` : ""}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* ── Main settings form ── */}
                 <div className="bg-white border border-border rounded-2xl p-6 shadow-sm">

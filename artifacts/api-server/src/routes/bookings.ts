@@ -7,6 +7,7 @@ import { createNotification } from "../lib/notifications.js";
 import { getPlatformSettings, num } from "../lib/platform-settings.js";
 import { applyBookingCountDelta, bookingCountDelta, bookingCounts } from "../lib/listing-counters.js";
 import { recordAuditEvent } from "../lib/audit-events.js";
+import { recalcTrustScoreForUsers } from "../lib/trust-score.js";
 
 const router = Router();
 
@@ -842,6 +843,16 @@ router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
   }
   } catch (err) {
     console.error("[bookings PUT] post-commit notification failed", { bookingId: updated.id, status, err });
+  }
+
+  // Stage 29 — Trust Score: пересчитать обоим участникам после завершения сделки.
+  // Вне транзакции, не блокирует ответ. recalcTrustScoreForUsers сама ловит ошибки.
+  if (status === "completed") {
+    void recalcTrustScoreForUsers(
+      [updated.ownerId, updated.renterId],
+      req.userId ?? null,
+      `booking_completed:${updated.id}`,
+    );
   }
 
   res.json(formatBooking(updated, listing, undefined, owner));

@@ -235,6 +235,7 @@ router.get("/:id", async (req, res) => {
         createdAt: poolSharesTable.createdAt,
         userName: usersTable.name,
         userAvatar: usersTable.avatar,
+        userTrustScore: usersTable.trustScore,
       })
       .from(poolSharesTable)
       .leftJoin(usersTable, eq(poolSharesTable.userId, usersTable.id))
@@ -303,6 +304,8 @@ router.get("/:id", async (req, res) => {
         userId: s.userId,
         userName: (s.userName ?? "").trim() || `Пользователь #${s.userId}`,
         userAvatarUrl: s.userAvatar,
+        // Stage 29 — Trust Score участника, для бейджа в списке совладельцев.
+        userTrustScore: s.userTrustScore ?? null,
         sharePercentage: s.sharePercentage,
         amountRub: s.amountRub,
         paymentStatus: s.paymentStatus,

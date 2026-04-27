@@ -82,6 +82,9 @@ router.get("/:id", async (req, res) => {
     // verificationNote НЕ отдаём — это внутренняя админ-заметка (см. AGENT_INSTRUCTIONS.md §11d).
     isVerified: user.isVerified ?? false,
     verifiedAt: user.verifiedAt ? user.verifiedAt.toISOString() : null,
+    // Stage 29 — Trust Score: публичный показатель доверия 0..100 (или null).
+    trustScore: user.trustScore ?? null,
+    trustScoreUpdatedAt: user.trustScoreUpdatedAt ? user.trustScoreUpdatedAt.toISOString() : null,
     totalListings: listingsCount?.count ?? 0,
     totalBookings: bookingsCount?.count ?? 0,
     completedDeals: completedBookings?.count ?? 0,

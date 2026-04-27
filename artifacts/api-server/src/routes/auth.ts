@@ -59,6 +59,9 @@ function formatUser(user: typeof usersTable.$inferSelect, regionName?: string) {
     // Stage 19g — Trust & Verification: владелец видит свой статус в личном кабинете.
     isVerified: user.isVerified ?? false,
     verifiedAt: user.verifiedAt ? user.verifiedAt.toISOString() : null,
+    // Stage 29 — Trust Score: 0..100, NULL пока ещё не вычислялось.
+    trustScore: user.trustScore ?? null,
+    trustScoreUpdatedAt: user.trustScoreUpdatedAt ? user.trustScoreUpdatedAt.toISOString() : null,
     createdAt: user.createdAt.toISOString(),
   };
 }

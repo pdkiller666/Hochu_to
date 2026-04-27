@@ -3,6 +3,7 @@ import { db, reviewsTable, usersTable, bookingsTable, listingsTable } from "@wor
 import { eq, and, sql } from "drizzle-orm";
 import { requireAuth, AuthRequest } from "../middleware/auth.js";
 import { recomputeListingRating } from "../lib/listing-counters.js";
+import { calculateAndUpdateTrustScore } from "../lib/trust-score.js";
 
 const router = Router();
 
@@ -129,6 +130,11 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
   // Stage 19e: пересчёт avgRating/reviewCount для объявления
   if (review.listingId) {
     await recomputeListingRating(review.listingId);
+  }
+
+  // Stage 29 — Trust Score: новый отзыв меняет средний рейтинг получателя.
+  if (review.revieweeId) {
+    void calculateAndUpdateTrustScore(review.revieweeId, userId, `review_created:${review.id}`);
   }
 
   const [author] = await db.select().from(usersTable).where(eq(usersTable.id, userId)).limit(1);

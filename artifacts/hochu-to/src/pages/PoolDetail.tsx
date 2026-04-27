@@ -25,6 +25,7 @@ import {
   type BuyoutParticipant,
 } from "@/lib/api-pools";
 import { formatPrice } from "@/lib/utils";
+import { TrustBadge } from "@/components/ui/TrustBadge";
 import { calculateResidualValue, calculateDepreciationPercent } from "@/lib/pricing";
 import { usePublicSettings } from "@/lib/use-public-settings";
 import { useToast } from "@/hooks/use-toast";
@@ -502,13 +503,15 @@ function SharesList({ pool, meId }: { pool: PoolDetail; meId: number | null }) {
                 }`}
               >
                 <div className="min-w-0 flex-1">
-                  <div className="font-bold text-sm truncate inline-flex items-center gap-2">
+                  <div className="font-bold text-sm truncate inline-flex items-center gap-2 flex-wrap">
                     {s.userName}
                     {mine && (
                       <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-primary/15 text-primary">
                         Вы
                       </span>
                     )}
+                    {/* Stage 29 — бейдж Trust Score участника пула */}
+                    <TrustBadge score={(s as any).userTrustScore} size="sm" />
                   </div>
                   <div className="text-xs text-muted-foreground">
                     {formatPrice(s.amountRub)} · {s.sharePercentage}%

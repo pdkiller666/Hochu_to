@@ -13,6 +13,7 @@ import { requireAuth, requireAdmin, AuthRequest } from "../middleware/auth.js";
 import bcrypt from "bcryptjs";
 import { getPlatformSettings, updatePlatformSettings } from "../lib/platform-settings.js";
 import { seedTestListings } from "../lib/seed-test-listings.js";
+import { calculateAndUpdateTrustScore } from "../lib/trust-score.js";
 
 /**
  * Кириллично-безопасный поиск: PostgreSQL с locale=C игнорирует регистр кириллицы в ILIKE.
@@ -532,6 +533,11 @@ router.patch("/users/:id", requireAuth, requireAdmin, async (req: AuthRequest, r
           : "edit_user";
   await audit(req.userId!, "user", id, action,
     `Changed: ${changedFields}${banReason ? `. Reason: ${banReason}` : ""}`);
+
+  // Stage 29 — Trust Score: верификация даёт +20, снятие — обнуляет бонус.
+  if (isVerified !== undefined) {
+    void calculateAndUpdateTrustScore(id, req.userId!, `admin_verified_changed:${isVerified ? "on" : "off"}`);
+  }
 
   res.json({ id: updated.id, role: updated.role, isBanned: updated.isBanned, isVerified: updated.isVerified, verifiedAt: updated.verifiedAt?.toISOString() ?? null, verificationNote: updated.verificationNote, name: updated.name, email: updated.email });
 });

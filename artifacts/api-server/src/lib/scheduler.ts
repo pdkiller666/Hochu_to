@@ -17,6 +17,7 @@ import { db, bookingsTable, listingsTable, notificationsTable, bookingEventsTabl
 import { inArray, and, eq } from "drizzle-orm";
 import type { NotifType } from "./notifications";
 import { logger } from "./logger";
+import { recalcTrustScoreForUsers } from "./trust-score.js";
 
 const REMINDER_TYPES: NotifType[] = [
   "reminder_confirm_pending",
@@ -535,6 +536,14 @@ async function runAutoTransitions(): Promise<AutoTransitionResult> {
     if (fromStatus === "active") result.completed++;
     else result.returnCompleted++;
     logger.info({ bookingId: b.id, fromStatus }, "AutoTransition: → completed");
+
+    // Stage 29 — Trust Score: автозавершение тоже считается завершённой сделкой.
+    // Делаем без await, чтобы не блокировать обработку остальных кандидатов.
+    void recalcTrustScoreForUsers(
+      [b.ownerId, b.renterId],
+      null,
+      `auto_completed:${b.id}`,
+    );
   }
 
   // Batch insert events and notifications

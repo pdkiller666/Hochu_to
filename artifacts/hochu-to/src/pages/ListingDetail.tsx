@@ -14,6 +14,7 @@ import { Lightbox } from "@/components/ui/Lightbox";
 import { ListingPlaceholder } from "@/components/ui/ListingPlaceholder";
 import { ReviewCard, ReviewData } from "@/components/ui/ReviewCard";
 import { StarRating, RatingDisplay } from "@/components/ui/StarRating";
+import { TrustBadge } from "@/components/ui/TrustBadge";
 import { ListingMap } from "@/components/ui/ListingMap";
 import { CollapsibleMap } from "@/components/ui/CollapsibleMap";
 import { ContactPurchaseModal } from "@/components/ui/ContactPurchaseModal";
@@ -513,7 +514,11 @@ export default function ListingDetail() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-xs text-muted-foreground mb-0.5">Владелец</p>
-                  <h4 className="font-bold text-lg leading-tight group-hover:text-primary transition-colors">{listing.ownerName || "Владелец"}</h4>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h4 className="font-bold text-lg leading-tight group-hover:text-primary transition-colors">{listing.ownerName || "Владелец"}</h4>
+                    {/* Stage 29 — Trust Score владельца */}
+                    <TrustBadge score={(listing as any).ownerTrustScore} size="sm" />
+                  </div>
                   <p className="text-sm text-muted-foreground flex items-center gap-1 mt-1">
                     <Shield className="w-3.5 h-3.5 text-green-500" /> Подтвержденный профиль
                   </p>
