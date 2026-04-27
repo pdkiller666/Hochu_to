@@ -48,6 +48,8 @@ const DEFAULTS = {
   yookassaTestMode: true,
   sbpEnabled: false,
   cloudpaymentsEnabled: false,
+  // Stage 30A — AI Gateway
+  activeAiProvider: "mock",
 };
 
 export async function ensurePlatformSettings(): Promise<PlatformSettings> {

@@ -1,0 +1,52 @@
+Вот это я понимаю — работа на опережение! Изучил документацию по твоей ссылке. Amvera действительно выкатили отличный API для инференса, и самое главное — он базируется на мощных моделях вроде `llama8b/70b` и `deepseek-R1/V3`, что для нас идеально. 
+
+Я заметил в их документации **три важных технических отличия** от стандартного OpenAI, которые мы должны учесть, чтобы код не упал:
+1. Заголовок авторизации у них не `Authorization`, а `X-Auth-Token: Bearer <token>`.
+2. В массиве `messages` вместо ключа `content` (как у ChatGPT) они используют ключ `text`.
+3. Эндпоинты разделены по семействам (например, `https://kong-proxy.yc.amvera.ru/api/v1/models/llama`).
+
+Мы прямо сейчас интегрируем эту реальную логику в наш ИИ-Шлюз.
+
+Скопируй этот обновленный промт и отправляй своему разработчику в Replit (предварительно убедись, что на новом аккаунте развернут проект и пройден Health Check):
+
+***
+
+> **Task: Stage 30A - Multi-Provider AI Gateway & Magic Description (with real Amvera LLM)**
+>
+> We are introducing an "AI Gateway" architecture to generate high-converting item descriptions. We will implement multiple providers, with a focus on Russian domestic hosting "Amvera AI" to avoid geo-blocking risks.
+>
+> **1. Database Schema (`schema.ts`):**
+> - Create a `platform_settings` table: `key` (varchar, primary key), `value` (jsonb), `updated_at`.
+> - Insert a default row: `key: 'active_ai_provider'`, `value: '"mock"'`.
+>
+> **2. AI Gateway Service (`lib/ai-service.ts`):**
+> - Implement an AI router with a main function `generateListingDescription(title, category, condition)`.
+> - Fetch the active provider from `platform_settings`.
+> - Create specific functions for each provider:
+>   - **`mock`**: Wait 1.5s, return a beautifully formatted hardcoded Russian text (use emojis, bullet points) highlighting the item's benefits based on the title.
+>   - **`openai`**: Standard ChatGPT API call using `process.env.OPENAI_API_KEY`.
+>   - **`amvera` (Crucial specific implementation):**
+>     - Call `POST https://kong-proxy.yc.amvera.ru/api/v1/models/llama`
+>     - Headers: `{'Content-Type': 'application/json', 'X-Auth-Token': 'Bearer ' + process.env.AMVERA_API_TOKEN}`
+>     - Body: `{ "model": "llama8b", "messages": [ { "role": "system", "text": "Ты крутой маркетолог. Напиши продающее описание для вещи, которую сдают в аренду. Используй эмодзи и списки. Текст должен быть на русском." }, { "role": "user", "text": "Название: " + title + "\nКатегория: " + category + "\nСостояние: " + condition } ] }`
+>     - Parse the response: `data.choices[0].message.text`
+> - **Graceful degradation:** If a real API call fails or the key is missing, fallback to the `mock` response automatically. Log the error using our Pino logger.
+>
+> **3. Admin Panel UI (`AdminDashboard.tsx` or new `AdminSettings.tsx`):**
+> - Add a new section: "Настройки ИИ (AI Settings)".
+> - Add a dropdown/radio group to select the active provider (Mock, OpenAI, Amvera AI).
+> - On change, update the `platform_settings` table via a new endpoint `PUT /api/admin/settings/ai-provider`.
+>
+> **4. Frontend User UI (`CreateListing.tsx` & `EditListing.tsx`):**
+> - Next to the "Description" textarea, add a prominent button: "✨ Сгенерировать ИИ-описание" (Use brand colors, `#C65D3B` text or a soft gradient).
+> - Show a loading state ("Нейросеть пишет текст... 🪄").
+> - Create a new rate-limited endpoint `POST /api/ai/generate-description` to serve this.
+> - Populate the textarea with the result. Do not completely overwrite existing text if it's long, or at least warn the user.
+>
+> Please implement the schema, Admin toggle, Gateway logic, and User UI. Push via `github-push.sh "Stage 30A: Multi-provider AI Gateway with Amvera LLM implementation"`.
+
+***
+
+Теперь у нас будет мощнейший фундамент. Ты сможешь в любой момент зайти в панель Администратора на платформе и переключить рубильник с «Mock» (заглушки) на «Amvera», и вся магия заработает по-настоящему через отечественные серверы! 
+
+А для получения боевого ключа тебе просто нужно будет зайти в ЛК Amvera, скопировать токен и вставить его в `Secrets` (переменная `AMVERA_API_TOKEN`) в твоем Replit-проекте. Жду результатов сборки!

@@ -1219,6 +1219,8 @@ router.put("/settings", requireAuth, requireAdmin, async (req: AuthRequest, res)
     "defaultCatalogSort", "minPremiumShareInResults", "showFormatBadges",
     // ── Stage 21a: master-toggle коммерческого режима ───────────────────
     "isCommercialMode",
+    // ── Stage 30A: AI Gateway ───────────────────────────────────────────
+    "activeAiProvider",
   ] as const;
   const body = req.body ?? {};
   const patch: Record<string, any> = {};
@@ -1314,6 +1316,14 @@ router.put("/settings", requireAuth, requireAdmin, async (req: AuthRequest, res)
   if ("paymentMode" in patch && !["self_employed", "ip", "ooo"].includes(patch.paymentMode)) {
     return res.status(400).json({ error: "invalid_value", field: "paymentMode" });
   }
+  // Stage 30A: AI provider — допустимы только три значения
+  if ("activeAiProvider" in patch && !["mock", "openai", "amvera"].includes(patch.activeAiProvider)) {
+    return res.status(400).json({
+      error: "invalid_value",
+      field: "activeAiProvider",
+      message: "Допустимо: mock | openai | amvera",
+    });
+  }
 
   // ── Stage 2: PERCENT_INT (0..100) ────────────────────────────────────
   for (const k of PERCENT_INT_FIELDS) {
@@ -1361,5 +1371,36 @@ router.put("/settings", requireAuth, requireAdmin, async (req: AuthRequest, res)
   }
   res.json(updated);
 });
+
+// ─── Stage 30A: AI Gateway — выделенный endpoint для смены провайдера ──────
+router.put(
+  "/settings/ai-provider",
+  requireAuth,
+  requireAdmin,
+  async (req: AuthRequest, res) => {
+    const { activeAiProvider } = req.body ?? {};
+    if (!["mock", "openai", "amvera"].includes(activeAiProvider)) {
+      return res.status(400).json({
+        error: "invalid_value",
+        field: "activeAiProvider",
+        message: "Допустимо: mock | openai | amvera",
+      });
+    }
+    const updated = await updatePlatformSettings(
+      { activeAiProvider } as any,
+      req.userId,
+    );
+    if (req.userId) {
+      await audit(
+        req.userId,
+        "platform_settings",
+        updated.id,
+        "update",
+        `ai_provider:${activeAiProvider}`,
+      );
+    }
+    res.json({ activeAiProvider: updated.activeAiProvider });
+  },
+);
 
 export default router;

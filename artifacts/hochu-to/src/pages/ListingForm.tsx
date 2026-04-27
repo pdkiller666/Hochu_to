@@ -2,9 +2,9 @@ import { Layout } from "@/components/layout/Layout";
 import { useState, useEffect, useRef } from "react";
 import { useLocation, useRoute } from "wouter";
 import { useCreateListing, useUpdateListing, useGetListingById, useGetCategories, useGetRegions } from "@workspace/api-client-react";
-import { useAuthState } from "@/lib/auth";
+import { useAuthState, getAuthHeaders } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
-import { ChevronLeft, Loader2, ImagePlus, X, ShieldCheck, ShieldOff, AlertTriangle, Info, HandCoins, Link2, Check } from "lucide-react";
+import { ChevronLeft, Loader2, ImagePlus, X, ShieldCheck, ShieldOff, AlertTriangle, Info, HandCoins, Link2, Check, Sparkles } from "lucide-react";
 import { Link } from "wouter";
 import { LocationPicker } from "@/components/ui/LocationPicker";
 import { CollapsibleMap } from "@/components/ui/CollapsibleMap";
@@ -404,7 +404,15 @@ export default function ListingForm() {
             </div>
 
             <div>
-              <label className="block text-sm font-bold mb-2">Описание</label>
+              <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
+                <label className="block text-sm font-bold">Описание</label>
+                <AiDescriptionButton
+                  title={formData.title}
+                  category={categories?.find(c => c.id === Number(formData.categoryId))?.name}
+                  currentText={formData.description}
+                  onText={(text) => setFormData((d) => ({ ...d, description: text }))}
+                />
+              </div>
               <textarea required className="input-field min-h-[120px] resize-y" placeholder="Опишите состояние, комплектацию, условия возврата..." value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })}></textarea>
             </div>
           </div>
@@ -864,5 +872,97 @@ export default function ListingForm() {
         </form>
       </div>
     </Layout>
+  );
+}
+
+// ─── Stage 30A: AI Description Button ────────────────────────────────────────
+function AiDescriptionButton({
+  title,
+  category,
+  currentText,
+  onText,
+}: {
+  title: string;
+  category?: string | null;
+  currentText: string;
+  onText: (text: string) => void;
+}) {
+  const { toast } = useToast();
+  const [loading, setLoading] = useState(false);
+
+  const generate = async () => {
+    const cleanTitle = title.trim();
+    if (!cleanTitle) {
+      toast({
+        title: "Сначала введите название",
+        description: "Нейросети нужно знать, для какой вещи писать описание.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (currentText.trim().length > 30) {
+      const ok = window.confirm(
+        "У вас уже есть описание. Заменить его сгенерированным?",
+      );
+      if (!ok) return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch("/api/ai/generate-description", {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: cleanTitle,
+          category: category || undefined,
+        }),
+      });
+      const j = await res.json();
+      if (!res.ok) {
+        throw new Error(j.message || j.error || "Не удалось сгенерировать");
+      }
+      onText(j.text);
+      if (j.fallback) {
+        toast({
+          title: "Сгенерировано (fallback)",
+          description:
+            "Реальный провайдер недоступен — использовали шаблон. Текст можно отредактировать.",
+        });
+      } else {
+        toast({
+          title: "Готово ✨",
+          description: `Текст сгенерирован (${j.actualProvider}). Отредактируйте при необходимости.`,
+        });
+      }
+    } catch (e: any) {
+      toast({
+        title: "Ошибка генерации",
+        description: e.message,
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={generate}
+      disabled={loading}
+      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-gradient-to-r from-[#C65D3B] to-[#a04829] text-white hover:opacity-90 disabled:opacity-60 transition shadow-sm"
+      title="Сгенерировать продающее описание с помощью ИИ"
+    >
+      {loading ? (
+        <>
+          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          Нейросеть пишет текст… 🪄
+        </>
+      ) : (
+        <>
+          <Sparkles className="w-3.5 h-3.5" />
+          Сгенерировать ИИ-описание
+        </>
+      )}
+    </button>
   );
 }

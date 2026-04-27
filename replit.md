@@ -885,6 +885,55 @@ Frontend (`/pools`, `/pools/create`, `/pools/:id`):
 - Явная кнопка «Отказаться» у participant'а с уведомлением инициатору (сейчас отказ = молчаливый игнор + `cancel` инициатора).
 - Гендерное склонение в нотификациях.
 
+## Stage 30A — Multi-Provider AI Gateway & Magic Description (27.04.2026)
+
+Архитектура «AI Gateway»: единая точка входа для генерации продающих описаний объявлений с возможностью переключать провайдера из админки без перезагрузки сервера. Цель — не зависеть от одного вендора и иметь fallback на отечественный российский инференс (Amvera AI), чтобы избежать рисков геоблокировок при коммерческом запуске.
+
+**Архитектура:**
+
+- **Schema (`platform_settings.activeAiProvider: text default "mock"`)** — провайдер хранится в существующей singleton-таблице, а не в новой k/v (консистентно с `isCommercialMode`, `paymentMode` и т.п.).
+- **`lib/ai-service.ts`** — роутер с тремя имплементациями:
+  - `mock` — задержка 1.5s + шаблонный русский текст с эмодзи и буллитами (без сети, без расходов; default).
+  - `openai` — `POST https://api.openai.com/v1/chat/completions`, модель `gpt-4o-mini`, ключ `OPENAI_API_KEY`, парсинг `data.choices[0].message.content`.
+  - `amvera` — **критические отличия** от OpenAI:
+    - URL: `https://kong-proxy.yc.amvera.ru/api/v1/models/llama`
+    - Заголовок: `X-Auth-Token: Bearer <token>` (НЕ `Authorization`)
+    - Поле сообщения: `text` (НЕ `content`)
+    - Парсинг: `data.choices[0].message.text`
+    - Ключ: `AMVERA_API_TOKEN`
+- **Graceful fallback**: при любой ошибке/отсутствии ключа реальный провайдер мягко падает в `mock`, ответ включает `fallback: true` + `fallbackReason`. Pino логирует на уровне `error`.
+- **`routes/ai.ts`** — `POST /api/ai/generate-description`, `requireAuth`, in-memory token-bucket rate-limit **10 req/min/user**, валидация `title` (1..200 chars), `category`/`condition` ≤ 100. GC бакетов раз в 5 мин (`unref()` чтобы не держать процесс).
+- **Admin UI** — новая вкладка «Настройки ИИ» (`AiSettingsTab` в `AdminPage.tsx`):
+  - Радио-карточки трёх провайдеров с описанием, бейджами («Бесплатно», «Зарубежный», «🇷🇺 Россия») и подсказкой нужного env-секрета.
+  - Sticky action bar при изменении.
+  - Кнопка «🧪 Проверить генерацию» — отправляет тестовый запрос «Дрель Bosch» и показывает результат + флаг fallback. Заблокирована при unsaved changes (чтобы не путать).
+  - Endpoint: `PUT /api/admin/settings/ai-provider` (выделенный, помимо общего `PUT /admin/settings`) — пишет в audit_log как `ai_provider:<value>`.
+- **User UI** — компонент `AiDescriptionButton` в `ListingForm.tsx`:
+  - Кнопка с градиентом `#C65D3B → #a04829` справа от лейбла «Описание».
+  - Loading state: «Нейросеть пишет текст… 🪄» + спиннер.
+  - Если в текстарии уже >30 символов — `window.confirm` перед перезаписью.
+  - Если `title` пустой — toast-ошибка «Сначала введите название».
+  - При `fallback: true` — toast «Сгенерировано (fallback)» с пояснением.
+  - Категория автоматически подтягивается из выбранного `categoryId`.
+
+**E2E smoke (PASS, 27.04.2026):**
+1. Default `mock` → корректный русский текст с эмодзи. ✓
+2. Switch via `PUT /admin/settings/ai-provider {amvera}` → 200 `{activeAiProvider:"amvera"}`. ✓
+3. Generate с amvera без `AMVERA_API_TOKEN` → `provider:"amvera", actualProvider:"mock", fallback:true, fallbackReason:"AMVERA_API_TOKEN is not set"`. ✓
+4. Invalid value `{hackerprovider}` → 400 `{error:"invalid_value", message:"Допустимо: mock | openai | amvera"}`. ✓
+5. Switch back to mock → 200 ✓.
+
+**Что нужно для боевого режима Amvera:**
+Запросить у пользователя секрет `AMVERA_API_TOKEN` (получается в ЛК Amvera), переключить провайдера в админке.
+
+**Что НЕ сделано (Stage 30A followup):**
+- Persistence rate-limit (сейчас in-memory; при рестарте лимиты сбрасываются — приемлемо для MVP).
+- Streaming (SSE) ответа для длинных описаний.
+- Сохранение «истории генераций» (можно для Pro-подписки).
+- A/B-метрики качества: какие описания арендаторы дочитывают/конвертят в бронь.
+- Регенерация по фидбеку («сделай короче / добавь юмора»).
+- AI-описание для Co-Sharing-пулов (Stage 23a) и совместных закупок (`joint_purchases`).
+
 ## What Is NOT Yet Implemented (roadmap)
 
 - ~~Видео в Цифровом Акте~~ — **закрыто Stage 22b-followup**: отдельный endpoint `POST /api/upload-video` (multer, 100МБ, mime allowlist mp4/webm/quicktime, расширение нормализуется по mime), фронт-компонент `DigitalActUpload.tsx` с переключателем «ссылка / загрузить файл» и превью `<video>`, в роуте `digital_acts` валидация `videoUrl` принимает либо `/uploads/<uuid>.(mp4|webm|mov|m4v)`, либо абсолютный http(s) URL — иначе 400 `invalid_video_url`. data:URI и path-traversal `/uploads/../etc/passwd` отбиваются.

@@ -139,6 +139,16 @@ export const platformSettingsTable = pgTable("platform_settings", {
   cloudpaymentsEnabled: boolean("cloudpayments_enabled").default(false).notNull(),
   cloudpaymentsPublicId: text("cloudpayments_public_id"),
 
+  // ── Stage 30A: AI Gateway ──────────────────────────────────────────────
+  /**
+   * Активный провайдер генерации описаний для объявлений.
+   * 'mock' — заглушка с эмодзи (по умолчанию, без расходов и без ключей);
+   * 'openai' — ChatGPT через OPENAI_API_KEY;
+   * 'amvera' — российский Amvera AI Inference (llama8b) через AMVERA_API_TOKEN.
+   * При сбое реального API всегда graceful-fallback в 'mock'.
+   */
+  activeAiProvider: text("active_ai_provider").default("mock").notNull(),
+
   // ── Метаданные ─────────────────────────────────────────────────────────
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
   updatedBy: integer("updated_by"),

@@ -13,6 +13,7 @@ import {
   X, Pencil, ExternalLink, Trash2, RefreshCw, UserCheck,
   BarChart2, ArrowUpDown, Flag, Shield, Megaphone, Award, Loader2,
   Coins, CreditCard, Save, RotateCcw, Banknote, ArrowDownToLine, ArrowUpFromLine, PiggyBank, Wallet,
+  Sparkles, Cpu,
 } from "lucide-react";
 import { formatPrice } from "@/lib/utils";
 import { getSbpBankName } from "@/lib/sbp-banks";
@@ -3556,8 +3557,267 @@ function AnalyticsTab() {
   );
 }
 
+// ─── Stage 30A: AI Settings Tab ────────────────────────────────────────────────
+type AiProvider = "mock" | "openai" | "amvera";
+
+const AI_PROVIDERS: Array<{
+  id: AiProvider;
+  title: string;
+  badge: string;
+  badgeCls: string;
+  desc: string;
+  envHint?: string;
+}> = [
+  {
+    id: "mock",
+    title: "Mock — заглушка",
+    badge: "Бесплатно",
+    badgeCls: "bg-stone-200 text-stone-700",
+    desc: "Шаблонное продающее описание с эмодзи. Не использует сеть, не требует ключей. Безопасный fallback по умолчанию.",
+  },
+  {
+    id: "openai",
+    title: "OpenAI (ChatGPT)",
+    badge: "Зарубежный",
+    badgeCls: "bg-blue-100 text-blue-700",
+    desc: "GPT-4o-mini. Высокое качество, но геоблокировки и оплата в долларах.",
+    envHint: "Требуется секрет OPENAI_API_KEY",
+  },
+  {
+    id: "amvera",
+    title: "Amvera AI (llama8b)",
+    badge: "🇷🇺 Россия",
+    badgeCls: "bg-emerald-100 text-emerald-700",
+    desc: "Российский инференс на отечественных серверах. Без геоблокировок, оплата в рублях.",
+    envHint: "Требуется секрет AMVERA_API_TOKEN",
+  },
+];
+
+function AiSettingsTab() {
+  const { toast } = useToast();
+  const [provider, setProvider] = useState<AiProvider | null>(null);
+  const [origProvider, setOrigProvider] = useState<AiProvider | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{
+    text: string;
+    actualProvider: string;
+    fallback: boolean;
+    fallbackReason?: string;
+  } | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/admin/settings", { headers: getAuthHeaders() });
+        if (!res.ok) throw new Error("Не удалось загрузить настройки");
+        const j = await res.json();
+        const p: AiProvider = (["mock", "openai", "amvera"] as const).includes(j.activeAiProvider)
+          ? j.activeAiProvider
+          : "mock";
+        setProvider(p);
+        setOrigProvider(p);
+      } catch (e: any) {
+        toast({ title: "Ошибка", description: e.message, variant: "destructive" });
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  const dirty = provider !== null && provider !== origProvider;
+
+  const save = async () => {
+    if (!provider) return;
+    setSaving(true);
+    try {
+      const res = await fetch("/api/admin/settings/ai-provider", {
+        method: "PUT",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ activeAiProvider: provider }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.message || j.error || "Ошибка сохранения");
+      }
+      setOrigProvider(provider);
+      toast({ title: "Сохранено", description: `Активный провайдер ИИ: ${provider}` });
+    } catch (e: any) {
+      toast({ title: "Ошибка", description: e.message, variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const testGenerate = async () => {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await fetch("/api/ai/generate-description", {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: "Дрель Bosch GSB 18V-50",
+          category: "Инструменты",
+          condition: "Отличное",
+        }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.message || j.error || "Ошибка");
+      setTestResult(j);
+    } catch (e: any) {
+      toast({ title: "Тест не удался", description: e.message, variant: "destructive" });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="w-6 h-6 animate-spin text-[#C65D3B]" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-xl border border-stone-200 bg-white p-6">
+        <div className="flex items-start gap-3 mb-2">
+          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#C65D3B] to-[#a04829] flex items-center justify-center flex-shrink-0">
+            <Sparkles className="w-5 h-5 text-white" />
+          </div>
+          <div>
+            <h2 className="text-xl font-bold text-stone-800">Шлюз нейросетей (Stage 30A)</h2>
+            <p className="text-sm text-stone-500 mt-1">
+              Выберите, какой провайдер используется для кнопки «✨ Сгенерировать ИИ-описание»
+              в форме создания и редактирования объявлений. При сбое реального API
+              автоматически срабатывает fallback на «Mock» — пользователь всегда получает текст.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-3">
+        {AI_PROVIDERS.map((p) => {
+          const selected = provider === p.id;
+          return (
+            <label
+              key={p.id}
+              className={`flex items-start gap-4 rounded-xl border-2 p-4 cursor-pointer transition ${
+                selected
+                  ? "border-[#C65D3B] bg-[#FFF7F2] shadow-sm"
+                  : "border-stone-200 bg-white hover:border-stone-300"
+              }`}
+            >
+              <input
+                type="radio"
+                name="ai-provider"
+                value={p.id}
+                checked={selected}
+                onChange={() => setProvider(p.id)}
+                className="mt-1 h-4 w-4 text-[#C65D3B] focus:ring-[#C65D3B]"
+              />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-bold text-stone-800">{p.title}</span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${p.badgeCls}`}>
+                    {p.badge}
+                  </span>
+                </div>
+                <p className="text-sm text-stone-600 mt-1">{p.desc}</p>
+                {p.envHint && (
+                  <p className="text-xs text-stone-500 mt-1.5 flex items-center gap-1">
+                    <Cpu className="w-3 h-3" /> {p.envHint}
+                  </p>
+                )}
+              </div>
+            </label>
+          );
+        })}
+      </div>
+
+      {dirty && (
+        <div className="sticky bottom-4 z-10 bg-white border border-amber-300 rounded-xl shadow-lg p-3 flex items-center justify-between">
+          <div className="text-sm text-stone-700">
+            Активный провайдер: <strong>{provider}</strong> (было: {origProvider})
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setProvider(origProvider)}
+              className="flex items-center gap-2 px-4 py-2 bg-stone-100 hover:bg-stone-200 rounded-lg text-sm font-medium text-stone-700"
+            >
+              <RotateCcw className="w-4 h-4" /> Отменить
+            </button>
+            <button
+              onClick={save}
+              disabled={saving}
+              className="flex items-center gap-2 px-4 py-2 bg-[#C65D3B] hover:bg-[#b04f30] disabled:opacity-60 rounded-lg text-sm font-medium text-white"
+            >
+              <Save className="w-4 h-4" /> {saving ? "Сохранение…" : "Сохранить"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="rounded-xl border border-stone-200 bg-stone-50 p-6">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <h3 className="font-bold text-stone-800">🧪 Проверить генерацию</h3>
+            <p className="text-xs text-stone-500 mt-1">
+              Запросит описание для «Дрель Bosch» через активного провайдера. Платных вызовов в режиме Mock нет.
+            </p>
+          </div>
+          <button
+            onClick={testGenerate}
+            disabled={testing || dirty}
+            className="flex items-center gap-2 px-4 py-2 bg-stone-800 hover:bg-stone-700 disabled:opacity-50 rounded-lg text-sm font-medium text-white whitespace-nowrap"
+          >
+            {testing ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" /> Идёт запрос…
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-4 h-4" /> Тест
+              </>
+            )}
+          </button>
+        </div>
+        {dirty && (
+          <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2 mb-3">
+            Сначала сохраните изменения провайдера, чтобы протестировать выбранного.
+          </p>
+        )}
+        {testResult && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-stone-500">Реально ответил:</span>
+              <span className="font-medium text-stone-800">{testResult.actualProvider}</span>
+              {testResult.fallback && (
+                <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                  ⚠ Fallback (реальный провайдер недоступен)
+                </span>
+              )}
+            </div>
+            {testResult.fallbackReason && (
+              <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg p-2">
+                Причина: {testResult.fallbackReason}
+              </p>
+            )}
+            <pre className="whitespace-pre-wrap text-sm text-stone-700 bg-white border border-stone-200 rounded-lg p-3 max-h-96 overflow-auto">
+              {testResult.text}
+            </pre>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Main AdminPage ────────────────────────────────────────────────────────────
-type Tab = "overview" | "analytics" | "users" | "listings" | "bookings" | "support" | "reports" | "claims" | "audit" | "economy" | "payments" | "finance" | "payouts";
+type Tab = "overview" | "analytics" | "users" | "listings" | "bookings" | "support" | "reports" | "claims" | "audit" | "economy" | "payments" | "finance" | "payouts" | "ai";
 
 const TABS: { id: Tab; label: string; icon: any }[] = [
   { id: "overview", label: "Обзор", icon: LayoutDashboard },
@@ -3573,6 +3833,7 @@ const TABS: { id: Tab; label: string; icon: any }[] = [
   { id: "reports", label: "Жалобы", icon: Flag },
   { id: "claims", label: "Заявки фонда", icon: Shield },
   { id: "audit", label: "Аудит", icon: ScrollText },
+  { id: "ai", label: "Настройки ИИ", icon: Sparkles },
 ];
 
 export default function AdminPage() {
@@ -3636,6 +3897,7 @@ export default function AdminPage() {
         {tab === "payments" && <PaymentsTab />}
         {tab === "finance" && <FinanceTab />}
         {tab === "payouts" && <PayoutsTab />}
+        {tab === "ai" && <AiSettingsTab />}
       </div>
 
       <BroadcastModal open={broadcastOpen} onClose={() => setBroadcastOpen(false)} />

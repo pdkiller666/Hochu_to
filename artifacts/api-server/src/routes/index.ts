@@ -26,6 +26,7 @@ import webhooksRouter from "./webhooks.js";
 import digitalActsRouter from "./digital_acts.js";
 import poolsRouter from "./pools.js";
 import buyoutsRouter from "./buyouts.js";
+import aiRouter from "./ai.js";
 
 const router: IRouter = Router();
 
@@ -50,6 +51,7 @@ router.use("/claims", claimsRouter);
 router.use("/promotions", promotionsRouter);
 router.use("/webhooks", webhooksRouter);
 router.use("/admin", adminRouter);
+router.use("/ai", aiRouter);
 router.use(digitalActsRouter);
 router.use(contactsRouter);
 router.use(financeRouter);
