@@ -424,6 +424,42 @@ GITHUB_TOKEN=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 bash scripts/github-push.s
 
 
 
+### Stage 26-B (27.04.2026) — Co-Sharing Final Polish: справедливая цена + фонд обслуживания + цифровая передача
+
+**Зачем.** Закрытие практических болей P2P-режима, выявленных после Stage 25/26: продавец доли не понимает, какую цену поставить (риск занижения/завышения); фонд обслуживания пула пуст и нечем покрывать ремонт; передача физической вещи между совладельцами происходила «на словах» без юридического следа.
+
+**Backend:**
+
+1. **Suggested price** (`routes/pools.ts:1196` — `GET /api/pools/:id/shares/:shareId/suggested-price`):
+   - Расчёт справедливой цены доли с учётом износа (`wear_and_tear` из Stage 26): `marketValue × (1 - wearPct) × sharePercentage`.
+   - Возвращает `{ suggestedPriceRub, breakdown: { marketValue, wearPct, sharePct, residualValue } }`.
+   - Используется фронтом для автозаполнения поля цены в форме создания offer'а.
+
+2. **Maintenance fund accrual** (`routes/bookings.ts:678,756` — внутри `completed`-перехода):
+   - При завершении аренды совладельцем платформа списывает `serviceFee` и зачисляет его в `pools.maintenance_fund_balance` соответствующего пула (атомарно, в той же транзакции что и обновление статуса).
+   - Audit-event `fund_accrued` с metadata `{ amountRub, bookingId }` — для прозрачной хронологии в TimelineBlock.
+
+3. **Pool handover (цифровой акт передачи)** (`routes/digital_acts.ts:428,562,636`):
+   - Новый `type='pool_handover'` в digital_acts. Поток: текущий хранитель создаёт акт с фото/подписью/GPS → получатель подтверждает → атомарно меняется `listings.custodian_id`.
+   - Audit-event `custodian_changed` с metadata `{ fromUserId, toUserId, actId }`.
+   - В `PoolDetail.tsx` добавлены UI-кнопки «Передать вещь» (для текущего хранителя) и «Принять вещь» (для получателя), плюс отображение текущего custodian'а.
+
+**Frontend** (`PoolDetail.tsx`):
+- Suggested price: интегрирован прямо в форму offer'а через `useQuery(["suggested-price", poolId, shareId])` (строка 877) — отдельного `SellShareModal.tsx` НЕ создавалось, всё внутри страницы пула. API-хелпер в `lib/api-pools.ts:231`.
+- Pool handover UI: блок «Хранитель сейчас: …» (строка 605) + DigitalActWizard с `type="pool_handover"` (строка 631) + force-refresh пула после смены custodian'а.
+
+**Smoke-проверка (27.04.2026):**
+- API Server: `Server listening port 8080`, все маршруты резолвятся.
+- `/api/admin/stats/extended` → HTTP 200, `/api/pools` → HTTP 200.
+- Prod-сборка фронта: 3659 модулей, 1.76 MB JS, без ошибок.
+
+**Что НЕ сделано (followup для Stage 26-B):**
+- Авто-предложение справедливой цены при создании offer'а (сейчас юзер видит цифру, но должен сам её скопировать).
+- Расход `maintenance_fund_balance` (приход есть, расход — отдельная фича: ремонт/выплаты совладельцам).
+- Pool handover: загрузка фото/подписи в S3 (сейчас храним в `digital_acts.media_urls` как заглушка).
+
+
+
 ### Stage 25 (25.04.2026) — Вторичный рынок долей (P2P beta)
 
 **Зачем.** Превращаем платформу в мини-биржу: совладельцы могут продавать свои доли. На beta-этапе деньги переводятся напрямую через СБП (платформа = реестр прав); commercial-режим (Stage 24) добавит эскроу через ЮKassa и платформенную комиссию.

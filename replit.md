@@ -675,9 +675,11 @@ Frontend (`/pools`, `/pools/create`, `/pools/:id`):
 - ~~Серверное зеркало `calculateResidualValue` (когда понадобится для API-расчётов).~~ — **закрыто Stage 26-B** (`GET /api/pools/:id/shares/:shareId/suggested-price`).
 - Декремент wear meter при «капитальном ремонте» / claims из фонда обслуживания.
 
-## Stage 26-B — Co-Sharing Final Polish (Vector A) (25.04.2026)
+## Stage 26-B — Co-Sharing Final Polish (Vector A) (25.04.2026, verified 27.04.2026)
 
 Три точечных полишинга, которые превращают co-sharing из "схема в БД" в работающий продуктовый цикл: остаточная цена доли, фонд обслуживания и физическая передача вещи между совладельцами.
+
+**Verification 27.04.2026 (новый Replit-аккаунт):** после `pnpm install` + `pnpm --filter @workspace/db run push-force` + рестарта — API Server поднят на порту 8080, `/api/admin/stats/extended` HTTP 200, `/api/pools` HTTP 200, prod-сборка фронта (3659 модулей, 1.76 MB JS) без ошибок. Все 4 воркфлоу running.
 
 ### 1. Остаточная цена доли — single source of truth (server)
 
