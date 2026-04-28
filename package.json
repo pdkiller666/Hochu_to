@@ -5,5 +5,8 @@
   "scripts": {
     "build": "npx pnpm --filter @workspace/api-server build",
     "start": "node artifacts/api-server/dist/main.js"
+  },
+  "dependencies": {
+    "sharp": "^0.34.5"
   }
 }

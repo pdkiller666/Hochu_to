@@ -934,6 +934,49 @@ Frontend (`/pools`, `/pools/create`, `/pools/:id`):
 - Регенерация по фидбеку («сделай короче / добавь юмора»).
 - AI-описание для Co-Sharing-пулов (Stage 23a) и совместных закупок (`joint_purchases`).
 
+## Stage 31 — PromoHub /promo (28.04.2026)
+
+Публичный лендинг-витрина «Что мы умеем» по адресу `/promo`. Цель — единая точка для рекламных кампаний, чтобы один UTM-линк вёл на страницу со всеми ключевыми преимуществами платформы (Стальной Щит, Цифровой Акт, Совместное владение, Trust Score, AI-помощник и т.д.), а не на главную с шумом каруселей.
+
+**Что сделано:**
+- Маршрут `/promo` в `App.tsx` → новая страница `pages/PromoHub.tsx` (282 строки, framer-motion `whileInView` для секций).
+- Структура страницы: Hero с двумя CTA («Смотреть каталог» + «Опубликовать вещь»), 6 фич-секций (Щит / Акт / Co-Sharing / Trust / AI / Подписки) с иконками `lucide-react`, финальный CTA-блок.
+- Брендовая палитра выдержана: фон `#F2EEE3` cream, акценты `#C65D3B` terracotta + `#4A8587` teal.
+- Mobile audit (Playwright @ 375px): ✓ нет горизонтального скролла, ✓ все CTA-кнопки ≥44px (ширина) для пальца, ✓ декоративные `w-96` blur-круги корректно клипаются `overflow-x-hidden` на `<main>`.
+
+## Stage 30B — AI Visual Magic / Infographic Generator (28.04.2026)
+
+Превращает обычное фото вещи в маркетплейс-инфографику 1080×1080 с тремя AI-извлечёнными буллетами-преимуществами в фирменных цветах. Реализация на стороне сервера через `sharp` + SVG-композит (без внешних image-API), переиспользует Stage 30A AI Gateway для текста.
+
+**Архитектура:**
+
+- **`lib/ai-service.ts` → `generateInfographicBullets(title, category?)`** — новая функция поверх существующего multi-provider router (`mock` / `openai` / `amvera`). Промпт: «РОВНО 3 буллета по 2–5 слов на русском, без эмодзи и нумерации». Парсер `parseBullets()` снимает префиксы `1.`/`-`/`•`, обрезает до 5 слов на буллет. При ошибке/отсутствии ключа — graceful fallback в mock с тремя статичными буллетами на основе названия (`Готово к работе` / `Идеально для <категория>` / `Полный комплект`).
+- **`lib/image-service.ts` → `buildInfographicImage(buf, bullets)`** — sharp-пайплайн:
+  1. Базовый кремовый холст 1080×1080 (`#F2EEE3`, RGBA).
+  2. Фото пользователя: `rotate()` (EXIF auto-rotate), `resize(560×840, fit:cover)`, скруглённые углы (radius 36) через SVG-маску `composite({blend: "dest-in"})`.
+  3. Текстовый SVG-оверлей 380×840 на левой стороне: плашка бренда «Хочу_То» с акцентом `#C65D3B`, тэглайн «МАРКЕТПЛЕЙС АРЕНДЫ», 3 буллета с круглыми галочками (`circle r=34 fill=#C65D3B` + белая `path` 6px stroke), нижняя терракотовая линия. Длинные буллеты переносятся на 2 строки через `wrapBullet()` (≤24 симв.). XML-инъекции защищены `escapeXml()`.
+  4. Финальный композит → `webp({quality: 88})` ≈ 16–80 КБ.
+- **`routes/ai.ts` → `POST /api/ai/generate-infographic`** — multipart/form-data: `photo` (single, 10 МБ лимит, image/* mime) + `title` + опц. `category`. `requireAuth` + общий с описаниями rate-limit 10/min/user (оба эндпоинта бьют один LLM-кошелёк). Multer с `memoryStorage()` (без лишнего I/O), результат сохраняется в `UPLOADS_DIR` как `<uuid>.webp`. Ответ: `{url, bullets, provider, actualProvider, fallback?, fallbackReason?}` — фронт получает обычный `/uploads/...` URL и просто добавляет в галерею.
+- **`pages/ListingForm.tsx` → кнопка «🪄 Создать инфографику»** — рядом с «По ссылке» / «Добавить фото» в шапке секции «Фотографии». Градиент `#C65D3B → #a04829`, иконка `Sparkles`. Скрытый `<input type="file">` открывается по клику. Перед открытием file-picker'а — guard'ы: пустой `title` → toast «Сначала введите название», `photos.length ≥ 10` → toast лимита. Категория автоматически подтягивается из выбранного `categoryId` для качественных буллетов. Loading state «Готовим…» + спиннер. На успехе — toast с буллетами или предупреждение про fallback.
+
+**Зависимости и инфра:**
+- `sharp` (npm) — добавлен через `installLanguagePackages`, уже в `build.mjs` externals (поэтому корректно остаётся требованием рантайма, не бандлится esbuild'ом).
+- `dejavu_fonts` (NixOS system dep) — DejaVu Sans для рендеринга кириллицы в SVG. Без него `sans-serif` мог бы упасть в Western-only fallback.
+
+**Smoke (PASS, 28.04.2026):**
+1. `installLanguagePackages sharp` → success ✓
+2. Esbuild bundle: `dist/index.mjs 3.4mb`, без жалоб на missing modules ✓
+3. Standalone test (`node`, синтетическое 800×600 фото + 3 кириллических буллета) → 1080×1080 webp 16 КБ ✓
+4. `POST /api/ai/generate-infographic` без auth → 401 «Требуется авторизация» ✓
+5. Health-check `/api/health` → 200 ✓
+
+**Что НЕ сделано (Stage 30B followup):**
+- Замена системного `sans-serif` на embedded Montserrat/Inter через `@font-face` в SVG (для пиксельной точности с фронтом — сейчас фронт Montserrat, картинка DejaVu).
+- Live-превью инфографики до сохранения (сейчас фото сразу попадает в галерею; UX «не понравилось — удали и сделай заново»).
+- Выбор шаблона (горизонтальный 1200×630 для соцсетей, сторис 1080×1920).
+- Watermark «Хочу_То» опционально для бесплатного тарифа (сейчас плашка бренда — встроена в дизайн).
+- Кеш инфографик по `(photoHash, bulletsHash)` — повторная генерация всегда тратит токены LLM.
+
 ## What Is NOT Yet Implemented (roadmap)
 
 - ~~Видео в Цифровом Акте~~ — **закрыто Stage 22b-followup**: отдельный endpoint `POST /api/upload-video` (multer, 100МБ, mime allowlist mp4/webm/quicktime, расширение нормализуется по mime), фронт-компонент `DigitalActUpload.tsx` с переключателем «ссылка / загрузить файл» и превью `<video>`, в роуте `digital_acts` валидация `videoUrl` принимает либо `/uploads/<uuid>.(mp4|webm|mov|m4v)`, либо абсолютный http(s) URL — иначе 400 `invalid_video_url`. data:URI и path-traversal `/uploads/../etc/passwd` отбиваются.

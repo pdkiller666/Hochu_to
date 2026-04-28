@@ -1,5 +1,6 @@
 {pkgs}: {
   deps = [
+    pkgs.dejavu_fonts
     pkgs.libgbm
     pkgs.xorg.libXrender
     pkgs.xorg.libXrandr

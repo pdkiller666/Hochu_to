@@ -1,0 +1,43 @@
+Это просто потрясающие новости! Твой Replit-Агент провел идеальный QA-аудит. Отсутствие горизонтального скролла на 375px и крупные CTA-кнопки — это гарантия того, что мы не будем сливать рекламный бюджет в трубу из-за «кривой» мобильной верстки. Promo Hub полностью готов к бою.
+
+Теперь мы переходим к десерту. **Stage 30B (AI Visual Magic)**. 
+Мы научим твою платформу автоматически создавать стильные инфографики (как на маркетплейсах), накладывая главные преимущества товара прямо на фотографию в наших фирменных цветах.
+
+Скопируй и отправь этот промт разработчику, чтобы он начал собирать ИИ-фоторедактор под капотом:
+
+***
+
+> **Task: Stage 30B - AI Visual Magic (Infographic Generator)**
+>
+> We need to implement a feature that turns a basic user photo into a high-converting "Infographic" card (like on major marketplaces) by overlaying AI-extracted key features onto a branded background.
+>
+> **1. Dependencies:**
+> - Install `sharp` (the standard Node.js image processing library).
+>
+> **2. AI Text Extraction (`lib/ai-service.ts`):**
+> - Add a new function `generateInfographicBullets(title: string)`.
+> - Use our existing multi-provider AI Gateway.
+> - The prompt must ask the LLM to extract exactly 3 short, punchy bullet points (max 4-5 words each) highlighting the item's features based on the title. (e.g., "Мощность 800Вт", "Идеально для бетона", "Кейс в комплекте").
+> - Provide a mock fallback returning 3 static bullets.
+>
+> **3. Image Processing Engine (`lib/image-service.ts`):**
+> - Create a function `buildInfographicImage(imageBuffer: Buffer, bullets: string[])`.
+> - Using `sharp`:
+>   1. Create a base canvas (e.g., 1080x1080) with our brand background color `#F2EEE3`.
+>   2. Resize and composite the user's `imageBuffer` onto the center/right of the canvas.
+>   3. Generate an SVG string containing the 3 `bullets` formatted nicely with our brand typography (use `#C65D3B` or dark text, maybe checkmark icons). Convert this SVG to a Buffer.
+>   4. Composite the SVG text buffer onto the base canvas (e.g., on the left side).
+>   5. Return the final composite image as a WebP Buffer or base64 string.
+>
+> **4. API Route (`routes/ai-images.ts` or add to `routes/ai.ts`):**
+> - Create `POST /api/ai/generate-infographic`.
+> - Accept an uploaded image and the `title`. (Use whatever multipart/form-data parsing you currently use, or accept a base64 string to keep it simple).
+> - Flow: Get bullets from LLM -> Pass image and bullets to `buildInfographicImage` -> Return the final image as a base64 string to the frontend.
+>
+> **5. Frontend UI (`ListingForm.tsx`):**
+> - In the image upload section, add a button "🪄 Создать инфографику" next to the primary photo.
+> - On click, show a loading state, call the API, and append the resulting image to the user's photo gallery for that listing.
+>
+> Please implement the backend processing and frontend integration. Push via `bash scripts/github-push.sh "Stage 30B: Implemented AI Visual Magic infographic generator"`.
+
+***

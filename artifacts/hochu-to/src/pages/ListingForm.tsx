@@ -101,6 +101,70 @@ export default function ListingForm() {
   const [uploading, setUploading] = useState(false);
   const uploadInputId = "photo-upload-input";
 
+  // ─── Stage 30B: AI Visual Magic ───────────────────────────────────────────
+  const [infoGenerating, setInfoGenerating] = useState(false);
+  const infoFileInputRef = useRef<HTMLInputElement>(null);
+  const infoInputId = "infographic-upload-input";
+
+  const onInfographicClick = () => {
+    if (!formData.title.trim()) {
+      toast({
+        title: "Сначала введите название",
+        description: "Нейросеть подберёт буллеты по названию вещи.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (photos.length >= 10) {
+      toast({ title: "Максимум 10 фото", variant: "destructive" });
+      return;
+    }
+    infoFileInputRef.current?.click();
+  };
+
+  const handleInfographicFile = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setInfoGenerating(true);
+    try {
+      const fd = new FormData();
+      fd.append("photo", file);
+      fd.append("title", formData.title.trim());
+      const cat = categories?.find(
+        (c: any) => String(c.id) === formData.categoryId,
+      );
+      if (cat?.name) fd.append("category", cat.name);
+
+      const res = await fetch(`${API_BASE}/api/ai/generate-infographic`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
+      });
+      const j = await res.json();
+      if (!res.ok) {
+        throw new Error(j?.message || j?.error || "Не удалось создать инфографику");
+      }
+      setPhotos((prev) => [...prev, j.url as string]);
+      toast({
+        title: "Инфографика готова! 🪄",
+        description: j.fallback
+          ? "Картинка собрана, текст — запасной (LLM временно недоступна)."
+          : `Буллеты: ${(j.bullets || []).join(" • ")}`,
+      });
+    } catch (err: any) {
+      toast({
+        title: "Не удалось создать инфографику",
+        description: err?.message || "Попробуйте ещё раз чуть позже.",
+        variant: "destructive",
+      });
+    } finally {
+      setInfoGenerating(false);
+      if (infoFileInputRef.current) infoFileInputRef.current.value = "";
+    }
+  };
+
   // Автосохранение черновика для новых объявлений
   useEffect(() => {
     if (!isEditing) {
@@ -752,6 +816,17 @@ export default function ListingForm() {
                   <Link2 className="w-4 h-4" />
                   По ссылке
                 </button>
+                <button
+                  type="button"
+                  onClick={onInfographicClick}
+                  disabled={infoGenerating || photos.length >= 10}
+                  title="Создаст брендированную карточку 1080×1080 с тремя буллетами от ИИ"
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-gradient-to-r from-[#C65D3B] to-[#a04829] text-white text-sm font-bold hover:opacity-90 transition-opacity disabled:opacity-50 disabled:pointer-events-none shadow-sm"
+                  data-testid="button-infographic"
+                >
+                  {infoGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                  {infoGenerating ? "Готовим..." : "🪄 Создать инфографику"}
+                </button>
                 <label
                   htmlFor={uploadInputId}
                   aria-disabled={uploading || photos.length >= 10}
@@ -769,6 +844,14 @@ export default function ListingForm() {
                   disabled={uploading || photos.length >= 10}
                   className="sr-only"
                   onChange={handleFilesChange}
+                />
+                <input
+                  id={infoInputId}
+                  ref={infoFileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="sr-only"
+                  onChange={handleInfographicFile}
                 />
               </div>
             </div>
