@@ -38,7 +38,7 @@ const GEMINI_MODEL = "gemini-flash-latest";
 // Источник истины — https://lllm-swagger-amvera-services.amvera.io/openapi.yaml.
 // Поле сообщений и ответа всё ещё "text" (НЕ "content") — это не стандартный
 // OpenAI Chat Completions, а кастомная Amvera-схема поверх /gpt-роута.
-const AMVERA_URL = "https://kong-proxy.yc.amvera.ru/api/v1/models/gpt";
+const AMVERA_URL = "https://kong-proxy.yc.amvera.ru/api/v1/models/deepseek-v3";
 const AMVERA_MODEL = "deepseek-v3";
 
 export type AiProvider = "mock" | "openai" | "amvera" | "gemini";
