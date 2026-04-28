@@ -8,6 +8,13 @@ import { ChevronLeft, Loader2, ImagePlus, X, ShieldCheck, ShieldOff, AlertTriang
 import { Link } from "wouter";
 import { LocationPicker } from "@/components/ui/LocationPicker";
 import { CollapsibleMap } from "@/components/ui/CollapsibleMap";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { calculateTotalPrice, calcMaxProtectionLimit, calcDeposit, ITEM_CATEGORY_LABELS, CATEGORY_AVG_PRICE, mapCategorySlugToItemCategory, type ItemCategory } from "@/lib/utils";
 import { usePublicSettings } from "@/lib/use-public-settings";
 
@@ -106,6 +113,10 @@ export default function ListingForm() {
   const infoFileInputRef = useRef<HTMLInputElement>(null);
   const infoInputId = "infographic-upload-input";
 
+  // ─── Stage 30C: выбор AI-провайдера (общий для описания и инфографики) ───
+  // Дефолт 'gemini' — премиальная модель с лучшим качеством русского.
+  const [aiProvider, setAiProvider] = useState<"gemini" | "amvera">("gemini");
+
   const onInfographicClick = () => {
     if (!formData.title.trim()) {
       toast({
@@ -136,6 +147,8 @@ export default function ListingForm() {
         (c: any) => String(c.id) === formData.categoryId,
       );
       if (cat?.name) fd.append("category", cat.name);
+      // Stage 30C: per-request выбор LLM-провайдера.
+      fd.append("provider", aiProvider);
 
       const res = await fetch(`${API_BASE}/api/ai/generate-infographic`, {
         method: "POST",
@@ -470,13 +483,34 @@ export default function ListingForm() {
             <div>
               <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
                 <label className="block text-sm font-bold">Описание</label>
-                <AiDescriptionButton
-                  title={formData.title}
-                  category={categories?.find(c => c.id === Number(formData.categoryId))?.name}
-                  currentText={formData.description}
-                  onText={(text) => setFormData((d) => ({ ...d, description: text }))}
-                />
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Select
+                    value={aiProvider}
+                    onValueChange={(v) => setAiProvider(v as "gemini" | "amvera")}
+                  >
+                    <SelectTrigger
+                      className="h-8 w-[200px] text-xs bg-white"
+                      data-testid="select-ai-provider"
+                    >
+                      <SelectValue placeholder="Модель ИИ" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="gemini">🧠 Gemini Pro (Премиум)</SelectItem>
+                      <SelectItem value="amvera">🚀 LLaMA (Базовый)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <AiDescriptionButton
+                    title={formData.title}
+                    category={categories?.find(c => c.id === Number(formData.categoryId))?.name}
+                    currentText={formData.description}
+                    provider={aiProvider}
+                    onText={(text) => setFormData((d) => ({ ...d, description: text }))}
+                  />
+                </div>
               </div>
+              <p className="text-xs text-muted-foreground mb-2">
+                Модель ИИ применяется и к генерации описания, и к буллетам инфографики.
+              </p>
               <textarea required className="input-field min-h-[120px] resize-y" placeholder="Опишите состояние, комплектацию, условия возврата..." value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })}></textarea>
               <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
                 Сгенерированное ИИ описание носит рекомендательный характер. Платформа не несёт ответственности за его точность и полноту; Владелец вещи обязан самостоятельно проверить и при необходимости скорректировать текст перед публикацией.
@@ -966,11 +1000,13 @@ function AiDescriptionButton({
   title,
   category,
   currentText,
+  provider,
   onText,
 }: {
   title: string;
   category?: string | null;
   currentText: string;
+  provider: "gemini" | "amvera";
   onText: (text: string) => void;
 }) {
   const { toast } = useToast();
@@ -1000,6 +1036,8 @@ function AiDescriptionButton({
         body: JSON.stringify({
           title: cleanTitle,
           category: category || undefined,
+          // Stage 30C: per-request выбор LLM-провайдера.
+          provider,
         }),
       });
       const j = await res.json();

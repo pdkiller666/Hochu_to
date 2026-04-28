@@ -1,0 +1,48 @@
+Вот грамотный, комплексный промт для твоего Replit-Агента. Я собрал в нем весь наш опыт: учел жесткие лимиты на длину текста (чтобы не сломать исправленную инфографику), заложил логику переключения и добавил четкую спецификацию запроса к Gemini, которую мы только что протестировали.
+
+Просто скопируй этот блок и отправляй разработчику:
+
+***
+
+> **Task: Stage 30C - Full Multi-Provider AI Integration (Amvera + Gemini)**
+> 
+> **Context:**
+> The Product Owner wants to implement a true multi-provider AI architecture. We need to allow users to dynamically choose between our current Amvera proxy (LLaMA) and Google's Gemini API directly from the frontend when generating listing descriptions or infographic bullets.
+> 
+> **Important Historical Context:**
+> - We recently fixed the SVG infographic layout: bullets must strictly be max 16 characters per line (max 2 lines per bullet), otherwise they bleed out of the `TEXT_W` boundary.
+> - We use `process.env.GEMINI_API_KEY` for Google and `process.env.AMVERA_API_TOKEN` for Amvera.
+> - The smart-mock fallback system should remain intact if an API call fails.
+> 
+> **Action Required:**
+> 
+> **1. Frontend Updates (`artifacts/hochu-to/src/components/ListingForm.tsx` or similar):**
+> - Add a state variable for `aiProvider` (default: `'gemini'`).
+> - Above the "✨ Сгенерировать ИИ-описание" button, add a clean, styled `<Select>` component (using our Shadcn UI setup).
+> - Options: 
+>   - "🧠 Gemini Pro (Премиум)" -> value: `'gemini'`
+>   - "🚀 LLaMA (Базовый)" -> value: `'amvera'`
+> - Ensure this selected value is passed in the request body as `{ "provider": "gemini" | "amvera" }` to both `/api/ai/generate-description` and `/api/ai/generate-infographic` routes.
+> 
+> **2. Backend API Routes (`artifacts/api-server/src/routes/ai.ts`):**
+> - Parse the `provider` field from the request body (default to `'amvera'` if missing).
+> - Pass the `provider` string down to the `generateDescription` and `generateInfographicBullets` service functions.
+> 
+> **3. Backend Service Logic (`artifacts/api-server/src/lib/ai-service.ts`):**
+> - Refactor the functions to switch logic based on the `provider` argument.
+> - **Amvera Logic:** Keep existing `https://kong-proxy.yc.amvera.ru/api/v1/models/llama` implementation.
+> - **Gemini Logic:** Implement a raw `fetch` to `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent` (or `gemini-1.5-flash` for speed).
+>   - Headers: `'Content-Type': 'application/json'`, `'X-goog-api-key': process.env.GEMINI_API_KEY`
+>   - Body structure: `{ contents: [{ parts: [{ text: "..." }] }] }`
+> - **Prompt Engineering for Gemini:** >   - *Description:* Instruct Gemini to write a high-converting, structured, and non-banal description for a rental/co-buying item.
+>   - *Infographics:* **CRITICAL:** Enforce strict limits in the prompt. "Return EXACTLY 3 short bullet points. Each bullet MUST be max 32 characters total, easily splittable into two lines of max 16 chars. Format: bullet1|bullet2|bullet3".
+> 
+> **4. Testing & Push:**
+> - Verify type checks pass.
+> - Commit and push using our standard script:
+> `bash scripts/github-push.sh "feat(ai): integrate Gemini API, add multi-provider UI toggle, and strict prompt constraints"`
+
+***
+
+**Небольшой совет от CTO:**
+Убедись, что перед тем как тестировать новый функционал на проде, переменная `GEMINI_API_KEY` точно прописана в настройках Amvera и контейнер был перезапущен. Если Агент всё сделает верно, у тебя появится мощнейший инструмент генерации, который не будет ломать верстку картинок!

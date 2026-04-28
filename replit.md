@@ -944,6 +944,35 @@ Frontend (`/pools`, `/pools/create`, `/pools/:id`):
 - Брендовая палитра выдержана: фон `#F2EEE3` cream, акценты `#C65D3B` terracotta + `#4A8587` teal.
 - Mobile audit (Playwright @ 375px): ✓ нет горизонтального скролла, ✓ все CTA-кнопки ≥44px (ширина) для пальца, ✓ декоративные `w-96` blur-круги корректно клипаются `overflow-x-hidden` на `<main>`.
 
+## Stage 30C — Multi-Provider AI: Gemini + Amvera per-request switch (28.04.2026)
+
+Пользователь теперь сам выбирает LLM-движок для каждой генерации (описание + инфографика). По умолчанию — Gemini 1.5 Flash (быстрый, лучше на русском); опционально — Amvera LLaMA 8B (бюджетный отечественный proxy).
+
+**Архитектура:**
+
+- **`lib/ai-service.ts`** — расширены типы и роутер:
+  - `type AiProvider = "mock" | "openai" | "amvera" | "gemini"` (+ `isValidProvider`).
+  - `generateGemini(input)` и `bulletsGemini(title, category)` — прямой `fetch` на `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent`. Хедеры: `X-goog-api-key: process.env.GEMINI_API_KEY`. Body: `{contents:[{parts:[{text}]}], generationConfig}`. Таймаут 25 с через `AbortController` (как у Amvera).
+  - **Критично для верстки инфографики:** `bulletsGemini` использует `STRICT_GEMINI_INFOGRAPHIC_PROMPT` поверх базового — требует pipe-формат `буллет1|буллет2|буллет3` и явно ограничивает «макс 32 символа на буллет, делится на 2 строки по ≤16». Парсер сначала пробует `split("|")`, потом fallback на построчный `parseBullets`. Любой буллет >32 символов жёстко обрезается по слову — это страховка от того, что Gemini проигнорирует промпт и сломает SVG (BULLET_MAX_CHARS=16 в `image-service.ts`).
+  - `resolveProvider(requested?)` — новая ось разрешения провайдера. Логика: (1) если в DB `activeAiProvider='mock'` → форсим mock независимо от запроса (admin kill-switch для контроля расходов на LLM); (2) иначе если запрос содержит валидного реального провайдера — берём его; (3) иначе — DB-настройка; (4) финальный дефолт `'amvera'`.
+  - `generateListingDescription(input, requestedProvider?)` и `generateInfographicBullets(title, category, requestedProvider?)` — добавлен опциональный второй/третий аргумент. Graceful fallback в mock при сбое реального провайдера сохранён.
+
+- **`routes/ai.ts`** — оба эндпоинта (`/generate-description` JSON и `/generate-infographic` multipart) парсят `provider` из тела/формы (нормализуют через `.trim().toLowerCase()`), передают вниз в сервис. Невалидные значения молча игнорируются — сервис подставит дефолт.
+
+- **`pages/ListingForm.tsx`** — Shadcn `<Select>` рядом с кнопкой «✨ Сгенерировать ИИ-описание»: «🧠 Gemini Pro (Премиум)» / «🚀 LLaMA (Базовый)». State `aiProvider` (default `'gemini'`) лежит на уровне формы и применяется к обеим фичам — описание и инфографика. Подпись «Модель ИИ применяется и к генерации описания, и к буллетам инфографики» под селектом. `provider` уходит JSON-полем в `/api/ai/generate-description` и form-полем в `/api/ai/generate-infographic`.
+
+**Безопасность и совместимость:**
+- `GEMINI_API_KEY` читается из env только внутри `generateGemini`/`bulletsGemini`; отсутствие → понятная ошибка → graceful fallback в mock без 500.
+- Старый kill-switch админа через `platform_settings.activeAiProvider='mock'` сохранён и имеет приоритет над выбором клиента — это сознательно: если админ выключил реальные LLM (сломанный API, исчерпанный лимит), пользовательский Select не сможет это обойти.
+- Обратная совместимость: если фронт не пришлёт `provider` (старый клиент), сервис возьмёт DB-настройку как раньше.
+
+**Smoke (PASS, 28.04.2026):**
+1. esbuild api-server bundle: `dist/index.mjs 3.4mb`, без ошибок типов ✓
+2. Vite ready 1393 ms, фронт-перезапуск без жалоб ✓
+3. `GET /api/listings` 200, базовые роуты живы ✓
+
+**Что нужно от админа на проде:** выставить `GEMINI_API_KEY` в Amvera env и перезапустить контейнер. После этого Gemini заработает; Amvera уже работает.
+
 ## Stage 30B — AI Visual Magic / Infographic Generator (28.04.2026)
 
 Превращает обычное фото вещи в маркетплейс-инфографику 1080×1080 с тремя AI-извлечёнными буллетами-преимуществами в фирменных цветах. Реализация на стороне сервера через `sharp` + SVG-композит (без внешних image-API), переиспользует Stage 30A AI Gateway для текста.

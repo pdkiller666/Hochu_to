@@ -22,8 +22,10 @@ import { getPlatformSettings } from "./platform-settings.js";
 const MOCK_DELAY_MS = 1500;
 const OPENAI_TIMEOUT_MS = 20_000;
 const AMVERA_TIMEOUT_MS = 25_000;
+const GEMINI_TIMEOUT_MS = 25_000;
+const GEMINI_MODEL = "gemini-1.5-flash";
 
-export type AiProvider = "mock" | "openai" | "amvera";
+export type AiProvider = "mock" | "openai" | "amvera" | "gemini";
 
 export interface GenerateInput {
   title: string;
@@ -170,27 +172,88 @@ async function generateAmvera(input: GenerateInput): Promise<string> {
   }
 }
 
+// ─── GEMINI ────────────────────────────────────────────────────────────────
+
+async function generateGemini(input: GenerateInput): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("GEMINI_API_KEY is not set");
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), GEMINI_TIMEOUT_MS);
+
+  try {
+    const promptText = `${SYSTEM_PROMPT}\n\n${userPrompt(input)}`;
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-goog-api-key": apiKey,
+        },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: promptText }] }],
+          generationConfig: { temperature: 0.8, maxOutputTokens: 800 },
+        }),
+        signal: ctrl.signal,
+      },
+    );
+    if (!res.ok) {
+      const txt = await res.text().catch(() => "");
+      throw new Error(`Gemini HTTP ${res.status}: ${txt.slice(0, 200)}`);
+    }
+    const data: any = await res.json();
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (typeof text !== "string" || !text.trim()) {
+      throw new Error("Gemini: empty response");
+    }
+    return text.trim();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // ─── ROUTER ────────────────────────────────────────────────────────────────
 
 function isValidProvider(p: string | undefined | null): p is AiProvider {
-  return p === "mock" || p === "openai" || p === "amvera";
+  return p === "mock" || p === "openai" || p === "amvera" || p === "gemini";
 }
 
 /**
- * Главная точка входа. Читает активного провайдера из platform_settings,
- * пытается сгенерировать через него, при ошибке мягко падает в mock.
+ * Stage 30C: разрешение провайдера с учётом kill-switch админа.
+ *
+ * Поведение:
+ *   1. Если админ выставил в DB activeAiProvider='mock' — форсим mock.
+ *      Это аварийный «kill-switch» для контроля расходов на LLM.
+ *   2. Иначе если запрос явно указал валидного реального провайдера — берём его.
+ *      Так пользователь сам выбирает между Gemini и Amvera per-request.
+ *   3. Иначе — fallback в DB-настройку (для обратной совместимости с прежним UX).
+ *   4. Если и там пусто — 'amvera' как разумный дефолт (как просил CTO).
+ */
+async function resolveProvider(requested?: string | null): Promise<AiProvider> {
+  const settings = await getPlatformSettings();
+  const dbProvider: AiProvider = isValidProvider(settings.activeAiProvider)
+    ? (settings.activeAiProvider as AiProvider)
+    : "mock";
+
+  if (dbProvider === "mock") return "mock";
+  if (isValidProvider(requested) && requested !== "mock") return requested;
+  return dbProvider || "amvera";
+}
+
+/**
+ * Главная точка входа. Учитывает per-request выбор провайдера; при ошибке
+ * реального провайдера мягко падает в mock, чтобы UX не сломался.
  */
 export async function generateListingDescription(
   input: GenerateInput,
+  requestedProvider?: string | null,
 ): Promise<GenerateResult> {
   if (!input.title || !input.title.trim()) {
     throw new Error("title is required");
   }
 
-  const settings = await getPlatformSettings();
-  const requested: AiProvider = isValidProvider(settings.activeAiProvider)
-    ? (settings.activeAiProvider as AiProvider)
-    : "mock";
+  const requested = await resolveProvider(requestedProvider);
 
   if (requested === "mock") {
     const text = await generateMock(input);
@@ -198,10 +261,11 @@ export async function generateListingDescription(
   }
 
   try {
-    const text =
-      requested === "openai"
-        ? await generateOpenAi(input)
-        : await generateAmvera(input);
+    let text: string;
+    if (requested === "openai") text = await generateOpenAi(input);
+    else if (requested === "gemini") text = await generateGemini(input);
+    else text = await generateAmvera(input);
+
     logger.info(
       { provider: requested, title: input.title.slice(0, 60) },
       "ai-service: generation success",
@@ -485,20 +549,115 @@ async function bulletsAmvera(
 }
 
 /**
- * Stage 30B: получить 3 коротких буллета для инфографики.
+ * Stage 30C — Gemini-вариант с СТРОГИМ форматом ответа.
+ *
+ * Картинка инфографики ломается, если буллет длиннее 32 символов (≈ 2 строки
+ * по 16). Чтобы Gemini не выдавал «красивые», но непомещающиеся фразы,
+ * заворачиваем INFOGRAPHIC_SYSTEM_PROMPT в дополнительные жёсткие правила
+ * формата: один pipe-separated ряд, ≤ 32 char/буллет.
+ *
+ * Парсер сначала пробует pipe-формат, потом fallback в построчный.
+ * Любой буллет > 32 символов жёстко обрезается по слову.
+ */
+async function bulletsGemini(
+  title: string,
+  category?: string | null,
+): Promise<string[]> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error("GEMINI_API_KEY is not set");
+
+  const STRICT_GEMINI_INFOGRAPHIC_PROMPT = [
+    INFOGRAPHIC_SYSTEM_PROMPT,
+    "",
+    "СТРОГИЙ ФОРМАТ ОТВЕТА (Stage 30C):",
+    "Верни РОВНО 3 буллета в одной строке, разделённых вертикальной чертой |",
+    "Формат: буллет1|буллет2|буллет3",
+    "Пример: Мощность 800 Вт|Кейс с битами|Подходит для бетона",
+    "",
+    "ОГРАНИЧЕНИЯ ДЛИНЫ (СТРОГО):",
+    "- Каждый буллет — максимум 32 символа всего.",
+    "- Должен легко делиться на 2 строки по ≤ 16 символов каждая.",
+    "- Не используй символ | внутри самого буллета.",
+    "- Никаких пояснений вокруг — ТОЛЬКО три буллета через |.",
+  ].join("\n");
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), GEMINI_TIMEOUT_MS);
+
+  try {
+    const promptText = `${STRICT_GEMINI_INFOGRAPHIC_PROMPT}\n\n${infographicUserPrompt(title, category)}`;
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-goog-api-key": apiKey,
+        },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: promptText }] }],
+          generationConfig: { temperature: 0.6, maxOutputTokens: 200 },
+        }),
+        signal: ctrl.signal,
+      },
+    );
+    if (!res.ok) {
+      const txt = await res.text().catch(() => "");
+      throw new Error(`Gemini HTTP ${res.status}: ${txt.slice(0, 200)}`);
+    }
+    const data: any = await res.json();
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (typeof text !== "string" || !text.trim()) {
+      throw new Error("Gemini: empty response");
+    }
+
+    // Сначала пробуем pipe-формат (как просили в промпте), потом fallback.
+    let bullets: string[];
+    if (text.includes("|")) {
+      bullets = text
+        .replace(/\r?\n/g, " ")
+        .split("|")
+        .map((s) => s.trim())
+        .filter(Boolean);
+    } else {
+      bullets = parseBullets(text);
+    }
+
+    // Жёсткая защита верстки: режем длиннее 32 символов по границе слова.
+    bullets = bullets.slice(0, 3).map((b) => {
+      if (b.length <= 32) return b;
+      const words = b.split(/\s+/);
+      let acc = "";
+      for (const w of words) {
+        const next = acc ? `${acc} ${w}` : w;
+        if (next.length > 32) break;
+        acc = next;
+      }
+      return acc || b.slice(0, 32);
+    });
+
+    if (bullets.length < 3) {
+      throw new Error("Gemini: less than 3 bullets parsed");
+    }
+    return bullets;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Stage 30B/30C: получить 3 коротких буллета для инфографики.
  * Логика fallback идентична generateListingDescription: при ошибке реального
  * провайдера мягко падаем в mock, чтобы UX не сломался.
  */
 export async function generateInfographicBullets(
   title: string,
   category?: string | null,
+  requestedProvider?: string | null,
 ): Promise<InfographicBulletsResult> {
   if (!title || !title.trim()) throw new Error("title is required");
 
-  const settings = await getPlatformSettings();
-  const requested: AiProvider = isValidProvider(settings.activeAiProvider)
-    ? (settings.activeAiProvider as AiProvider)
-    : "mock";
+  const requested = await resolveProvider(requestedProvider);
 
   if (requested === "mock") {
     return {
@@ -510,10 +669,11 @@ export async function generateInfographicBullets(
   }
 
   try {
-    const bullets =
-      requested === "openai"
-        ? await bulletsOpenAi(title, category)
-        : await bulletsAmvera(title, category);
+    let bullets: string[];
+    if (requested === "openai") bullets = await bulletsOpenAi(title, category);
+    else if (requested === "gemini") bullets = await bulletsGemini(title, category);
+    else bullets = await bulletsAmvera(title, category);
+
     logger.info(
       { provider: requested, title: title.slice(0, 60) },
       "ai-service: infographic bullets success",

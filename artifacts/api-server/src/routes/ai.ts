@@ -68,7 +68,7 @@ router.post(
       });
     }
 
-    const { title, category, condition } = req.body ?? {};
+    const { title, category, condition, provider } = req.body ?? {};
     if (typeof title !== "string" || !title.trim()) {
       return res
         .status(400)
@@ -92,12 +92,20 @@ router.post(
         .json({ error: "invalid_input", field: "condition" });
     }
 
+    // Stage 30C: per-request выбор провайдера. Невалидные значения игнорируем —
+    // ai-service сам подберёт дефолт (учитывая kill-switch админа).
+    const requestedProvider =
+      typeof provider === "string" ? provider.trim().toLowerCase() : null;
+
     try {
-      const result = await generateListingDescription({
-        title: title.trim(),
-        category: category?.trim() || null,
-        condition: condition?.trim() || null,
-      });
+      const result = await generateListingDescription(
+        {
+          title: title.trim(),
+          category: category?.trim() || null,
+          condition: condition?.trim() || null,
+        },
+        requestedProvider,
+      );
       res.json(result);
     } catch (err: any) {
       logger.error(
@@ -173,6 +181,11 @@ router.post(
         typeof req.body?.category === "string"
           ? req.body.category.trim() || null
           : null;
+      // Stage 30C: per-request провайдер из multipart-формы.
+      const requestedProvider =
+        typeof req.body?.provider === "string"
+          ? req.body.provider.trim().toLowerCase()
+          : null;
 
       if (!title) {
         res.status(400).json({
@@ -202,7 +215,11 @@ router.post(
 
       try {
         // 1) Достаём 3 буллета из LLM (с graceful fallback в mock)
-        const bulletsResult = await generateInfographicBullets(title, category);
+        const bulletsResult = await generateInfographicBullets(
+          title,
+          category,
+          requestedProvider,
+        );
 
         // 2) Собираем картинку 1080×1080 (sharp + SVG композит)
         const webpBuffer = await buildInfographicImage(
