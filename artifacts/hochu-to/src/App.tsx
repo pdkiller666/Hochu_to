@@ -29,6 +29,7 @@ import About from "@/pages/About";
 import Contacts from "@/pages/Contacts";
 import Privacy from "@/pages/Privacy";
 import Terms from "@/pages/Terms";
+import PromoHub from "@/pages/PromoHub";
 import Favorites from "@/pages/Favorites";
 import AdminPage from "@/pages/AdminPage";
 import BetaBanner from "@/components/BetaBanner";
@@ -81,6 +82,7 @@ function Router() {
       <Route path="/contacts" component={Contacts} />
       <Route path="/privacy" component={Privacy} />
       <Route path="/terms" component={Terms} />
+      <Route path="/promo" component={PromoHub} />
 
       <Route component={NotFound} />
       </Switch>
