@@ -41,7 +41,7 @@ async function seedDefaultAdmin() {
   logger.info({ email: defaultEmail }, "Default admin created. Change password after first login.");
 }
 
-app.listen(port, "127.0.0.1", async (err) => {
+app.listen(port, "0.0.0.0", async (err) => {
   if (err) {
     logger.error({ err }, "Error listening on port");
     process.exit(1);
