@@ -5,16 +5,20 @@
  * Активный провайдер хранится в platform_settings.activeAiProvider:
  *   - 'mock'   — формат-заглушка с эмодзи (без сети, без расходов; default);
  *   - 'openai' — ChatGPT через OPENAI_API_KEY;
- *   - 'amvera' — российский Amvera AI Inference (llama8b) через AMVERA_API_TOKEN.
+ *   - 'amvera' — российский Amvera AI Inference (deepseek-v3 на /models/gpt) через AMVERA_API_TOKEN.
  *
  * При любой ошибке/отсутствии ключа провайдер мягко деградирует в 'mock',
  * чтобы UX не сломался. Все ошибки логируются Pino-логгером.
  *
  * ВАЖНО про Amvera (отличия от OpenAI):
- *   - Эндпоинт:           POST https://kong-proxy.yc.amvera.ru/api/v1/models/llama
+ *   - Эндпоинт:           POST https://kong-proxy.yc.amvera.ru/api/v1/models/gpt
+ *                         (Stage 30H: /models/llama помечен deprecated в openapi
+ *                         Amvera + давал empty response на проде; перешли на /gpt
+ *                         с моделью deepseek-v3, доступной в админке Amvera).
  *   - Заголовок auth:     X-Auth-Token: Bearer <token>   (НЕ Authorization)
- *   - Поле сообщения:     "text"                          (НЕ "content")
- *   - Парсинг ответа:     data.choices[0].message.text
+ *   - Поле сообщения:     "text"                         (НЕ "content" — даже на
+ *                         /gpt-эндпоинте; openapi.yaml: messages[].text)
+ *   - Парсинг ответа:     data.choices[0].message.text   (НЕ .content)
  */
 import { logger } from "./logger.js";
 import { getPlatformSettings } from "./platform-settings.js";
@@ -28,6 +32,14 @@ const GEMINI_TIMEOUT_MS = 25_000;
 // stable-флэш (на момент правки — Gemini 2.0 Flash). Менять на конкретную версию
 // нежелательно, чтобы не словить ту же ошибку при следующей ротации алиасов.
 const GEMINI_MODEL = "gemini-flash-latest";
+
+// Stage 30H (28.04.2026): пивот Amvera со старого /models/llama (deprecated в их
+// openapi, на проде давал "empty response") на /models/gpt с моделью deepseek-v3.
+// Источник истины — https://lllm-swagger-amvera-services.amvera.io/openapi.yaml.
+// Поле сообщений и ответа всё ещё "text" (НЕ "content") — это не стандартный
+// OpenAI Chat Completions, а кастомная Amvera-схема поверх /gpt-роута.
+const AMVERA_URL = "https://kong-proxy.yc.amvera.ru/api/v1/models/gpt";
+const AMVERA_MODEL = "deepseek-v3";
 
 export type AiProvider = "mock" | "openai" | "amvera" | "gemini";
 
@@ -142,28 +154,26 @@ async function generateAmvera(input: GenerateInput): Promise<string> {
   const timer = setTimeout(() => ctrl.abort(), AMVERA_TIMEOUT_MS);
 
   try {
-    const res = await fetch(
-      "https://kong-proxy.yc.amvera.ru/api/v1/models/llama",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          // Stage 30E (REVERT 30D): прод вернул HTTP 401 на стандартный
-          // Authorization: Bearer. Amvera-шлюз ожидает кастомный X-Auth-Token
-          // c префиксом Bearer — это и был исходный рабочий формат.
-          "X-Auth-Token": `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          model: "llama8b",
-          messages: [
-            // Amvera использует поле "text", не "content"
-            { role: "system", text: SYSTEM_PROMPT },
-            { role: "user", text: userPrompt(input) },
-          ],
-        }),
-        signal: ctrl.signal,
+    const res = await fetch(AMVERA_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        // Stage 30E (REVERT 30D): прод вернул HTTP 401 на стандартный
+        // Authorization: Bearer. Amvera-шлюз ожидает кастомный X-Auth-Token
+        // c префиксом Bearer — это и был исходный рабочий формат.
+        "X-Auth-Token": `Bearer ${token}`,
       },
-    );
+      body: JSON.stringify({
+        model: AMVERA_MODEL,
+        messages: [
+          // Stage 30H: даже на /models/gpt Amvera использует поле "text",
+          // НЕ "content" (см. openapi.yaml — это не стандартная OpenAI-схема).
+          { role: "system", text: SYSTEM_PROMPT },
+          { role: "user", text: userPrompt(input) },
+        ],
+      }),
+      signal: ctrl.signal,
+    });
 
     if (!res.ok) {
       const fullText = await res.text().catch(() => "");
@@ -537,26 +547,24 @@ async function bulletsAmvera(
   const timer = setTimeout(() => ctrl.abort(), AMVERA_TIMEOUT_MS);
 
   try {
-    const res = await fetch(
-      "https://kong-proxy.yc.amvera.ru/api/v1/models/llama",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          // Stage 30E (REVERT 30D): прод вернул 401 на Authorization: Bearer.
-          // Возвращаем X-Auth-Token: Bearer ... — исходный рабочий формат Amvera.
-          "X-Auth-Token": `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          model: "llama8b",
-          messages: [
-            { role: "system", text: INFOGRAPHIC_SYSTEM_PROMPT },
-            { role: "user", text: infographicUserPrompt(title, category) },
-          ],
-        }),
-        signal: ctrl.signal,
+    const res = await fetch(AMVERA_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        // Stage 30E (REVERT 30D): прод вернул 401 на Authorization: Bearer.
+        // Возвращаем X-Auth-Token: Bearer ... — исходный рабочий формат Amvera.
+        "X-Auth-Token": `Bearer ${token}`,
       },
-    );
+      body: JSON.stringify({
+        model: AMVERA_MODEL,
+        // Stage 30H: на /models/gpt поле остаётся "text" (см. openapi.yaml).
+        messages: [
+          { role: "system", text: INFOGRAPHIC_SYSTEM_PROMPT },
+          { role: "user", text: infographicUserPrompt(title, category) },
+        ],
+      }),
+      signal: ctrl.signal,
+    });
     if (!res.ok) {
       const fullText = await res.text().catch(() => "");
       console.error(

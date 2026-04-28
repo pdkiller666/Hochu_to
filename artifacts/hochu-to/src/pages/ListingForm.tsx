@@ -496,7 +496,7 @@ export default function ListingForm() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="gemini">🧠 Gemini Pro (Премиум)</SelectItem>
-                      <SelectItem value="amvera">🚀 LLaMA (Базовый)</SelectItem>
+                      <SelectItem value="amvera">🚀 DeepSeek-V3 (Amvera)</SelectItem>
                     </SelectContent>
                   </Select>
                   <AiDescriptionButton

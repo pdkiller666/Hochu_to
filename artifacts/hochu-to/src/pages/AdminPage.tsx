@@ -3585,10 +3585,10 @@ const AI_PROVIDERS: Array<{
   },
   {
     id: "amvera",
-    title: "Amvera AI (llama8b)",
+    title: "Amvera AI (DeepSeek-V3)",
     badge: "🇷🇺 Россия",
     badgeCls: "bg-emerald-100 text-emerald-700",
-    desc: "Российский инференс на отечественных серверах. Без геоблокировок, оплата в рублях.",
+    desc: "Российский инференс на отечественных серверах. DeepSeek-V3 через /models/gpt. Без геоблокировок, оплата в рублях.",
     envHint: "Требуется секрет AMVERA_API_TOKEN",
   },
 ];
