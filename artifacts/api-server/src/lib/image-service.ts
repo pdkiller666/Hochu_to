@@ -17,8 +17,12 @@
  */
 import sharp from "sharp";
 
+// Stage 30B-Fix (heavy plan): "DejaVu Sans" и "Liberation Sans" ставятся в Dockerfile
+// (fonts-dejavu-core + fonts-liberation) — они гарантированно содержат полный набор
+// кириллических глифов. Остальные имена в стеке — фоллбэк для локальной разработки
+// (NixOS / macOS / Windows). librsvg/fontconfig идёт по списку слева направо.
 const FONT_STACK =
-  "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Ubuntu, 'Helvetica Neue', sans-serif";
+  "'DejaVu Sans', 'Liberation Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Ubuntu, 'Helvetica Neue', sans-serif";
 
 const CANVAS = 1080;
 const PHOTO_X = 480;

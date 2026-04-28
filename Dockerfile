@@ -32,6 +32,19 @@ RUN pnpm --filter @workspace/api-server run build
 
 # --- Продакшн-образ ---
 FROM base AS production
+
+# Stage 30B-Fix (heavy plan): шрифты с кириллицей для sharp/librsvg при генерации
+# инфографики. Без них node:20-slim рендерит русский текст как "tofu" (□□□).
+# fonts-dejavu-core ≈ 1.4MB, покрывает sans/serif/mono для всех кириллических глифов.
+# fc-cache обновляет индекс fontconfig, чтобы librsvg сразу видел новые шрифты.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        fontconfig \
+        fonts-dejavu-core \
+        fonts-liberation \
+    && fc-cache -f \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
 COPY lib/db/package.json lib/db/
 COPY lib/api-spec/package.json lib/api-spec/
