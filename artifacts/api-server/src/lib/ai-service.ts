@@ -23,7 +23,11 @@ const MOCK_DELAY_MS = 1500;
 const OPENAI_TIMEOUT_MS = 20_000;
 const AMVERA_TIMEOUT_MS = 25_000;
 const GEMINI_TIMEOUT_MS = 25_000;
-const GEMINI_MODEL = "gemini-1.5-flash";
+// Stage 30G: gemini-1.5-flash отдаёт 404 на v1beta endpoint — Google переименовал
+// этот алиас. Используем gemini-flash-latest, который всегда указывает на актуальный
+// stable-флэш (на момент правки — Gemini 2.0 Flash). Менять на конкретную версию
+// нежелательно, чтобы не словить ту же ошибку при следующей ротации алиасов.
+const GEMINI_MODEL = "gemini-flash-latest";
 
 export type AiProvider = "mock" | "openai" | "amvera" | "gemini";
 
