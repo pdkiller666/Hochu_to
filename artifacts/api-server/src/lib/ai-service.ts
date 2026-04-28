@@ -142,9 +142,10 @@ async function generateAmvera(input: GenerateInput): Promise<string> {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          // Stage 30D: переход на стандартный Bearer-заголовок Authorization
-          // (раньше использовали X-Auth-Token; теперь по ТЗ — строгий Bearer).
-          Authorization: `Bearer ${token}`,
+          // Stage 30E (REVERT 30D): прод вернул HTTP 401 на стандартный
+          // Authorization: Bearer. Amvera-шлюз ожидает кастомный X-Auth-Token
+          // c префиксом Bearer — это и был исходный рабочий формат.
+          "X-Auth-Token": `Bearer ${token}`,
         },
         body: JSON.stringify({
           model: "llama8b",
@@ -533,8 +534,9 @@ async function bulletsAmvera(
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          // Stage 30D: строгий Bearer (раньше был X-Auth-Token).
-          Authorization: `Bearer ${token}`,
+          // Stage 30E (REVERT 30D): прод вернул 401 на Authorization: Bearer.
+          // Возвращаем X-Auth-Token: Bearer ... — исходный рабочий формат Amvera.
+          "X-Auth-Token": `Bearer ${token}`,
         },
         body: JSON.stringify({
           model: "llama8b",
