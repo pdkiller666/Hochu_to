@@ -332,6 +332,38 @@ Located at `artifacts/api-server/src/lib/scheduler.ts`. Runs every hour via `nod
   - `replit.md` — обновлять разделы `API Routes`, `Database Schema`, `Project Checklist` (✅ / 🟡 / 🔴) так, чтобы карта проекта всегда отражала реальность.
   - Эти правки идут в **тот же** коммит, что и код этапа.
 
+### Жёсткие платформенные ограничения Replit-агента (28.04.2026)
+
+Эти лимиты вылезли при отладке Stage 30D–30G — фиксирую, чтобы будущие итерации не упирались в них повторно:
+
+- **Все git-команды заблокированы из агента** — даже read-only (`git status`, `git log`, `git ls-remote`). Платформа отвечает `PROHIBITED_ACTION` и упирается в `.git/index.lock`. Сверять состояние с GitHub нужно вручную в Shell:
+  ```bash
+  rm -f .git/index.lock && git fetch origin && git log --oneline origin/main -3 && echo "---LOCAL---" && git log --oneline HEAD -3
+  ```
+  Совпадение SHA в обоих блоках = всё запушено.
+- **`.replit` редактировать напрямую нельзя** — платформа управляет им через скиллы (`workflows`, package management). Менять воркфлоу надо через `configureWorkflow`/`removeWorkflow` в code_execution.
+- **Артефакт-воркфлоу нельзя удалить из агента** — `removeWorkflow` отвечает `PROHIBITED_ACTION: managed by an artifact`. На текущий момент висят три неудаляемых дубля (`artifacts/api-server: API Server`, `artifacts/hochu-to: web`, `artifacts/mockup-sandbox: Component Preview Server`). На функциональность не влияют — реальный dev-запуск идёт через легаси-воркфлоу `Start application` (API:8080 + фронт:5000). Удалить можно только из UI Replit вручную.
+- **GitHub-токен в env агента не проброшен** — `GITHUB_TOKEN`/`GITHUB_PERSONAL_ACCESS_TOKEN` доступны только в пользовательской shell-сессии (где работает push-скрипт). Из агента нельзя дёргать GitHub API даже для чтения приватного репо.
+
+### AI Gateway — критические нюансы (НЕ регрессировать)
+
+Эти константы и хедеры вылезли через серию production-ошибок (Stage 30D/E/G). Любые правки в `artifacts/api-server/src/lib/ai-service.ts` обязаны их сохранять:
+
+- **Amvera LLaMA** — endpoint `https://kong-proxy.yc.amvera.ru/api/v1/models/llama`, модель `llama8b`:
+  - Хедер авторизации: `X-Auth-Token: Bearer ${token}` (НЕ стандартный `Authorization`). Попытка перейти на `Authorization` ловит HTTP 401 с `"status":"ALTERNATIVE_STATUS_FINAL"`.
+  - Сообщения: поле `text` (НЕ `content`, как у OpenAI/Gemini).
+- **Gemini** — endpoint `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`:
+  - Ключ передаётся в query-параметре `?key=` (НЕ хедером `X-goog-api-key` — на v1beta даёт 401).
+  - `GEMINI_MODEL = "gemini-flash-latest"` (НЕ пиннить на `gemini-1.5-flash` — Google вычистил этот алиас из v1beta, прилетит 404).
+- **`.trim()` на env-ключах обязателен** во всех 4 точках (`generateAmvera`, `generateGemini`, `bulletsAmvera`, `bulletsGemini`):
+  ```ts
+  const token = process.env.AMVERA_API_TOKEN?.trim();
+  ```
+  Хвостовой `\n` в Amvera-консоли — типичная причина «загадочных» 401.
+- **Smart-mock fallback** должен оставаться в каждом из 4 методов: при сбое реального провайдера сервис graceful-fallback'ит в mock и возвращает `{actualProvider:"mock", fallback:true, fallbackReason}` — это спасает от 500 на проде, когда LLM лежит.
+- **Инфографика — жёсткий лимит длины буллета**: ≤ 32 символа (делится на 2 строки по ≤16). `BULLET_MAX_CHARS=16` в `image-service.ts`, парсер обрезает по слову. Любое расширение лимита сломает SVG-вёрстку 1080×1080.
+- **Стартовая диагностика** в `index.ts` логирует `exists: true/false` и `length: <N>` для `GEMINI_API_KEY`/`AMVERA_API_TOKEN` — НИКОГДА не логировать сами ключи, даже частично. Эталонная длина Google API key = 39 символов; если `length: 40+` — где-то в env прилетел `\n`.
+
 ## Financial Model — Dual Shield (v2)
 
 Реализована в `artifacts/hochu-to/src/lib/utils.ts` и `artifacts/api-server/src/routes/bookings.ts`:
@@ -1005,6 +1037,43 @@ Frontend (`/pools`, `/pools/create`, `/pools/:id`):
 - Выбор шаблона (горизонтальный 1200×630 для соцсетей, сторис 1080×1920).
 - Watermark «Хочу_То» опционально для бесплатного тарифа (сейчас плашка бренда — встроена в дизайн).
 - Кеш инфографик по `(photoHash, bulletsHash)` — повторная генерация всегда тратит токены LLM.
+
+## Stage 30D–30G — AI Provider Hardening: prod-debug & retries (28.04.2026)
+
+После выкатки Stage 30C на Amvera всплыли скрытые баги интеграции с обоими провайдерами — этот блок собирает все четыре итерации в один. Все правки изолированы в `artifacts/api-server/src/lib/ai-service.ts` (4 функции: `generateAmvera`, `generateGemini`, `bulletsAmvera`, `bulletsGemini`) + стартовый блок в `artifacts/api-server/src/index.ts`.
+
+**Stage 30D — диагностика и verbose-логи:**
+- В `index.ts` перед `app.listen` добавлен блок `--- AI CONFIG DIAGNOSTICS ---`, который при старте печатает `exists: true/false` и `length: <N>` для `GEMINI_API_KEY` и `AMVERA_API_TOKEN`. Сами ключи никогда не логируются (даже частично). Длина 39 = эталонный Google API key; 40+ → в env прилетел `\n`.
+- Все 4 AI-функции получили `console.error(await res.text())` ПЕРЕД `throw` при non-2xx ответе провайдера — теперь по логам Amvera сразу видно body-сообщение, а не только статус.
+- Gemini переведён на формат ключа в URL (`?key=${encodeURIComponent(apiKey)}`) — раньше был хедер `X-goog-api-key`, который v1beta endpoint отдавал как 401.
+
+**Stage 30E — Amvera auth-format откат:**
+- Попытка унифицировать Amvera под `Authorization: Bearer <token>` (как у Gemini/OpenAI) дала на проде HTTP 401 с body `{"status":"ALTERNATIVE_STATUS_FINAL"}`. Откат на `X-Auth-Token: Bearer <token>` — это нестандартное требование Kong-проксей Amvera (зафиксировано в Agent Rules → AI Gateway).
+
+**Stage 30F — env bulletproof + workflow cleanup:**
+- `process.env.AMVERA_API_TOKEN?.trim()` и `process.env.GEMINI_API_KEY?.trim()` во всех 4 точках. Это страховка от хвостового `\n`/пробела, которые Amvera-консоль умеет молча приклеивать при копи-пасте секрета в UI.
+- `throw new Error("X is missing")` теперь срабатывает уже на затримленном значении — ключ из одних пробелов корректно отвергается.
+- Стартовая диагностика в `index.ts` сознательно оставлена БЕЗ `.trim()` — чтобы при ротации ключа сразу видеть «сырую» длину и расхождение с ожидаемой.
+- Попытка удалить три артефакт-воркфлоу через `removeWorkflow` упёрлась в `PROHIBITED_ACTION: managed by an artifact` — задокументировано в Agent Rules как ограничение платформы.
+
+**Stage 30G — Gemini model alias fix:**
+- Константа `GEMINI_MODEL = "gemini-1.5-flash"` → `"gemini-flash-latest"`. Google вычистил алиас `gemini-1.5-flash` из v1beta endpoint, на проде прилетал `404 model not found`. `*-latest` — страховка от повторения той же истории при следующей ротации алиасов. Обе функции (`generateGemini` и `bulletsGemini`) собирают URL из общей константы, поэтому правка одна.
+
+**Smoke (PASS на dev, 28.04.2026):**
+1. esbuild api-server bundle — без ошибок типов ✓
+2. Workflow `Start application` рестартует чисто, диагностический блок печатается в логе ✓
+3. `GET /api/listings`, `GET /api/health` → 200 ✓
+4. На локалке Replit `GEMINI_API_KEY`/`AMVERA_API_TOKEN` не заданы — система корректно проваливается в smart-mock без 500 ✓
+
+**Финальные SHA в GitHub (origin/main подтверждено пользователем):**
+- `586328b` — Revert Amvera auth header (30E)
+- `e2f2487` — Bulletproof env vars with .trim() (30F)
+- `d345122` — Gemini model URL → flash-latest (30G)
+
+**Прод-проверка (на Amvera после деплоя):**
+1. В логе старта — блок `--- AI CONFIG DIAGNOSTICS ---`, оба ключа `exists: true`, `GEMINI_KEY length: 39`.
+2. Первый `POST /api/ai/generate-description` с провайдером Gemini — НЕ должен вернуть 404. Если вернётся 401/403/429 — это уже про сам ключ или квоту, не про URL/модель.
+3. Первый `POST /api/ai/generate-description` с провайдером Amvera — НЕ должен вернуть 401 `ALTERNATIVE_STATUS_FINAL`. Если вернётся — значит `X-Auth-Token: Bearer` где-то откатили на `Authorization`, искать регрессию.
 
 ## What Is NOT Yet Implemented (roadmap)
 
