@@ -11,9 +11,14 @@
  *   #C65D3B — терракотовый акцент (галочки, плашка бренда)
  *   #2B2B2B — основной текст
  *
- * Шрифт: системный sans-serif (DejaVu Sans на NixOS) — поддерживает кириллицу.
+ * Шрифт: расширенный system-стек (Stage 30B-Fix) — librsvg/fontconfig в минимальном
+ * контейнере Amvera (`node:20-slim`) подбирает первый доступный шрифт с поддержкой
+ * кириллицы и не падает в "tofu" (□□□) для русских символов.
  */
 import sharp from "sharp";
+
+const FONT_STACK =
+  "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Ubuntu, 'Helvetica Neue', sans-serif";
 
 const CANVAS = 1080;
 const PHOTO_X = 480;
@@ -66,7 +71,7 @@ function buildBulletsSvg(bullets: string[]): string {
       const textNodes = lines
         .map(
           (line, li) =>
-            `<text x="100" y="${y + 14 + li * 44}" class="bullet">${line}</text>`,
+            `<text x="100" y="${y + 14 + li * 44}" class="bullet" font-family="${FONT_STACK}" text-anchor="start">${line}</text>`,
         )
         .join("");
       return `
@@ -82,13 +87,13 @@ function buildBulletsSvg(bullets: string[]): string {
 
   return `<svg width="${TEXT_W}" height="${TEXT_H}" xmlns="http://www.w3.org/2000/svg">
   <style>
-    .brand { font-family: sans-serif; font-weight: 800; font-size: 44px; fill: #2B2B2B; }
+    .brand { font-weight: 800; font-size: 44px; fill: #2B2B2B; }
     .brand-accent { fill: #C65D3B; }
-    .tagline { font-family: sans-serif; font-weight: 600; font-size: 18px; fill: #6B5E50; letter-spacing: 1px; }
-    .bullet { font-family: sans-serif; font-weight: 700; font-size: 32px; fill: #2B2B2B; }
+    .tagline { font-weight: 600; font-size: 18px; fill: #6B5E50; letter-spacing: 1px; }
+    .bullet { font-weight: 700; font-size: 32px; fill: #2B2B2B; }
   </style>
-  <text x="0" y="60" class="brand">Хочу<tspan class="brand-accent">_То</tspan></text>
-  <text x="0" y="92" class="tagline">МАРКЕТПЛЕЙС АРЕНДЫ</text>
+  <text x="0" y="60" class="brand" font-family="${FONT_STACK}" text-anchor="start">Хочу<tspan class="brand-accent">_То</tspan></text>
+  <text x="0" y="92" class="tagline" font-family="${FONT_STACK}" text-anchor="start">МАРКЕТПЛЕЙС АРЕНДЫ</text>
   ${rows}
   <line x1="0" y1="${TEXT_H - 30}" x2="${TEXT_W - 40}" y2="${TEXT_H - 30}" stroke="#C65D3B" stroke-width="3" />
 </svg>`;
