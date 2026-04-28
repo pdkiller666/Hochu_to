@@ -130,7 +130,7 @@ async function generateOpenAi(input: GenerateInput): Promise<string> {
 
 async function generateAmvera(input: GenerateInput): Promise<string> {
   const token = process.env.AMVERA_API_TOKEN;
-  if (!token) throw new Error("AMVERA_API_TOKEN is not set");
+  if (!token) throw new Error("AMVERA_API_TOKEN is missing");
 
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), AMVERA_TIMEOUT_MS);
@@ -142,8 +142,9 @@ async function generateAmvera(input: GenerateInput): Promise<string> {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          // Amvera использует X-Auth-Token (не Authorization)
-          "X-Auth-Token": `Bearer ${token}`,
+          // Stage 30D: переход на стандартный Bearer-заголовок Authorization
+          // (раньше использовали X-Auth-Token; теперь по ТЗ — строгий Bearer).
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           model: "llama8b",
@@ -158,8 +159,14 @@ async function generateAmvera(input: GenerateInput): Promise<string> {
     );
 
     if (!res.ok) {
-      const txt = await res.text().catch(() => "");
-      throw new Error(`Amvera HTTP ${res.status}: ${txt.slice(0, 200)}`);
+      const fullText = await res.text().catch(() => "");
+      console.error(
+        "[AI Service Error][Amvera/description]: Response Status:",
+        res.status,
+        "Text:",
+        fullText,
+      );
+      throw new Error(`Amvera HTTP ${res.status}: ${fullText.slice(0, 200)}`);
     }
     const data: any = await res.json();
     const text = data?.choices?.[0]?.message?.text;
@@ -176,20 +183,21 @@ async function generateAmvera(input: GenerateInput): Promise<string> {
 
 async function generateGemini(input: GenerateInput): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("GEMINI_API_KEY is not set");
+  if (!apiKey) throw new Error("GEMINI_API_KEY is missing");
 
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), GEMINI_TIMEOUT_MS);
 
   try {
     const promptText = `${SYSTEM_PROMPT}\n\n${userPrompt(input)}`;
+    // Stage 30D: ключ передаём в query (?key=...) — основной формат Google,
+    // меньше шансов, что промежуточные прокси (Amvera/Kong) срежут заголовок.
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
       {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-goog-api-key": apiKey,
         },
         body: JSON.stringify({
           contents: [{ parts: [{ text: promptText }] }],
@@ -199,8 +207,14 @@ async function generateGemini(input: GenerateInput): Promise<string> {
       },
     );
     if (!res.ok) {
-      const txt = await res.text().catch(() => "");
-      throw new Error(`Gemini HTTP ${res.status}: ${txt.slice(0, 200)}`);
+      const fullText = await res.text().catch(() => "");
+      console.error(
+        "[AI Service Error][Gemini/description]: Response Status:",
+        res.status,
+        "Text:",
+        fullText,
+      );
+      throw new Error(`Gemini HTTP ${res.status}: ${fullText.slice(0, 200)}`);
     }
     const data: any = await res.json();
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -507,7 +521,7 @@ async function bulletsAmvera(
   category?: string | null,
 ): Promise<string[]> {
   const token = process.env.AMVERA_API_TOKEN;
-  if (!token) throw new Error("AMVERA_API_TOKEN is not set");
+  if (!token) throw new Error("AMVERA_API_TOKEN is missing");
 
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), AMVERA_TIMEOUT_MS);
@@ -519,7 +533,8 @@ async function bulletsAmvera(
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-Auth-Token": `Bearer ${token}`,
+          // Stage 30D: строгий Bearer (раньше был X-Auth-Token).
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           model: "llama8b",
@@ -532,8 +547,14 @@ async function bulletsAmvera(
       },
     );
     if (!res.ok) {
-      const txt = await res.text().catch(() => "");
-      throw new Error(`Amvera HTTP ${res.status}: ${txt.slice(0, 200)}`);
+      const fullText = await res.text().catch(() => "");
+      console.error(
+        "[AI Service Error][Amvera/bullets]: Response Status:",
+        res.status,
+        "Text:",
+        fullText,
+      );
+      throw new Error(`Amvera HTTP ${res.status}: ${fullText.slice(0, 200)}`);
     }
     const data: any = await res.json();
     const text = data?.choices?.[0]?.message?.text;
@@ -564,7 +585,7 @@ async function bulletsGemini(
   category?: string | null,
 ): Promise<string[]> {
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("GEMINI_API_KEY is not set");
+  if (!apiKey) throw new Error("GEMINI_API_KEY is missing");
 
   const STRICT_GEMINI_INFOGRAPHIC_PROMPT = [
     INFOGRAPHIC_SYSTEM_PROMPT,
@@ -586,13 +607,13 @@ async function bulletsGemini(
 
   try {
     const promptText = `${STRICT_GEMINI_INFOGRAPHIC_PROMPT}\n\n${infographicUserPrompt(title, category)}`;
+    // Stage 30D: ключ в query (?key=...) — единый формат с generateGemini.
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
       {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-goog-api-key": apiKey,
         },
         body: JSON.stringify({
           contents: [{ parts: [{ text: promptText }] }],
@@ -602,8 +623,14 @@ async function bulletsGemini(
       },
     );
     if (!res.ok) {
-      const txt = await res.text().catch(() => "");
-      throw new Error(`Gemini HTTP ${res.status}: ${txt.slice(0, 200)}`);
+      const fullText = await res.text().catch(() => "");
+      console.error(
+        "[AI Service Error][Gemini/bullets]: Response Status:",
+        res.status,
+        "Text:",
+        fullText,
+      );
+      throw new Error(`Gemini HTTP ${res.status}: ${fullText.slice(0, 200)}`);
     }
     const data: any = await res.json();
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;

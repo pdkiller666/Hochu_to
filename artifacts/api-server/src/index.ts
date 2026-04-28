@@ -41,6 +41,24 @@ async function seedDefaultAdmin() {
   logger.info({ email: defaultEmail }, "Default admin created. Change password after first login.");
 }
 
+// ─── Stage 30D: AI provider env diagnostics ────────────────────────────────
+// Печатаем только наличие и длину ключей, чтобы убедиться, что они доехали
+// до контейнера. Сами ключи НИКОГДА не логируем.
+console.log("--- AI CONFIG DIAGNOSTICS ---");
+console.log(
+  "GEMINI_KEY exists:",
+  !!process.env["GEMINI_API_KEY"],
+  "length:",
+  process.env["GEMINI_API_KEY"]?.length ?? 0,
+);
+console.log(
+  "AMVERA_TOKEN exists:",
+  !!process.env["AMVERA_API_TOKEN"],
+  "length:",
+  process.env["AMVERA_API_TOKEN"]?.length ?? 0,
+);
+console.log("-----------------------------");
+
 app.listen(port, "0.0.0.0", async (err) => {
   if (err) {
     logger.error({ err }, "Error listening on port");
