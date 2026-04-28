@@ -25,16 +25,28 @@ const FONT_STACK =
   "'DejaVu Sans', 'Liberation Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Ubuntu, 'Helvetica Neue', sans-serif";
 
 const CANVAS = 1080;
-const PHOTO_X = 480;
+const PHOTO_X = 500;
 const PHOTO_Y = 120;
-const PHOTO_W = 560;
+const PHOTO_W = 540;
 const PHOTO_H = 840;
 const PHOTO_RADIUS = 36;
 
 const TEXT_X = 60;
 const TEXT_Y = 120;
-const TEXT_W = 380;
+const TEXT_W = 420;
 const TEXT_H = 840;
+
+// Stage 30B-Fix v2: уменьшили шрифт и max-chars, чтобы кириллица гарантированно
+// помещалась в текстовую колонку без обрезки. Раньше 32px / 24 символа на строку
+// давали overflow по ширине (DejaVu Sans Bold cyrillic ~ 18px на символ).
+//
+// MAX_CHARS=16 — эмпирически безопасно для кириллицы 28px при ширине колонки
+// TEXT_W-BULLET_TEXT_X = 320px. Шире — широкие глифы «щ»/«ы»/«м» обрезаются
+// (из-за того что SVG-композит ограничен width=420 и текст за границей клипается).
+const BULLET_FONT_SIZE = 28;
+const BULLET_LINE_HEIGHT = 36;
+const BULLET_TEXT_X = 100;
+const BULLET_MAX_CHARS = 16;
 
 /** Защита от XML-инъекций через буллеты. */
 function escapeXml(s: string): string {
@@ -46,22 +58,44 @@ function escapeXml(s: string): string {
     .replace(/'/g, "&apos;");
 }
 
-/** Аккуратный перенос длинной строки на 2 строки по словам (≤24 симв на строку). */
-function wrapBullet(s: string, maxChars = 24): string[] {
+/** Аккуратный перенос длинной строки на 2 строки по словам (≤BULLET_MAX_CHARS на строку). */
+function wrapBullet(s: string, maxChars = BULLET_MAX_CHARS): string[] {
   if (s.length <= maxChars) return [s];
   const words = s.split(/\s+/);
-  let line1 = "";
-  let line2 = "";
-  for (const w of words) {
-    const candidate = line1 ? `${line1} ${w}` : w;
-    if (candidate.length <= maxChars) {
-      line1 = candidate;
-    } else {
-      line2 = line2 ? `${line2} ${w}` : w;
-    }
+  if (words.length === 1) return [s];
+
+  type Split = { line1: string; line2: string; score: number };
+  let best: Split | null = null;
+
+  for (let i = 1; i < words.length; i++) {
+    const line1 = words.slice(0, i).join(" ");
+    const line2 = words.slice(i).join(" ");
+    if (line1.length > maxChars) break;
+    if (line2.length > maxChars) continue;
+
+    const lastW1 = words[i - 1].toLowerCase();
+    const stickyPenalty = STICKY_NEXT.has(lastW1) ? 1000 : 0;
+    const balance = Math.abs(line1.length - line2.length);
+    const score = balance + stickyPenalty;
+
+    if (!best || score < best.score) best = { line1, line2, score };
   }
-  return line2 ? [line1, line2] : [line1];
+
+  if (best) return [best.line1, best.line2];
+  return [words[0], words.slice(1).join(" ")];
 }
+
+/**
+ * Короткие предлоги/союзы, которые нельзя оставлять в конце строки —
+ * иначе они «осиротеют», а следующее слово уедет на новую строку отдельно
+ * («Идеально для и / туризм спорт»).
+ */
+const STICKY_NEXT = new Set([
+  "в", "и", "к", "с", "у", "о", "а",
+  "от", "по", "до", "на", "за", "из",
+  "для", "под", "над", "при", "без",
+  "не", "ни", "но", "же", "ли",
+]);
 
 /** Генерация SVG-наклейки с 3 буллетами (галочка + текст). */
 function buildBulletsSvg(bullets: string[]): string {
@@ -75,7 +109,7 @@ function buildBulletsSvg(bullets: string[]): string {
       const textNodes = lines
         .map(
           (line, li) =>
-            `<text x="100" y="${y + 14 + li * 44}" class="bullet" font-family="${FONT_STACK}" text-anchor="start">${line}</text>`,
+            `<text x="${BULLET_TEXT_X}" y="${y + 12 + li * BULLET_LINE_HEIGHT}" class="bullet" font-family="${FONT_STACK}" text-anchor="start">${line}</text>`,
         )
         .join("");
       return `
@@ -94,7 +128,7 @@ function buildBulletsSvg(bullets: string[]): string {
     .brand { font-weight: 800; font-size: 44px; fill: #2B2B2B; }
     .brand-accent { fill: #C65D3B; }
     .tagline { font-weight: 600; font-size: 18px; fill: #6B5E50; letter-spacing: 1px; }
-    .bullet { font-weight: 700; font-size: 32px; fill: #2B2B2B; }
+    .bullet { font-weight: 700; font-size: ${BULLET_FONT_SIZE}px; fill: #2B2B2B; }
   </style>
   <text x="0" y="60" class="brand" font-family="${FONT_STACK}" text-anchor="start">Хочу<tspan class="brand-accent">_То</tspan></text>
   <text x="0" y="92" class="tagline" font-family="${FONT_STACK}" text-anchor="start">МАРКЕТПЛЕЙС АРЕНДЫ</text>
