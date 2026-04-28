@@ -129,7 +129,9 @@ async function generateOpenAi(input: GenerateInput): Promise<string> {
 // ─── AMVERA ────────────────────────────────────────────────────────────────
 
 async function generateAmvera(input: GenerateInput): Promise<string> {
-  const token = process.env.AMVERA_API_TOKEN;
+  // Stage 30F: .trim() — страховка от хвостового \n или пробела при копипасте
+  // ключа в панель Amvera (одна из самых частых причин ложного 401/400).
+  const token = process.env.AMVERA_API_TOKEN?.trim();
   if (!token) throw new Error("AMVERA_API_TOKEN is missing");
 
   const ctrl = new AbortController();
@@ -183,7 +185,9 @@ async function generateAmvera(input: GenerateInput): Promise<string> {
 // ─── GEMINI ────────────────────────────────────────────────────────────────
 
 async function generateGemini(input: GenerateInput): Promise<string> {
-  const apiKey = process.env.GEMINI_API_KEY;
+  // Stage 30F: .trim() для защиты от \n/пробелов при копипасте ключа
+  // (типичная причина 400 "API key not valid" от Google).
+  const apiKey = process.env.GEMINI_API_KEY?.trim();
   if (!apiKey) throw new Error("GEMINI_API_KEY is missing");
 
   const ctrl = new AbortController();
@@ -521,7 +525,8 @@ async function bulletsAmvera(
   title: string,
   category?: string | null,
 ): Promise<string[]> {
-  const token = process.env.AMVERA_API_TOKEN;
+  // Stage 30F: trim — защита от хвостового \n/пробела в env (см. generateAmvera).
+  const token = process.env.AMVERA_API_TOKEN?.trim();
   if (!token) throw new Error("AMVERA_API_TOKEN is missing");
 
   const ctrl = new AbortController();
@@ -586,7 +591,8 @@ async function bulletsGemini(
   title: string,
   category?: string | null,
 ): Promise<string[]> {
-  const apiKey = process.env.GEMINI_API_KEY;
+  // Stage 30F: trim — защита от хвостового \n/пробела в env (см. generateGemini).
+  const apiKey = process.env.GEMINI_API_KEY?.trim();
   if (!apiKey) throw new Error("GEMINI_API_KEY is missing");
 
   const STRICT_GEMINI_INFOGRAPHIC_PROMPT = [
