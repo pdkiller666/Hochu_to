@@ -37,19 +37,11 @@ const MOCK_DELAY_MS = 1500;
 const OPENAI_TIMEOUT_MS = 20_000;
 const AMVERA_TIMEOUT_MS = 25_000;
 const GEMINI_TIMEOUT_MS = 25_000;
-// Stage 30J (29.04.2026): graceful Pro→Flash fallback для устойчивости.
-// Сначала шлём на Pro (премиальное качество русского, лучшая модель для описаний и
-// маркетингового копирайтинга). При 429 (rate limit) / 503 (service unavailable)
-// — silent retry на Flash без поднятия исключения. Если упали оба — поднимаем
-// throw → срабатывает smart-mock в верхнем уровне.
-//
-// ⚠️ ИСТОРИЧЕСКАЯ СПРАВКА (Stage 30G, 28.04.2026): Google ранее уже выпиливал
-// алиас "gemini-1.5-flash" из v1beta endpoint, прилетал 404. Если на проде после
-// деплоя 30J Pro→Flash тоже даст 404 — вернуть Flash на "gemini-flash-latest"
-// (см. соответствующий блок в replit.md). 404 НЕ покрывается текущим fallback'ом
-// (только 429/503), такие запросы сразу провалятся в smart-mock.
-const GEMINI_PRO_MODEL = "gemini-2.5-flash";
-const GEMINI_FLASH_MODEL = "gemini-2.5-flash";
+// Stage 30J-revert (29.04.2026): откатили сложную Pro→Flash fallback-логику.
+// Используем один прямой fetch к Generative Language API, как в исходной
+// рабочей версии. Если модель/ключ дают ошибку — обычный throw, наверху ловит
+// smart-mock в generateListingDescription / generateInfographicBullets.
+const GEMINI_MODEL = "gemini-1.5-flash";
 
 // Stage 30H (28.04.2026): пивот Amvera со старого /models/llama (deprecated, давал
 // "empty response" на проде) на /models/deepseek с моделью deepseek-V3.
@@ -244,89 +236,6 @@ async function generateAmvera(input: GenerateInput): Promise<string> {
 
 // ─── GEMINI ────────────────────────────────────────────────────────────────
 
-/**
- * Stage 30J: общий низкоуровневый POST к Generative Language API.
- * Хелпер вынесен, чтобы не дублировать логику URL/заголовков/тела между
- * generateGemini и bulletsGemini, и чтобы Pro→Flash fallback был одинаковый.
- */
-async function geminiCall(
-  apiKey: string,
-  model: string,
-  promptText: string,
-  generationConfig: Record<string, unknown>,
-  signal: AbortSignal,
-): Promise<Response> {
-  // Stage 30D: ключ передаём в query (?key=...) — основной формат Google,
-  // меньше шансов, что промежуточные прокси (Amvera/Kong) срежут заголовок.
-  return fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: promptText }] }],
-        generationConfig,
-      }),
-      signal,
-    },
-  );
-}
-
-/**
- * Stage 30J: graceful Pro→Flash fallback. Возвращает уже распарсенный JSON ответа.
- *
- * Алгоритм:
- *   1. POST на GEMINI_PRO_MODEL.
- *   2. Если ответ 429 (rate limit) или 503 (service unavailable) — silent retry
- *      на GEMINI_FLASH_MODEL (без поднятия исключения; пользователь не должен
- *      видеть «заглушку» только потому что у Pro кончилась квота).
- *   3. На любой другой HTTP-ошибке (или ошибке Flash) — `throw`, который наверху
- *      ловит smart-mock и возвращает пользователю шаблонный текст с пометкой fallback.
- *
- * `context` нужен только для информативного логирования — например
- * `"Gemini/description"` или `"Gemini/bullets"`.
- */
-async function geminiCallWithFallback(
-  apiKey: string,
-  promptText: string,
-  generationConfig: Record<string, unknown>,
-  signal: AbortSignal,
-  context: string,
-): Promise<any> {
-  let res = await geminiCall(
-    apiKey,
-    GEMINI_PRO_MODEL,
-    promptText,
-    generationConfig,
-    signal,
-  );
-
-  if (!res.ok && (res.status === 429 || res.status === 503)) {
-    console.warn(
-      `[AI Service Warn][${context}]: Pro returned ${res.status}, falling back to Flash`,
-    );
-    res = await geminiCall(
-      apiKey,
-      GEMINI_FLASH_MODEL,
-      promptText,
-      generationConfig,
-      signal,
-    );
-  }
-
-  if (!res.ok) {
-    const fullText = await res.text().catch(() => "");
-    console.error(
-      `[AI Service Error][${context}]: Response Status:`,
-      res.status,
-      "Text:",
-      fullText,
-    );
-    throw new Error(`Gemini HTTP ${res.status}: ${fullText.slice(0, 200)}`);
-  }
-  return res.json();
-}
-
 async function generateGemini(input: GenerateInput): Promise<string> {
   // Stage 30F: .trim() для защиты от \n/пробелов при копипасте ключа
   // (типичная причина 400 "API key not valid" от Google).
@@ -338,17 +247,33 @@ async function generateGemini(input: GenerateInput): Promise<string> {
 
   try {
     const promptText = `${SYSTEM_PROMPT}\n\n${userPrompt(input)}`;
-    // Stage 30J UX: maxOutputTokens 800 → 2048 — на 800 токенах Gemini обрезал
-    // продающие описания на середине списка преимуществ (юзер видел half-baked
-    // текст в форме). 2048 хватает на полное описание (≈ 1500-1700 русских
-    // символов с эмодзи), Gemini сам остановится по END_OF_TEXT раньше.
-    const data = await geminiCallWithFallback(
-      apiKey,
-      promptText,
-      { temperature: 0.8, maxOutputTokens: 2048 },
-      ctrl.signal,
-      "Gemini/description",
+    // Stage 30J UX: maxOutputTokens=2048 хватает на полное описание
+    // (~1500-1700 русских символов с эмодзи). На 800 токенах Gemini обрезал
+    // продающие описания на середине списка преимуществ.
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: promptText }] }],
+          generationConfig: { temperature: 0.8, maxOutputTokens: 2048 },
+        }),
+        signal: ctrl.signal,
+      },
     );
+
+    if (!res.ok) {
+      const fullText = await res.text().catch(() => "");
+      console.error(
+        "[AI Service Error][Gemini/description]: Response Status:",
+        res.status,
+        "Text:",
+        fullText,
+      );
+      throw new Error(`Gemini HTTP ${res.status}: ${fullText.slice(0, 200)}`);
+    }
+    const data: any = await res.json();
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
     if (typeof text !== "string" || !text.trim()) {
       throw new Error("Gemini: empty response");
@@ -711,7 +636,7 @@ async function bulletsAmvera(
 }
 
 /**
- * Stage 30J — Premium-копирайтер для инфографики (Pro→Flash fallback).
+ * Stage 30J — Premium-копирайтер для инфографики (простой прямой fetch).
  *
  * Картинка инфографики ломается, если буллет длиннее 32 символов (≈ 2 строки
  * по 16). Поэтому промпт жёстко требует:
@@ -750,15 +675,30 @@ async function bulletsGemini(
 
   try {
     const promptText = `${PREMIUM_GEMINI_INFOGRAPHIC_PROMPT}\n\n${infographicUserPrompt(title, category)}`;
-    // Stage 30J: тот же Pro→Flash helper, что и для описаний — единая стратегия
-    // деградации при перегрузке Pro у Google.
-    const data = await geminiCallWithFallback(
-      apiKey,
-      promptText,
-      { temperature: 0.6, maxOutputTokens: 200 },
-      ctrl.signal,
-      "Gemini/bullets",
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: promptText }] }],
+          generationConfig: { temperature: 0.6, maxOutputTokens: 200 },
+        }),
+        signal: ctrl.signal,
+      },
     );
+
+    if (!res.ok) {
+      const fullText = await res.text().catch(() => "");
+      console.error(
+        "[AI Service Error][Gemini/bullets]: Response Status:",
+        res.status,
+        "Text:",
+        fullText,
+      );
+      throw new Error(`Gemini HTTP ${res.status}: ${fullText.slice(0, 200)}`);
+    }
+    const data: any = await res.json();
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
     if (typeof text !== "string" || !text.trim()) {
       throw new Error("Gemini: empty response");
