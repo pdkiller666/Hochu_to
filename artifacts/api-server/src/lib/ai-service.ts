@@ -37,11 +37,18 @@ const MOCK_DELAY_MS = 1500;
 const OPENAI_TIMEOUT_MS = 20_000;
 const AMVERA_TIMEOUT_MS = 25_000;
 const GEMINI_TIMEOUT_MS = 25_000;
-// Stage 30J-revert (29.04.2026): откатили сложную Pro→Flash fallback-логику.
-// Используем один прямой fetch к Generative Language API, как в исходной
-// рабочей версии. Если модель/ключ дают ошибку — обычный throw, наверху ловит
-// smart-mock в generateListingDescription / generateInfographicBullets.
-const GEMINI_MODEL = "gemini-1.5-flash";
+// Stage 30J-revert2 (29.04.2026): возвращаем рабочую конфигурацию Stage 30G
+// (SHA d345122) — единственная константа GEMINI_MODEL = "gemini-flash-latest"
+// и простой прямой fetch к Generative Language API.
+//
+// ⚠️ КРИТИЧНО — НЕ менять обратно на "gemini-1.5-flash" / "gemini-1.5-pro"!
+// Google вычистил эти алиасы из v1beta endpoint, прод отдаёт 404 model not
+// found. Алиас "*-latest" — официальная страховка Google от ротации версий
+// (см. docs/AGENT_INSTRUCTIONS.md, журнал Stage 30G от 28.04.2026).
+//
+// Если модель/ключ дают ошибку — обычный throw, наверху ловит smart-mock
+// в generateListingDescription / generateInfographicBullets.
+const GEMINI_MODEL = "gemini-flash-latest";
 
 // Stage 30H (28.04.2026): пивот Amvera со старого /models/llama (deprecated, давал
 // "empty response" на проде) на /models/deepseek с моделью deepseek-V3.
