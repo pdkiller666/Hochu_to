@@ -48,8 +48,8 @@ const GEMINI_TIMEOUT_MS = 25_000;
 // деплоя 30J Pro→Flash тоже даст 404 — вернуть Flash на "gemini-flash-latest"
 // (см. соответствующий блок в replit.md). 404 НЕ покрывается текущим fallback'ом
 // (только 429/503), такие запросы сразу провалятся в smart-mock.
-const GEMINI_PRO_MODEL = "gemini-1.5-flash";
-const GEMINI_FLASH_MODEL = "gemini-1.5-flash";
+const GEMINI_PRO_MODEL = "gemini-2.5-flash";
+const GEMINI_FLASH_MODEL = "gemini-2.5-flash";
 
 // Stage 30H (28.04.2026): пивот Amvera со старого /models/llama (deprecated, давал
 // "empty response" на проде) на /models/deepseek с моделью deepseek-V3.
