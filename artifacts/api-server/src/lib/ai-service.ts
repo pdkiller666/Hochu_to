@@ -5,19 +5,23 @@
  * Активный провайдер хранится в platform_settings.activeAiProvider:
  *   - 'mock'   — формат-заглушка с эмодзи (без сети, без расходов; default);
  *   - 'openai' — ChatGPT через OPENAI_API_KEY;
- *   - 'amvera' — российский Amvera AI Inference (deepseek-v3 на /models/gpt) через AMVERA_API_TOKEN.
+ *   - 'amvera' — российский Amvera AI Inference (DeepSeek-V3 на /models/deepseek)
+ *                через AMVERA_API_TOKEN.
  *
  * При любой ошибке/отсутствии ключа провайдер мягко деградирует в 'mock',
  * чтобы UX не сломался. Все ошибки логируются Pino-логгером.
  *
  * ВАЖНО про Amvera (отличия от OpenAI):
- *   - Эндпоинт:           POST https://kong-proxy.yc.amvera.ru/api/v1/models/gpt
+ *   - Эндпоинт:           POST https://kong-proxy.yc.amvera.ru/api/v1/models/deepseek
  *                         (Stage 30H: /models/llama помечен deprecated в openapi
- *                         Amvera + давал empty response на проде; перешли на /gpt
- *                         с моделью deepseek-v3, доступной в админке Amvera).
+ *                         Amvera + давал empty response на проде; перешли на семейство
+ *                         /deepseek с моделью deepseek-V3 — см. официальную доку
+ *                         https://docs.amvera.ru/LLM/doc-inference-ru.html, эндпоинт
+ *                         /gpt предназначен ИСКЛЮЧИТЕЛЬНО для OpenAI gpt-4.1/gpt-5).
+ *   - Имя модели:         "deepseek-V3" (с заглавной V — case-sensitive!).
  *   - Заголовок auth:     X-Auth-Token: Bearer <token>   (НЕ Authorization)
- *   - Поле сообщения:     "text"                         (НЕ "content" — даже на
- *                         /gpt-эндпоинте; openapi.yaml: messages[].text)
+ *   - Поле сообщения:     "text"                         (НЕ "content" — общее правило
+ *                         для всех Amvera-роутов; см. example в документации)
  *   - Парсинг ответа:     data.choices[0].message.text   (НЕ .content)
  */
 import { logger } from "./logger.js";

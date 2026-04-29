@@ -1075,6 +1075,41 @@ Frontend (`/pools`, `/pools/create`, `/pools/:id`):
 2. Первый `POST /api/ai/generate-description` с провайдером Gemini — НЕ должен вернуть 404. Если вернётся 401/403/429 — это уже про сам ключ или квоту, не про URL/модель.
 3. Первый `POST /api/ai/generate-description` с провайдером Amvera — НЕ должен вернуть 401 `ALTERNATIVE_STATUS_FINAL`. Если вернётся — значит `X-Auth-Token: Bearer` где-то откатили на `Authorization`, искать регрессию.
 
+## Stage 30H — Amvera pivot: llama → DeepSeek-V3 (29.04.2026)
+
+После Stage 30D-G на проде Amvera упорно отдавал «empty response» с прежнего эндпоинта `/models/llama` + модели `llama8b`. По openapi-спеке Amvera (`https://lllm-swagger-amvera-services.amvera.io/openapi.yaml`) роут `/llama` помечен deprecated, а в админке Amvera в списке доступных моделей фигурируют DeepSeek/GPT/Qwen без LLaMA.
+
+**Диагностика по официальной документации** (`https://docs.amvera.ru/LLM/doc-inference-ru.html`):
+- Эндпоинт собирается как `POST /models/<inference_name>`, где `<inference_name>` — **семейство**, а не имя конкретной модели:
+  - `/llama` → `llama8b`, `llama70b`
+  - `/gpt` → `gpt-4.1`, `gpt-5` (только OpenAI-модели!)
+  - `/deepseek` → `deepseek-R1`, `deepseek-V3`
+  - `/qwen` → `qwen3_30b`, `qwen3_235b`
+- Имя модели **case-sensitive**: `deepseek-V3` с заглавной V (lowercase Amvera молча отдаёт пустой ответ).
+- Поле сообщений и ответа — `text`, не `content` (общее правило для всех Amvera-роутов, без исключений; в openapi.yaml: `messages[].text` и `choices[].message.text`).
+
+**Правки** (всё строго в `artifacts/api-server/src/lib/ai-service.ts` + UI-надписи на двух экранах):
+- Добавлены константы:
+  ```ts
+  const AMVERA_URL   = "https://kong-proxy.yc.amvera.ru/api/v1/models/deepseek";
+  const AMVERA_MODEL = "deepseek-V3";
+  ```
+- Обе функции (`generateAmvera` и `bulletsAmvera`) собирают URL и `model: AMVERA_MODEL` из этих констант — нет дублирования, при следующей ротации модели правка будет в одной строке.
+- Шапка файла переписана: указан правильный эндпоинт, явно подчёркнуто, что `/gpt` — НЕ для DeepSeek, и что имя модели case-sensitive.
+- Хедер `X-Auth-Token: Bearer ${token}`, `.trim()` на токен, поле `text`, парсинг `data.choices[0].message.text`, smart-mock fallback, verbose `console.error(await res.text())` перед `throw` — всё сохранено из Stage 30D-G.
+- `artifacts/hochu-to/src/pages/ListingForm.tsx` — dropdown: `🚀 LLaMA (Базовый)` → `🚀 DeepSeek-V3 (Amvera)`.
+- `artifacts/hochu-to/src/pages/AdminPage.tsx` — карточка провайдера в админке: заголовок `Amvera AI (DeepSeek-V3)` + описание про инференс через `/models/deepseek`.
+
+**Smoke (PASS на dev, 29.04.2026):**
+1. esbuild api-server bundle — без ошибок типов ✓
+2. Workflow `Start application` рестартует чисто, диагностический блок печатается ✓
+3. `GET /api/listings`, `GET /api/categories`, `GET /api/regions` → 200 ✓
+
+**Прод-проверка (на Amvera после деплоя):**
+1. `POST /api/ai/generate-description` с `provider: "amvera"` → должен вернуться нормальный текст с `actualProvider: "amvera"`, `fallback: false`. Если снова `empty response` — лог `[AI Service Error][Amvera/description]` теперь печатает body (Stage 30D), скорее всего модель называется в API чуть иначе (например, `DeepSeek-V3` всё-таки с заглавных D и V, или Amvera поменял name между админкой и API). Документация утверждает `deepseek-V3`.
+2. UI на форме создания и в админке должен показывать «DeepSeek-V3 (Amvera)», а не «LLaMA (Базовый)».
+3. Если Gemini (Stage 30G) на проде продолжит падать с РФ-IP — это уже Stage 30I (geo-block геофикс через прокси либо скрытие Gemini из dropdown'а с пометкой «работает на VPN-серверах»).
+
 ## What Is NOT Yet Implemented (roadmap)
 
 - ~~Видео в Цифровом Акте~~ — **закрыто Stage 22b-followup**: отдельный endpoint `POST /api/upload-video` (multer, 100МБ, mime allowlist mp4/webm/quicktime, расширение нормализуется по mime), фронт-компонент `DigitalActUpload.tsx` с переключателем «ссылка / загрузить файл» и превью `<video>`, в роуте `digital_acts` валидация `videoUrl` принимает либо `/uploads/<uuid>.(mp4|webm|mov|m4v)`, либо абсолютный http(s) URL — иначе 400 `invalid_video_url`. data:URI и path-traversal `/uploads/../etc/passwd` отбиваются.

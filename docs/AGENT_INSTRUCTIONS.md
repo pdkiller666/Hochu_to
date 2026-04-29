@@ -2225,3 +2225,76 @@ Google вычистил алиас `gemini-1.5-flash` из v1beta endpoint, на
 - Двойной хедер для Amvera (`X-Auth-Token` + `Authorization`) на случай миграции Kong на стандарт — было в исходном ТЗ, отложено сознательно.
 - Админ-эндпоинт `GET /api/admin/ai/health` (пинг обоих провайдеров без расхода токенов) — было в ТЗ Stage 30F, отложено.
 - Кеш генераций по `(title, category, provider)` для повторных вызовов — экономия токенов на UX «не понравилось, ещё раз».
+
+## Журнал — Stage 30H (Amvera pivot llama → DeepSeek-V3, 29.04.2026)
+
+**Контекст.** После выкатки Stage 30G на проде Amvera продолжал отдавать «empty response» с эндпоинта `/models/llama` + модели `llama8b`. По openapi-спеке Amvera (`https://lllm-swagger-amvera-services.amvera.io/openapi.yaml`) роут `/llama` помечен deprecated. В админке Amvera в списке доступных моделей фигурируют DeepSeek/GPT/Qwen — без LLaMA вовсе.
+
+### Источник истины — официальная документация
+`https://docs.amvera.ru/LLM/doc-inference-ru.html` (раздел «API → Доступные варианты инференса»):
+
+```
+/llama       → llama8b, llama70b           (deprecated, удалили из админки)
+/gpt         → gpt-4.1, gpt-5              (ТОЛЬКО OpenAI!)
+/deepseek    → deepseek-R1, deepseek-V3
+/qwen        → qwen3_30b, qwen3_235b
+```
+
+Эндпоинт собирается как `POST /models/<inference_name>`, где `<inference_name>` — **семейство**, не имя конкретной модели. Итого: для DeepSeek-V3 нужен именно `/models/deepseek` + `model: "deepseek-V3"` (case-sensitive, заглавная V — lowercase Amvera молча отдаёт пустой ответ).
+
+Поле сообщений и парсинга ответа — **`text`**, не `content`. Это общее правило для всех Amvera-роутов, без исключений (пример из доки):
+```json
+{
+  "model": "llama8b",
+  "messages": [{ "role": "user", "text": "Hi, how are you?" }]
+}
+```
+
+### Правки
+
+**1. `artifacts/api-server/src/lib/ai-service.ts`** — добавлены константы у топа файла:
+```ts
+const AMVERA_URL   = "https://kong-proxy.yc.amvera.ru/api/v1/models/deepseek";
+const AMVERA_MODEL = "deepseek-V3";
+```
+Обе функции (`generateAmvera` и `bulletsAmvera`) теперь шлют запрос через них вместо хардкода `/models/llama` + `model: "llama8b"`. Шапка файла переписана: указан правильный эндпоинт, явно подчёркнуто, что `/gpt` — НЕ для DeepSeek, и что имя модели case-sensitive.
+
+**Что сохранено из Stage 30D-G** (НЕ регрессировать):
+- Хедер `X-Auth-Token: Bearer ${token}` (НЕ `Authorization`)
+- `.trim()` на токен
+- Поле `text` в `messages[]`
+- Парсинг `data.choices[0].message.text`
+- Smart-mock fallback при любой ошибке
+- Verbose `console.error(await res.text())` перед `throw` (Stage 30D)
+
+**2. `artifacts/hochu-to/src/pages/ListingForm.tsx`** — dropdown (строка ~502):
+```diff
+- 🚀 LLaMA (Базовый)
++ 🚀 DeepSeek-V3 (Amvera)
+```
+
+**3. `artifacts/hochu-to/src/pages/AdminPage.tsx`** — карточка провайдера (строки ~3589-3596):
+```diff
+- title: "Amvera AI (llama8b)"
+- desc: "Российский инференс на отечественных серверах. Без геоблокировок..."
++ title: "Amvera AI (DeepSeek-V3)"
++ desc: "Российский инференс на отечественных серверах. DeepSeek-V3 через /models/gpt. Без геоблокировок..."
+```
+
+### Расхождение с исходным ТЗ от CTO
+CTO предположил «standard OpenAI schema: `{ messages: [{role, content}] }`». Это **неверно** для Amvera. По openapi.yaml роут `/gpt` всё равно использует поле `text`, а не `content`, и в запросе, и в ответе. Если бы я переключился на `content`, на проде получили бы ту же `Amvera: empty response` — Amvera проигнорировал бы `content` и оставил `text` пустым. Поэтому код парсинга `data?.choices?.[0]?.message?.text` оставлен как есть — он валиден и для DeepSeek-V3 эндпоинта.
+
+### Smoke (PASS на dev, 29.04.2026)
+1. esbuild api-server bundle — без ошибок типов ✓
+2. Workflow `Start application` рестартует чисто, диагностический блок печатается ✓
+3. `GET /api/listings`, `GET /api/categories`, `GET /api/regions` → 200 ✓
+
+### Прод-проверка (Amvera после деплоя)
+1. `POST /api/ai/generate-description` с `provider: "amvera"` → должен вернуться текст с `actualProvider: "amvera"`, `fallback: false`. Если снова `empty response` — лог `[AI Service Error][Amvera/description]` теперь печатает body ответа (наследие Stage 30D), смотреть, не отличается ли реальное API-имя модели от документального `deepseek-V3` (например, `DeepSeek-V3` или `deepseek-chat`).
+2. UI на форме создания и в админке должен показывать «DeepSeek-V3 (Amvera)», а не «LLaMA (Базовый)».
+3. Если Gemini после Stage 30G на проде продолжит падать с РФ-IP — это уже Stage 30I (geo-block через прокси либо скрыть Gemini из dropdown'а с пометкой «работает на VPN-серверах»).
+
+### Push
+```bash
+bash scripts/github-push.sh "feat(ai): pivot Amvera provider to DeepSeek-V3 on /models/deepseek endpoint"
+```
