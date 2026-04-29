@@ -1153,6 +1153,8 @@ Frontend (`/pools`, `/pools/create`, `/pools/:id`):
 - Stage 21b — ЮKassa для покупки контактов (single/pack10/unlimited30d)
 - Stage 21c — ЮKassa-холд (capture:false) для бронирований Premium с защитой
 - Trust Score (Этап 3)
+- **Stage 30I — Gemini geo-block с РФ-IP.** После Stage 30G модель и URL у Gemini корректные (`gemini-flash-latest` на v1beta), но Google Generative API режет запросы с российских IP (Amvera-серверы). Варианты решения: (а) пустить Gemini-запросы через VPN-proxy/реверс-прокси за пределами РФ; (б) скрыть Gemini из dropdown'а с пометкой «недоступен в РФ» и оставить только Amvera+OpenAI; (в) переключиться на YandexGPT через тот же Amvera-шлюз (`/models/qwen` или сторонний роут). Решение за CTO. До этого момента фронт показывает Gemini как опцию, но клик по «Сгенерировать» проваливается в smart-mock.
+- **Stage 30J (опц., если будет нужда) — кеш AI-генераций.** Ключ `(title, category, provider)` → результат на N часов. Экономия токенов на UX «не понравилось — давай ещё раз», особенно актуально на платных провайдерах (OpenAI, Amvera-paid).
 
 ## Future Scaling
 

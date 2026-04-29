@@ -2298,3 +2298,72 @@ CTO предположил «standard OpenAI schema: `{ messages: [{role, conten
 ```bash
 bash scripts/github-push.sh "feat(ai): pivot Amvera provider to DeepSeek-V3 on /models/deepseek endpoint"
 ```
+
+## Журнал — Stage 30H-fix2 (Amvera response shape: alternatives vs choices, 29.04.2026)
+
+**Контекст.** После выкатки Stage 30H на прод Amvera возвращал HTTP 200, но наш парсер всё равно падал в `Amvera: empty response` → `falling back to mock`. В деплой-логе Amvera диагностика показала, что и токен, и URL, и модель — корректные:
+```
+GEMINI_KEY exists: true length: 39
+AMVERA_TOKEN exists: true length: 1318
+```
+То есть проблема была не в авторизации и не в URL — а в том, ЧТО мы извлекаем из тела ответа.
+
+### Корень проблемы
+С самого Stage 30A парсили чистый OpenAI-формат:
+```ts
+data?.choices?.[0]?.message?.text   // ← такого поля у Amvera в общем случае нет!
+```
+А в реальности у Amvera формат ответа **зависит от эндпоинта** (источник истины — `https://lllm-swagger-amvera-services.amvera.io/openapi.yaml`):
+
+| Эндпоинт | Поле в ответе |
+|---|---|
+| `/models/llama` (deprecated) | `alternatives[0].message.text` (Yandex/Amvera-формат) |
+| `/models/gpt` | `choices[0].message.text` (OpenAI Chat Completions) |
+| `/models/deepseek` | в openapi не описан, эмпирически `alternatives` |
+| `/models/qwen` | в openapi не описан, эмпирически `alternatives` |
+
+То есть OpenAI-схема есть **только** на `/gpt`. На остальных трёх роутах — нативный Amvera-формат с `alternatives`. Вся история Stage 30A-G работала бы на `/gpt`, но нам нужны были именно DeepSeek/LLaMA — и парсер всегда возвращал undefined, поэтому всегда падал в smart-mock. Никто не видел этого, потому что прод-логи раньше были скрыты, а в Stage 30D-G сосредоточились на токенах и URL, не на парсинге.
+
+### Правки (`artifacts/api-server/src/lib/ai-service.ts`)
+
+**1. Парсинг с nullish-fallback по обоим полям** — в `generateAmvera` (строки ~217-219) и `bulletsAmvera` (строки ~615-617):
+```ts
+const text =
+  data?.alternatives?.[0]?.message?.text ??
+  data?.choices?.[0]?.message?.text;
+```
+Так код устойчив к переключению эндпоинта в любом направлении. Если CTO потом скажет «давай попробуем `/qwen` вместо `/deepseek`» — фикс не нужен. Если решит вернуться на `/models/gpt` — тоже работает.
+
+**2. Диагностика непредвиденного формата.** ВНУТРИ ветки empty response добавлен `console.error` со срезом сырого `data` (первые 500 символов JSON):
+```ts
+if (typeof text !== "string" || !text.trim()) {
+  console.error(
+    "[AI Service Error][Amvera/description]: Unexpected response shape, raw data slice:",
+    JSON.stringify(data).slice(0, 500),
+  );
+  throw new Error("Amvera: empty response");
+}
+```
+Это предохранитель: если Amvera в будущем сменит формат ещё раз (например, добавит обёртку `result.text`), мы сразу увидим в логах сырую структуру, а не будем гадать.
+
+**3. Шапочный комментарий файла** обновлён: явно перечислены оба формата (alternatives vs choices) с маппингом по эндпоинтам.
+
+### Чему это нас учит (НЕ регрессировать)
+
+- **Никогда не доверять «стандартной OpenAI-схеме» применительно к Amvera.** OpenAI-совместимость есть только на одном их эндпоинте (`/gpt`), и то частичная (поле `text` вместо `content`). Для всех остальных — Yandex-формат с `alternatives`.
+- **При парсинге внешних AI-ответов всегда логировать сырое тело** в случае несоответствия ожидаемому формату. Один `console.error` с `JSON.stringify(data).slice(0, 500)` экономит итерацию деплой → багрепорт → деплой.
+- **При смене эндпоинта Amvera** (например, попробовать Qwen) — НЕ нужно менять парсинг, fallback покрывает всё семейство.
+
+### Smoke (PASS на dev, 29.04.2026)
+1. esbuild api-server bundle — без ошибок типов ✓
+2. Workflow `Start application` рестартует чисто, AI CONFIG diagnostics печатается ✓
+3. `GET /api/listings`, `/api/categories`, `/api/regions` → 200 ✓
+
+### Прод-проверка (Amvera после деплоя)
+- `POST /api/ai/generate-description` с `provider: "amvera"` → должен вернуться нормальный текст с `actualProvider: "amvera"`, `fallback: false`.
+- Если опять `empty response` (маловероятно) — теперь в логе будет строка `[AI Service Error][Amvera/description]: Unexpected response shape, raw data slice: {...}`, по ней сразу видно правильный путь.
+
+### Push
+```bash
+bash scripts/github-push.sh "fix(ai): parse Amvera response from both 'alternatives' and 'choices' (Yandex vs OpenAI shape)"
+```
