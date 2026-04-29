@@ -1110,6 +1110,39 @@ Frontend (`/pools`, `/pools/create`, `/pools/:id`):
 2. UI на форме создания и в админке должен показывать «DeepSeek-V3 (Amvera)», а не «LLaMA (Базовый)».
 3. Если Gemini (Stage 30G) на проде продолжит падать с РФ-IP — это уже Stage 30I (geo-block геофикс через прокси либо скрытие Gemini из dropdown'а с пометкой «работает на VPN-серверах»).
 
+## Stage 30H-fix2 — Amvera response shape (alternatives vs choices) (29.04.2026)
+
+После деплоя Stage 30H на проде Amvera возвращал HTTP 200, но наш парсер всё равно падал в `Amvera: empty response`. Причина — мы с самого Stage 30A парсили **OpenAI-формат** ответа (`data.choices[0].message.text`), а Amvera для большинства эндпоинтов отдаёт **Yandex/Amvera-формат** (`data.alternatives[0].message.text`).
+
+**Источник истины** — openapi.yaml (`https://lllm-swagger-amvera-services.amvera.io/openapi.yaml`):
+
+| Эндпоинт | Поле в ответе |
+|---|---|
+| `/models/llama` (deprecated) | `alternatives[0].message.text` |
+| `/models/gpt` | `choices[0].message.text` (имитация OpenAI) |
+| `/models/deepseek` | в спеке не описан, эмпирически `alternatives` |
+| `/models/qwen` | в спеке не описан, эмпирически `alternatives` |
+
+То есть OpenAI-схема есть **только** на `/gpt`, а на трёх других эндпоинтах — нативный Amvera-формат с `alternatives`.
+
+**Правки** (`artifacts/api-server/src/lib/ai-service.ts`):
+- В `generateAmvera` и `bulletsAmvera` парсинг заменён на nullish-fallback по обоим полям:
+  ```ts
+  const text =
+    data?.alternatives?.[0]?.message?.text ??
+    data?.choices?.[0]?.message?.text;
+  ```
+  Так код устойчив к переключению эндпоинта в любом направлении (если CTO когда-нибудь решит вернуться на `/models/gpt` или попробовать Qwen — фикс не нужен).
+- Добавлен диагностический `console.error("...Unexpected response shape, raw data slice:", JSON.stringify(data).slice(0, 500))` ВНУТРИ ветки empty response — чтобы при следующей мутации формата ответа сразу было видно сырую структуру в логах Amvera, а не гадать.
+- Шапочный комментарий файла переписан: явно перечислены оба формата с указанием, на каких эндпоинтах какой используется.
+
+**Smoke (PASS на dev, 29.04.2026):**
+- esbuild api-server bundle — без ошибок типов ✓
+- Workflow `Start application` рестартует чисто ✓
+
+**Прод-проверка:**
+- После деплоя `POST /api/ai/generate-description` с `provider: "amvera"` должен вернуться нормальный текст. Если опять `empty response` — теперь в логе будет строка `[AI Service Error][Amvera/description]: Unexpected response shape, raw data slice: {...}` со срезом сырого JSON-ответа. С этим уже можно прицельно фиксить путь.
+
 ## What Is NOT Yet Implemented (roadmap)
 
 - ~~Видео в Цифровом Акте~~ — **закрыто Stage 22b-followup**: отдельный endpoint `POST /api/upload-video` (multer, 100МБ, mime allowlist mp4/webm/quicktime, расширение нормализуется по mime), фронт-компонент `DigitalActUpload.tsx` с переключателем «ссылка / загрузить файл» и превью `<video>`, в роуте `digital_acts` валидация `videoUrl` принимает либо `/uploads/<uuid>.(mp4|webm|mov|m4v)`, либо абсолютный http(s) URL — иначе 400 `invalid_video_url`. data:URI и path-traversal `/uploads/../etc/passwd` отбиваются.

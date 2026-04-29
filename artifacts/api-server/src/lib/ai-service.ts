@@ -22,7 +22,13 @@
  *   - Заголовок auth:     X-Auth-Token: Bearer <token>   (НЕ Authorization)
  *   - Поле сообщения:     "text"                         (НЕ "content" — общее правило
  *                         для всех Amvera-роутов; см. example в документации)
- *   - Парсинг ответа:     data.choices[0].message.text   (НЕ .content)
+ *   - Парсинг ответа:     ВНИМАНИЕ — формат отличается между эндпоинтами!
+ *                         /llama|/deepseek|/qwen → data.alternatives[0].message.text
+ *                                                  (Yandex/Amvera-формат)
+ *                         /gpt                   → data.choices[0].message.text
+ *                                                  (OpenAI Chat Completions format)
+ *                         Stage 30H-fix2 парсит ОБА поля с fallback,
+ *                         см. подробности в generateAmvera/bulletsAmvera.
  */
 import { logger } from "./logger.js";
 import { getPlatformSettings } from "./platform-settings.js";
@@ -203,8 +209,22 @@ async function generateAmvera(input: GenerateInput): Promise<string> {
       throw new Error(`Amvera HTTP ${res.status}: ${fullText.slice(0, 200)}`);
     }
     const data: any = await res.json();
-    const text = data?.choices?.[0]?.message?.text;
+    // Stage 30H-fix2 (29.04.2026): Amvera использует РАЗНЫЕ поля ответа на разных
+    // эндпоинтах (см. openapi.yaml https://lllm-swagger-amvera-services.amvera.io/openapi.yaml):
+    //   /models/llama (deprecated) → data.alternatives[0].message.text  (Yandex/Amvera-формат)
+    //   /models/gpt                → data.choices[0].message.text       (OpenAI Chat Completions)
+    //   /models/deepseek           → не описан в openapi, эмпирически alternatives
+    //   /models/qwen               → аналогично, не описан
+    // Парсим оба поля — какое первое не пустое, то и берём. Если в будущем
+    // добавится третий формат — увидим в диагностике ниже.
+    const text =
+      data?.alternatives?.[0]?.message?.text ??
+      data?.choices?.[0]?.message?.text;
     if (typeof text !== "string" || !text.trim()) {
+      console.error(
+        "[AI Service Error][Amvera/description]: Unexpected response shape, raw data slice:",
+        JSON.stringify(data).slice(0, 500),
+      );
       throw new Error("Amvera: empty response");
     }
     return text.trim();
@@ -593,8 +613,16 @@ async function bulletsAmvera(
       throw new Error(`Amvera HTTP ${res.status}: ${fullText.slice(0, 200)}`);
     }
     const data: any = await res.json();
-    const text = data?.choices?.[0]?.message?.text;
+    // Stage 30H-fix2: см. подробный комментарий в generateAmvera про два формата
+    // ответа Amvera (alternatives на /llama|/deepseek vs choices на /gpt).
+    const text =
+      data?.alternatives?.[0]?.message?.text ??
+      data?.choices?.[0]?.message?.text;
     if (typeof text !== "string" || !text.trim()) {
+      console.error(
+        "[AI Service Error][Amvera/bullets]: Unexpected response shape, raw data slice:",
+        JSON.stringify(data).slice(0, 500),
+      );
       throw new Error("Amvera: empty response");
     }
     const bullets = parseBullets(text);
