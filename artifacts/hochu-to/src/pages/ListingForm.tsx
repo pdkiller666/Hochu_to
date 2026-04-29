@@ -4,7 +4,7 @@ import { useLocation, useRoute } from "wouter";
 import { useCreateListing, useUpdateListing, useGetListingById, useGetCategories, useGetRegions } from "@workspace/api-client-react";
 import { useAuthState, getAuthHeaders } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
-import { ChevronLeft, Loader2, ImagePlus, X, ShieldCheck, ShieldOff, AlertTriangle, Info, HandCoins, Link2, Check, Sparkles } from "lucide-react";
+import { ChevronLeft, ChevronDown, ChevronUp, Loader2, ImagePlus, X, ShieldCheck, ShieldOff, AlertTriangle, Info, HandCoins, Link2, Check, Sparkles, Maximize2, Minimize2 } from "lucide-react";
 import { Link } from "wouter";
 import { LocationPicker } from "@/components/ui/LocationPicker";
 import { CollapsibleMap } from "@/components/ui/CollapsibleMap";
@@ -116,6 +116,25 @@ export default function ListingForm() {
   // ─── Stage 30C: выбор AI-провайдера (общий для описания и инфографики) ───
   // Дефолт 'gemini' — премиальная модель с лучшим качеством русского.
   const [aiProvider, setAiProvider] = useState<"gemini" | "amvera">("gemini");
+
+  // ─── Stage 30J UX: сворачиваемые секции формы ───────────────────────────
+  // При редактировании владелец обычно правит точечно (например, цену) —
+  // удобнее, когда все секции свёрнуты по умолчанию и видно структуру целиком,
+  // а длинные блоки можно открыть выборочно. При создании всё открыто, чтобы
+  // не пропустить обязательные поля.
+  type SectionKey = "basic" | "price" | "photos";
+  const [openSections, setOpenSections] = useState<Record<SectionKey, boolean>>({
+    basic: !isEditing,
+    price: !isEditing,
+    photos: !isEditing,
+  });
+  const toggleSection = (k: SectionKey) =>
+    setOpenSections((s) => ({ ...s, [k]: !s[k] }));
+
+  // Stage 30J UX: разворачивание поля «Описание» — на мобильном дефолтная
+  // textarea слишком тесная для ИИ-текста; кнопка «Развернуть» поднимает
+  // высоту до полноэкранной.
+  const [descriptionExpanded, setDescriptionExpanded] = useState(false);
 
   const onInfographicClick = () => {
     if (!formData.title.trim()) {
@@ -406,7 +425,16 @@ export default function ListingForm() {
         <form onSubmit={handleSubmit} className="space-y-8 bg-white p-6 md:p-8 rounded-3xl border border-border shadow-sm">
 
           <div className="space-y-4">
-            <h3 className="text-xl font-bold">Основная информация</h3>
+            <button
+              type="button"
+              onClick={() => toggleSection("basic")}
+              className="flex items-center justify-between w-full text-left -mx-2 px-2 py-1 rounded-lg hover:bg-muted/40 transition-colors"
+              data-testid="section-toggle-basic"
+            >
+              <h3 className="text-xl font-bold">Основная информация</h3>
+              {openSections.basic ? <ChevronUp className="w-5 h-5 text-muted-foreground" /> : <ChevronDown className="w-5 h-5 text-muted-foreground" />}
+            </button>
+            {openSections.basic && (<>
             <div>
               <label className="block text-sm font-bold mb-2">Название</label>
               <input required type="text" className="input-field" placeholder="Например: Перфоратор Makita" value={formData.title} onChange={e => setFormData({ ...formData, title: e.target.value })} />
@@ -506,20 +534,46 @@ export default function ListingForm() {
                     provider={aiProvider}
                     onText={(text) => setFormData((d) => ({ ...d, description: text }))}
                   />
+                  <button
+                    type="button"
+                    onClick={() => setDescriptionExpanded(v => !v)}
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-white border border-border hover:border-primary hover:text-primary transition-colors"
+                    title={descriptionExpanded ? "Свернуть поле" : "Развернуть поле"}
+                    data-testid="button-toggle-description-expand"
+                  >
+                    {descriptionExpanded ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+                    {descriptionExpanded ? "Свернуть" : "Развернуть"}
+                  </button>
                 </div>
               </div>
               <p className="text-xs text-muted-foreground mb-2">
                 Модель ИИ применяется и к генерации описания, и к буллетам инфографики.
               </p>
-              <textarea required className="input-field min-h-[120px] resize-y" placeholder="Опишите состояние, комплектацию, условия возврата..." value={formData.description} onChange={e => setFormData({ ...formData, description: e.target.value })}></textarea>
+              <textarea
+                required
+                className={`input-field resize-y w-full ${descriptionExpanded ? "min-h-[480px] md:min-h-[600px]" : "min-h-[180px] md:min-h-[220px]"}`}
+                placeholder="Опишите состояние, комплектацию, условия возврата..."
+                value={formData.description}
+                onChange={e => setFormData({ ...formData, description: e.target.value })}
+              />
               <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
                 Сгенерированное ИИ описание носит рекомендательный характер. Платформа не несёт ответственности за его точность и полноту; Владелец вещи обязан самостоятельно проверить и при необходимости скорректировать текст перед публикацией.
               </p>
             </div>
+            </>)}
           </div>
 
           <div className="space-y-4 pt-6 border-t border-border">
-            <h3 className="text-xl font-bold">Цена и условия</h3>
+            <button
+              type="button"
+              onClick={() => toggleSection("price")}
+              className="flex items-center justify-between w-full text-left -mx-2 px-2 py-1 rounded-lg hover:bg-muted/40 transition-colors"
+              data-testid="section-toggle-price"
+            >
+              <h3 className="text-xl font-bold">Цена и условия</h3>
+              {openSections.price ? <ChevronUp className="w-5 h-5 text-muted-foreground" /> : <ChevronDown className="w-5 h-5 text-muted-foreground" />}
+            </button>
+            {openSections.price && (<>
 
             {/* ─── Цена за сутки ─────────────────────────────────────────── */}
             <div>
@@ -832,14 +886,24 @@ export default function ListingForm() {
                 )}
               </div>
             )}
+            </>)}
           </div>
 
           <div className="space-y-4 pt-6 border-t border-border">
-            <div className="flex items-start justify-between gap-3 flex-wrap">
+            <button
+              type="button"
+              onClick={() => toggleSection("photos")}
+              className="flex items-center justify-between w-full text-left -mx-2 px-2 py-1 rounded-lg hover:bg-muted/40 transition-colors"
+              data-testid="section-toggle-photos"
+            >
               <div>
-                <h3 className="text-xl font-bold">Фотографии</h3>
-                <p className="text-sm text-muted-foreground mt-0.5">До 10 фото — с устройства или по ссылке</p>
+                <h3 className="text-xl font-bold text-left">Фотографии</h3>
+                <p className="text-sm text-muted-foreground mt-0.5 text-left">До 10 фото — с устройства или по ссылке</p>
               </div>
+              {openSections.photos ? <ChevronUp className="w-5 h-5 text-muted-foreground" /> : <ChevronDown className="w-5 h-5 text-muted-foreground" />}
+            </button>
+            {openSections.photos && (<>
+            <div className="flex items-start justify-end gap-3 flex-wrap">
               <div className="flex items-center gap-2 flex-wrap">
                 <button
                   type="button"
@@ -972,6 +1036,7 @@ export default function ListingForm() {
                 )}
               </div>
             )}
+            </>)}
           </div>
 
           <div className="pt-6 border-t border-border flex items-center justify-between">

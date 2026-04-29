@@ -1110,6 +1110,36 @@ Frontend (`/pools`, `/pools/create`, `/pools/:id`):
 2. UI на форме создания и в админке должен показывать «DeepSeek-V3 (Amvera)», а не «LLaMA (Базовый)».
 3. Если Gemini (Stage 30G) на проде продолжит падать с РФ-IP — это уже Stage 30I (geo-block геофикс через прокси либо скрытие Gemini из dropdown'а с пометкой «работает на VPN-серверах»).
 
+## Stage 30J — Gemini Pro→Flash fallback + UX form polish (29.04.2026)
+
+Делится на две ортогональные части. Backend трогает только `artifacts/api-server/src/lib/ai-service.ts`, frontend — только `artifacts/hochu-to/src/pages/ListingForm.tsx`. Amvera-ветка (`generateAmvera`/`bulletsAmvera`/AMVERA_URL/AMVERA_MODEL) **не трогалась** — все правки Stage 30H/30H-fix2/30K сохранены.
+
+**A. Backend — премиум-Gemini c graceful деградацией:**
+- Удалён общий `GEMINI_MODEL`, заведены два константы: `GEMINI_PRO_MODEL = "gemini-1.5-pro-latest"` (основная, премиум-качество) и `GEMINI_FLASH_MODEL = "gemini-1.5-flash"` (fallback при перегрузке Pro).
+- Вынесены два хелпера: `geminiCall(apiKey, model, prompt, generationConfig, signal)` — сырой POST на v1beta `:generateContent?key=…`, и `geminiCallWithFallback(apiKey, prompt, generationConfig, signal, context)` — пробует Pro, при 429/503 silent retry на Flash, при любой другой ошибке throw (наверху ловит smart-mock).
+- `generateGemini` теперь использует `geminiCallWithFallback`. **Важно:** `maxOutputTokens` поднят с `800` → `2048`. Старое значение обрезало описание на середине списка преимуществ — пользователь жаловался, что Gemini-текст «недоделанный». 2048 хватает на полное описание (~1500-1700 русских символов с эмодзи).
+- `bulletsGemini` тоже использует `geminiCallWithFallback`, но с обновлённым промптом по ТЗ: английская инструкция «top-tier marketing copywriter, exactly 3 selling points, max 3-5 words, 1 emoji at start, return ONLY valid JSON array of strings, strings in Russian», + пример. Парсер с тройным fallback'ом: (1) `JSON.parse` после снятия `\`\`\`json…\`\`\`` обёртки, (2) pipe-формат (наследие 30C), (3) построчный `parseBullets`. Жёсткая страховка вёрстки `≤ 32 символа/буллет` (режем по слову) сохранена — иначе SVG инфографики ломается.
+- **Внимание для прод-Amvera:** наш fallback покрывает только 429/503. Если Google вернёт 403 «country not supported» (Stage 30I — Gemini до сих пор режется на РФ-IP), оба запроса упадут до smart-mock. Это допустимое поведение, поскольку Stage 30I в roadmap'е и решается отдельно (VPN-proxy / скрытие Gemini из dropdown).
+
+**B. Frontend — сворачиваемые секции формы + расширяемое поле «Описание»:**
+- 3 заголовка (`Основная информация`, `Цена и условия`, `Фотографии`) превращены в кликабельные кнопки `<button>` с иконкой `ChevronUp/ChevronDown` справа. State: `openSections: Record<"basic"|"price"|"photos", boolean>`.
+- **Дефолт зависит от режима:** при создании (`!isEditing`) все секции открыты — чтобы пользователь не пропустил обязательные поля. При редактировании (`isEditing`) — все секции свёрнуты по умолчанию, чтобы владелец видел структуру целиком и точечно открывал нужное (типичный сценарий — поправить только цену).
+- Test-id'ы: `section-toggle-basic`, `section-toggle-price`, `section-toggle-photos`, `button-toggle-description-expand`.
+- Поле «Описание»: дефолтная высота поднята с `min-h-[120px]` → `min-h-[180px] md:min-h-[220px]` (на мобильном 120px было слишком тесно для AI-текста). Рядом с кнопкой генерации — новая кнопка «Развернуть»/«Свернуть» (Maximize2/Minimize2), которая раздувает textarea до `min-h-[480px] md:min-h-[600px]`. Состояние локальное (`descriptionExpanded`), сбрасывается при размонтировании формы.
+
+**Smoke-проверка:**
+- esbuild api-server bundle — без ошибок ✓
+- vite production-build фронта (`PORT=5000 BASE_PATH=/ pnpm --filter @workspace/hochu-to build`) — `✓ built in 18.03s`, JSX валиден ✓
+- HMR на `/dashboard/listings/new` после правок — 6 итераций без ошибок ✓
+- Доступ к `/dashboard/listings/new` без логина — корректный редирект на `/auth` (страница защищена) ✓
+
+**Прод-проверка после деплоя:**
+1. Открыть форму создания — увидеть 3 свёрнутые шапки секций (если в режиме редактирования) или развёрнутые (если в режиме создания).
+2. На клик по шапке — раскрытие/сворачивание плавное, ChevronUp ↔ ChevronDown.
+3. Кнопка «Развернуть» рядом с «Сгенерировать» — textarea вырастает в ~3 раза.
+4. Сгенерировать описание через Gemini Pro — должен вернуться полный текст без обрыва на середине. В логе при перегрузке `[AI Service Warn][Gemini/description]: Pro returned 429, falling back to Flash`.
+5. Сгенерировать инфографику через Gemini — буллеты приходят как JSON-массив `["⚡ …","🧰 …","🏗 …"]`, по 3-5 слов, с эмодзи.
+
 ## Stage 30H-fix2 — Amvera response shape (alternatives vs choices) (29.04.2026)
 
 После деплоя Stage 30H на проде Amvera возвращал HTTP 200, но наш парсер всё равно падал в `Amvera: empty response`. Причина — мы с самого Stage 30A парсили **OpenAI-формат** ответа (`data.choices[0].message.text`), а Amvera для большинства эндпоинтов отдаёт **Yandex/Amvera-формат** (`data.alternatives[0].message.text`).
@@ -1154,7 +1184,7 @@ Frontend (`/pools`, `/pools/create`, `/pools/:id`):
 - Stage 21c — ЮKassa-холд (capture:false) для бронирований Premium с защитой
 - Trust Score (Этап 3)
 - **Stage 30I — Gemini geo-block с РФ-IP.** После Stage 30G модель и URL у Gemini корректные (`gemini-flash-latest` на v1beta), но Google Generative API режет запросы с российских IP (Amvera-серверы). Варианты решения: (а) пустить Gemini-запросы через VPN-proxy/реверс-прокси за пределами РФ; (б) скрыть Gemini из dropdown'а с пометкой «недоступен в РФ» и оставить только Amvera+OpenAI; (в) переключиться на YandexGPT через тот же Amvera-шлюз (`/models/qwen` или сторонний роут). Решение за CTO. До этого момента фронт показывает Gemini как опцию, но клик по «Сгенерировать» проваливается в smart-mock.
-- **Stage 30J (опц., если будет нужда) — кеш AI-генераций.** Ключ `(title, category, provider)` → результат на N часов. Экономия токенов на UX «не понравилось — давай ещё раз», особенно актуально на платных провайдерах (OpenAI, Amvera-paid).
+- **Stage 30L (опц., если будет нужда) — кеш AI-генераций.** Ключ `(title, category, provider)` → результат на N часов. Экономия токенов на UX «не понравилось — давай ещё раз», особенно актуально на платных провайдерах (OpenAI, Amvera-paid).
 
 ## Future Scaling
 
