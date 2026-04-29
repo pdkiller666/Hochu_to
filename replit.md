@@ -1140,6 +1140,31 @@ Frontend (`/pools`, `/pools/create`, `/pools/:id`):
 4. Сгенерировать описание через Gemini Pro — должен вернуться полный текст без обрыва на середине. В логе при перегрузке `[AI Service Warn][Gemini/description]: Pro returned 429, falling back to Flash`.
 5. Сгенерировать инфографику через Gemini — буллеты приходят как JSON-массив `["⚡ …","🧰 …","🏗 …"]`, по 3-5 слов, с эмодзи.
 
+## Stage 30J-revert2 — откат Pro→Flash, возврат к Stage 30G конфигу (29.04.2026, ЗАКРЫТО)
+
+**Контекст.** После деплоя Stage 30J на прод Gemini выдавал 404: эксперимент с `gemini-1.5-pro-latest` → `gemini-1.5-flash` через хелпер `geminiCallWithFallback` сломал работающую конфигурацию Stage 30G. Три попытки точечного хотфикса (`774abae` поменял PRO на `gemini-1.5-pro`, `896072d` оба на `gemini-1.5-flash`, `3dffd57` оба на `gemini-2.5-flash`) — каждая давала 404 от Google с разной причиной. CTO попросил откатить всю архитектуру назад к простому прямому fetch.
+
+**Корень проблемы.** Был не в обёртке `geminiCallWithFallback` (она ничего не трансформировала, просто делегировала вызов), а в том, что в Stage 30J я взял имена моделей `gemini-1.5-pro-latest` / `gemini-1.5-flash` без проверки против журнала Stage 30G. А там чёрным по белому: Google вычистил алиас `gemini-1.5-flash` из v1beta endpoint ещё 28.04, и единственное рабочее имя — `gemini-flash-latest` (`*-latest` — официальная страховка Google от ротации версий). При первом откате я опять буквально взял `gemini-1.5-flash` из текста задачи и снова получил 404.
+
+**Финальная конфигурация в `artifacts/api-server/src/lib/ai-service.ts`:**
+- Одна константа `const GEMINI_MODEL = "gemini-flash-latest"` с жирным `⚠️ КРИТИЧНО`-комментарием со ссылкой на Stage 30G — чтобы никто (включая будущего меня) опять не поставил `gemini-1.5-*`.
+- Удалены `GEMINI_PRO_MODEL`, `GEMINI_FLASH_MODEL`, `geminiCall`, `geminiCallWithFallback`.
+- `generateGemini` и `bulletsGemini` — простой прямой `fetch` к `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=…`. При ошибке — обычный `throw`, наверху ловит smart-mock.
+- Премиум-промпт `PREMIUM_GEMINI_INFOGRAPHIC_PROMPT` сохранён, тройной парсер JSON→pipe→parseBullets и страховка `≤ 32 символа/буллет` сохранены — это ортогональная UX-логика, к проблеме модели отношения не имела.
+- Amvera-ветка (`generateAmvera`/`bulletsAmvera`/AMVERA_URL/AMVERA_MODEL), OpenAI, mock, router, frontend — **НЕ тронуты**.
+
+**Прод-проверка (PASS, 29.04.2026, подтверждено CTO).** Gemini и Amvera DeepSeek-V3 оба возвращают полные описания и буллеты с `actualProvider: "gemini"|"amvera"`, `fallback: false`. Smart-mock в логах не появляется.
+
+**Чему это нас учит (НЕ регрессировать):**
+- **При смене имени модели Gemini ВСЕГДА сверяться с журналом Stage 30G.** Имена `gemini-1.5-flash`/`gemini-1.5-pro`/`gemini-1.5-pro-latest` мертвы на v1beta. Алиас `*-latest` — единственный надёжный.
+- **Опровергнута гипотеза Stage 30I (geo-block).** Раньше думали, что Google режет запросы с РФ-IP Amvera; на самом деле прод-Amvera успешно ходит к `generativelanguage.googleapis.com` — вся симптоматика была на стороне неправильного имени модели, а не геофильтра. Stage 30I из roadmap'а вычеркнут.
+- **Не верить тексту задачи буквально, если он противоречит Stage-bible.** Если в задаче CTO просит вернуть `gemini-1.5-flash`, а в журнале Stage 30G стоит «вернуть на `gemini-flash-latest`» — приоритет у журнала. Перед правкой такого рода предупредить пользователя и сослаться на запись.
+
+### Push
+```bash
+bash scripts/github-push.sh "fix(ai): restore working gemini-flash-latest model (Stage 30G config)"
+```
+
 ## Stage 30H-fix2 — Amvera response shape (alternatives vs choices) (29.04.2026)
 
 После деплоя Stage 30H на проде Amvera возвращал HTTP 200, но наш парсер всё равно падал в `Amvera: empty response`. Причина — мы с самого Stage 30A парсили **OpenAI-формат** ответа (`data.choices[0].message.text`), а Amvera для большинства эндпоинтов отдаёт **Yandex/Amvera-формат** (`data.alternatives[0].message.text`).
@@ -1183,7 +1208,7 @@ Frontend (`/pools`, `/pools/create`, `/pools/:id`):
 - Stage 21b — ЮKassa для покупки контактов (single/pack10/unlimited30d)
 - Stage 21c — ЮKassa-холд (capture:false) для бронирований Premium с защитой
 - Trust Score (Этап 3)
-- **Stage 30I — Gemini geo-block с РФ-IP.** После Stage 30G модель и URL у Gemini корректные (`gemini-flash-latest` на v1beta), но Google Generative API режет запросы с российских IP (Amvera-серверы). Варианты решения: (а) пустить Gemini-запросы через VPN-proxy/реверс-прокси за пределами РФ; (б) скрыть Gemini из dropdown'а с пометкой «недоступен в РФ» и оставить только Amvera+OpenAI; (в) переключиться на YandexGPT через тот же Amvera-шлюз (`/models/qwen` или сторонний роут). Решение за CTO. До этого момента фронт показывает Gemini как опцию, но клик по «Сгенерировать» проваливается в smart-mock.
+- ~~**Stage 30I — Gemini geo-block с РФ-IP.**~~ **ВЫЧЕРКНУТО (Stage 30J-revert2, 29.04.2026).** Гипотеза опровергнута: Amvera-серверы успешно ходят к `generativelanguage.googleapis.com`, никакого geo-block нет. Вся симптоматика «Gemini не работает на проде» была вызвана исключительно неверным именем модели (`gemini-1.5-flash` мёртв на v1beta). После возврата к `gemini-flash-latest` Gemini работает с Amvera штатно — подтверждено CTO.
 - **Stage 30L (опц., если будет нужда) — кеш AI-генераций.** Ключ `(title, category, provider)` → результат на N часов. Экономия токенов на UX «не понравилось — давай ещё раз», особенно актуально на платных провайдерах (OpenAI, Amvera-paid).
 
 ## Future Scaling

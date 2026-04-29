@@ -2367,3 +2367,74 @@ if (typeof text !== "string" || !text.trim()) {
 ```bash
 bash scripts/github-push.sh "fix(ai): parse Amvera response from both 'alternatives' and 'choices' (Yandex vs OpenAI shape)"
 ```
+
+## Журнал — Stage 30J-revert2 (Gemini model name regression, ЗАКРЫТО, 29.04.2026)
+
+**Контекст.** Stage 30J ввёл двухконстантную схему `GEMINI_PRO_MODEL = "gemini-1.5-pro-latest"` + `GEMINI_FLASH_MODEL = "gemini-1.5-flash"` с обёрткой `geminiCallWithFallback` (Pro → Flash при 429/503). На прод-Amvera Gemini немедленно упал в 404 от Google. Три точечных хотфикса (PRO → `gemini-1.5-pro`, оба → `gemini-1.5-flash`, оба → `gemini-2.5-flash`) — каждый давал 404. CTO попросил откатить всю архитектуру обратно к простому прямому fetch.
+
+### Корень проблемы (важно для будущих агентов)
+
+**Не обёртка `geminiCallWithFallback` сломала прод** — она ничего не трансформировала, просто делегировала вызов в `geminiCall` с тем же URL/телом. Обёртку можно было оставить.
+
+**Реальная причина.** В Stage 30J имена моделей `gemini-1.5-pro-latest` / `gemini-1.5-flash` были взяты без проверки против журнала Stage 30G (см. эту же документацию выше). А там чёрным по белому: Google ещё 28.04 вычистил алиас `gemini-1.5-flash` из v1beta endpoint, единственное стабильное имя — `gemini-flash-latest` (`*-latest` — официальная страховка Google от ротации версий моделей).
+
+Хуже того — при первом откате (Stage 30J-revert) я опять буквально взял `gemini-1.5-flash` из текста CTO-задачи и снова получил 404. Спас только повторный grep по своему же AGENT_INSTRUCTIONS (Stage 30G), где уже было задокументировано правильное имя.
+
+### Финальные правки (`artifacts/api-server/src/lib/ai-service.ts`)
+
+**1. Одна константа с `*-latest` алиасом и жирным предостережением:**
+```ts
+// ⚠️ КРИТИЧНО — НЕ менять обратно на "gemini-1.5-flash" / "gemini-1.5-pro"!
+// Google вычистил эти алиасы из v1beta endpoint, прод отдаёт 404 model not
+// found. Алиас "*-latest" — официальная страховка Google от ротации версий
+// (см. docs/AGENT_INSTRUCTIONS.md, журнал Stage 30G от 28.04.2026).
+const GEMINI_MODEL = "gemini-flash-latest";
+```
+
+**2. Удалены `GEMINI_PRO_MODEL`, `GEMINI_FLASH_MODEL`, `geminiCall`, `geminiCallWithFallback`.** Никакого Pro→Flash retry больше нет.
+
+**3. `generateGemini` и `bulletsGemini` — простой прямой fetch:**
+```ts
+const res = await fetch(
+  `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
+  {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: promptText }] }],
+      generationConfig: { temperature: 0.8, maxOutputTokens: 2048 },
+    }),
+    signal: ctrl.signal,
+  },
+);
+```
+При ошибке — обычный `throw`, наверху ловит smart-mock в `generateListingDescription`/`generateInfographicBullets`.
+
+**4. Сохранено без изменений:**
+- Премиум-промпт `PREMIUM_GEMINI_INFOGRAPHIC_PROMPT` (английская инструкция, JSON-выход, русские строки) — это ортогональная UX-логика.
+- Тройной парсер JSON → pipe → `parseBullets` в `bulletsGemini`.
+- Страховка вёрстки `≤ 32 символа/буллет` (slice по слову).
+- Вся Amvera-ветка (`generateAmvera`/`bulletsAmvera`/`AMVERA_URL`/`AMVERA_MODEL`), OpenAI, mock, router, frontend.
+
+### Чему это нас учит (НЕ регрессировать)
+
+- **При смене имени модели Gemini ВСЕГДА сверяться с журналом Stage 30G.** Имена `gemini-1.5-flash`, `gemini-1.5-pro`, `gemini-1.5-pro-latest` мертвы на v1beta и возвращают 404. Алиас `*-latest` — единственный надёжный.
+- **Не верить тексту задачи CTO буквально, если он противоречит Stage-bible.** Если в задаче просят вернуть `gemini-1.5-flash`, а в журнале стоит «вернуть на `gemini-flash-latest`» — приоритет у журнала. Перед правкой сослаться на запись и спросить подтверждения.
+- **Опровергнута гипотеза Stage 30I (geo-block).** Раньше думали, что Google режет запросы с РФ-IP Amvera; на самом деле прод-Amvera штатно ходит к `generativelanguage.googleapis.com`. Вся симптоматика была на стороне неправильного имени модели. Stage 30I из roadmap'а вычеркнут.
+- **Не путать причину с симптомом.** Обёртки/фолбэки часто выглядят подозрительно («сложный код = бажный код»), но реальная регрессия может быть в другом месте — диффе строковой константы между двумя коммитами. Перед тем как откатывать архитектуру, сначала проверить именно те данные, которые улетают в API (URL, имя модели, имя поля).
+
+### Smoke (PASS на dev, 29.04.2026)
+1. esbuild api-server bundle — без ошибок типов ✓
+2. Workflow `Start application` рестартует чисто, диагностический блок печатается ✓
+3. `GET /api/listings`, `GET /api/categories`, `GET /api/regions` → 200 ✓
+4. В коде ровно одна константа `GEMINI_MODEL` (grep даёт 4 совпадения: 1 определение + 3 использования = generateGemini, bulletsGemini, и комментарий) ✓
+
+### Прод-проверка (PASS на Amvera, 29.04.2026, подтверждено CTO)
+- Gemini (`POST /api/ai/generate-description` с `provider: "gemini"`) → возвращает полный текст с `actualProvider: "gemini"`, `fallback: false`. ✓
+- Amvera DeepSeek-V3 (`provider: "amvera"`) → возвращает полный текст с `actualProvider: "amvera"`, `fallback: false`. ✓
+- Smart-mock в логах не появляется (нет `falling back to mock`). ✓
+
+### Push
+```bash
+bash scripts/github-push.sh "fix(ai): restore working gemini-flash-latest model (Stage 30G config)"
+```
