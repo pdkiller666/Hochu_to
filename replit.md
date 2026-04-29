@@ -511,19 +511,33 @@ DB поле `boosted_until` (timestamp). Сортировка `?sort=new` уже
 - **Stage 19c — Гибридная метрика «Хитов» + просмотры**: новая таблица `listing_views(listing_id, viewer_key, hour_bucket, created_at)` с UNIQUE-индексом по часу-бакету (защита от накрутки). `viewer_key` — `u:<userId>` для авторизованных, `ip:<X-Forwarded-For>` для гостей; INSERT с `onConflictDoNothing` при каждом GET `/api/listings/:id` (best-effort, не блокирует ответ). `sort=popular` теперь использует hit-score `bookingCount × 5 + reviewCount × 2 + favoritesCount + views_30d` (subquery), что закрывает «холодный старт» для свежих объявлений с просмотрами но без броней. `GET /api/listings/:id` теперь отдаёт все денорм-счётчики (`bookingCount/favoritesCount/avgRating/reviewCount`) + `views30d` — раньше эти поля отдавал только список `/api/listings`. E2E: 4 запроса с одного IP за час → views30d=1 (UNIQUE сработал), запрос с другого IP → +1.
 
 ### 🟡 В работе / частично
-- **Подписки владельцев** (Pro / Бизнес) — спроектированы, не реализованы
-- **Цифровой Акт check-in/check-out** — Stage 22a каркас готов: блокирующий check_in перед `active`, UI в Dashboard, видимость в админке. Доделать: видео-аплоад, GPS-pin на карте, цифровая подпись сторон.
-- **СБП/QR + загрузка чека + подтверждение админом** — `paymentMode` есть, потока нет
-- **ЮKassa / CloudPayments интеграция** — публичные ID настраиваются в админке, серверной интеграции нет
-- **Trust Score** — не начато
-- **Реальные банковские выплаты по claims/payout_requests** — пока mark-paid вручную админом (запись `paymentRef`); автомат через банковский API/ЮKassa Payouts не реализован
-- **Индексы для аналитики**: рекомендуется добавить `bookings(status, protection_enabled, payout_settled_at)`, `claims(status, paid_at)`, `claims(claimant_id, created_at)` — не критично на текущем объёме, но даст ощутимый эффект на проде.
-- **Admin-RBAC через middleware**: сейчас в каждом admin-хендлере ручной `await isAdmin(req.userId)`; стоит вынести в `requireAdmin` middleware.
+
+> 📌 **Stage 32 sync (29.04.2026):** блок очищен от закрытых пунктов. Цифровой Акт (видео/подпись/GPS) полностью закрыт Stage 22b + Stage 22b-followup. Trust Score V6 (формула + триггеры + audit) закрыт Stage 29. ЮKassa-сервер закрыт Stage 21a (для промо). Индексы и Admin-RBAC закрыты Stage 20a. См. секцию «🛑 Сознательно отложено» ниже для всего, что зависит от открытия ИП.
+
+- **Подписки владельцев** (Pro / Бизнес) — спроектированы, не реализованы.
+- **СБП/QR-потоки для бронирований** — `paymentMode` есть в `platform_settings`, чекаут-флоу с загрузкой чека и ручным подтверждением админом не собран (бета-режим обходит платежи целиком, см. Stage 21b/21a).
+- **Stage 27 followup** — WebSocket/SSE вместо polling для notifications/audit-trail; унификация `bookings`/`claims` через `audit_events`; гендерное склонение в нотификациях.
+- **Stage 28 followup** — замена нативного `confirm()` на `AlertDialog` в `BuyoutBlock`; явная кнопка «Отказаться» у participant'а с уведомлением инициатору; авто-cancel зависших buyout-запросов через cron.
+- **Stage 29 followup** — V7 (ежесуточный cron-пересчёт TrustScore через `lib/scheduler.ts`); V8 (публичный показ score на карточках/в каталоге — отложен до калибровки на 100+ сделках и 50+ владельцах).
+- **Stage 30B followup** — кеш инфографик по `(photoHash, bulletsHash)`, embedded Montserrat/Inter в SVG, шаблоны 1200×630 / 1080×1920, опц. watermark «Хочу_То».
+
+### 🛑 Сознательно отложено (Deferred by Design)
+
+> **Эти треки намеренно не реализуются** до открытия ИП и юридической готовности. Отсутствие кода — не баг и не дыра в roadmap; это архитектурное решение, зафиксированное в `docs/AGENT_INSTRUCTIONS.md § 11d` и в журналах Stage 17a/17b/21a/28.
+
+- **KYC по 152-ФЗ + 115-ФЗ** (паспорт / ОГРН / селфи через сайт) — отложен до открытия ИП и появления защищённого PII-хранилища с шифрованием. Текущая верификация = ручная: пользователь создаёт `support_ticket` с категорией `verification_request`, документы пересылает админу в переписке тикета. Хранение PII в нашей БД сознательно избегается. См. § 11d, пункт «Что НЕ входит в MVP».
+- **Stage 24 — Commercial Booking Holds** (двухэтапный платёж ЮKassa с `capture:false` для бронирований и пулов) — отложен до открытия ИП. Серверный клиент уже готов (`lib/yookassa.ts` поддерживает `capture:false`), схема готова (`pool_shares.payment_status='escrow_held'`, `pools.collection_method='platform_escrow'` в `co_sharing.ts`), но `routes/bookings.ts` и `routes/pools.ts` жёстко форсируют бесплатный p2p-СБП в бета-режиме. Активация = переключить `platform_settings.is_commercial_mode=true` после открытия ИП и вынести `// TODO: contact_pack / booking_protection` из `routes/webhooks.ts`.
+- **Stage 28 followup — Buyout Escrow** (холд в ЮKassa вместо СБП p2p при выкупе пула + авто-релиз при ликвидации) — зависит от Stage 24.
+- **Stage 21b — ЮKassa для покупки контактов** (single / pack10 / unlimited30d) — серверная инфраструктура (вебхук, REST-клиент) готова; подключение зависит от Stage 24.
+- **Автоматические выплаты по claims / payout_requests** через ЮKassa Payouts API — нужно ИП. Сейчас админ ставит mark-paid вручную (запись `paymentRef`), Stage 17a/17b закрыли только UI и DB-схему очереди.
+- **CloudPayments как второй платёжный шлюз** — поля в `platform_settings` (`cloudpayments_enabled`, `cloudpayments_public_id`) зарезервированы (Stage 20c-style задел), серверной интеграции нет до Stage 24.
 
 ### 🔴 Roadmap (не начато)
-- Партнёрские договоры с юрлицами (бейдж «Партнёр платформы», 5% комиссии)
-- Dokan/WooCommerce multivendor шлюз
-- API для бизнес-подписки
+
+- **Stage 33 — AI-Арбитражор (Vision Analysis)** — следующий research stage. Мультимодальный LLM-вердикт по спорам на основе цифровых актов: пары фото `check_in` vs `check_out` + EXIF/GPS + видео + текст претензии. Human-in-the-loop **обязателен**: LLM-вердикт = только рекомендация админу, автоматического списания из фонда защиты нет и не будет на этом stage. Перед стартом нужен design discovery с CTO по 5 открытым вопросам (см. журнал Stage 33 в `docs/AGENT_INSTRUCTIONS.md`).
+- Партнёрские договоры с юрлицами (бейдж «Партнёр платформы», 5% комиссии вместо 10%).
+- Dokan/WooCommerce multivendor шлюз.
+- API для бизнес-подписки.
 
 ## Stage 21a — Soft Launch Toggle (24.04.2026)
 
@@ -917,7 +931,54 @@ Frontend (`/pools`, `/pools/create`, `/pools/:id`):
 - Явная кнопка «Отказаться» у participant'а с уведомлением инициатору (сейчас отказ = молчаливый игнор + `cancel` инициатора).
 - Гендерное склонение в нотификациях.
 
+## Stage 29 — Trust Score Engine V6 (реализован в коде, ретро-журнал Stage 32, 29.04.2026)
+
+Реализация V6 «Trust Score helper» из раздела `docs/AGENT_INSTRUCTIONS.md § 11d`. До Stage 32 «Documentation Sync» функционал жил в коде без отдельной записи в журнал — этот пробел закрыт ретроспективно.
+
+**Файл:** `artifacts/api-server/src/lib/trust-score.ts` (~125 строк, экспорт `calculateAndUpdateTrustScore` и `recalculateTrustScoreForUsers`).
+
+**Формула (V1, 0..100), отличается от стартовой версии § 11d:**
+
+```
+base                     = 20
++ (avgRating / 5) * 30   — средний рейтинг отзывов о пользователе (как owner + как renter)
++ MIN(deals * 5, 30)     — опыт (число завершённых сделок, кап 30)
++ (isVerified ? 20 : 0)  — бейдж «Проверенный владелец» (Stage 19g)
+- claimsAtFault * 20     — подтверждённые претензии, где пользователь виноват
+─────────────────────────
+clamp(0, 100)
+```
+
+Отличается от первоначальной идеи § 11d тем, что (а) база 20 вместо 50, (б) рейтинг масштабируется пропорционально, а не по порогам 4.5/4.0, (в) убраны компоненты «возраст аккаунта» и «бан-история» (закрываются через нулевую активность).
+
+**Семантика «виновности»** (`claimsAtFault`): учитываются `claims.status IN ('approved','paid')`, где пользователь был стороной брони (`booking.owner_id = userId OR booking.renter_id = userId`), но НЕ получателем выплаты (`payout_to_user_id != userId AND payout_to_user_id IS NOT NULL`). То есть фонд закрыл ущерб контрагенту — значит ответственность за инцидент на этом пользователе. Pending/admin_review/rejected не учитываются.
+
+**Триггеры пересчёта** (post-commit, fire-and-forget через `void` — не валит основной ответ):
+- `routes/reviews.ts:137` — после создания каждого отзыва: `void calculateAndUpdateTrustScore(review.revieweeId, userId, "review_created:${review.id}")`.
+- `routes/admin.ts:16` — после административных действий (verify/unverify, ban, claim approve/mark-paid).
+- `backfill-trust-scores.ts` — одноразовый скрипт для разовой инициализации поля у всех существующих пользователей.
+
+**Audit-trail.** Каждое успешное обновление пишется в `audit_events` (`entityType='user'`, `eventType='trust_score_updated'`, payload содержит `previousScore` и `newScore`). При ошибке функция возвращает `null`, лог через pino — наверх ничего не бросает (защита: триггер из `reviews.ts` не должен сломать создание отзыва, если БД для audit временно недоступна).
+
+**Где видно:**
+- ✅ **Владельцу** — в собственном `Dashboard.tsx` (таб «Профиль»).
+- ✅ **Админу** — в `AdminPage.tsx`, карточке пользователя.
+- ✅ В API-ответах: `/api/auth/me`, `/api/users/:id`, `/api/listings`, `/api/listings/:id`, `/api/pools/:id` (поля `trustScore`, `trustScoreUpdatedAt`).
+- ❌ **Публично на карточках объявлений и в каталоге** — отложено до калибровки на 100+ завершённых сделках и 50+ владельцах. На малой выборке формула даёт «псевдо-точные» цифры с большим шумом (см. § 11d, пункт «Что НЕ делать сейчас»).
+
+**Что НЕ закрыто (Stage 29 followup):**
+- **V7** — ежесуточный cron-пересчёт через `lib/scheduler.ts` для всех владельцев с активными объявлениями (сейчас score освежается только по событиям review/admin).
+- **V8** — публичный UI: цветной маркер `87/100` на карточках объявлений, фильтр «TS ≥ 70» в каталоге, объяснялка «Что повысит ваш score» в Dashboard.
+- Сброс верификации (`unverify_user`) сейчас **не вызывает** пересчёт TrustScore автоматически: пользователь теряет +20 только когда придёт следующий триггер от review/claim. Если CTO решит, что это критично — добавить `void calculateAndUpdateTrustScore(...)` в обработчик `unverify_user` в `routes/admin.ts`.
+
 ## Stage 30A — Multi-Provider AI Gateway & Magic Description (27.04.2026)
+
+> 📌 **Stage 32 sync (29.04.2026):** описание ниже отражает первоначальную архитектуру Stage 30A. Актуальная конфигурация AI-провайдеров после Stage 30C-30J — см. соответствующие журналы:
+> - **Gemini:** модель `gemini-flash-latest` (Stage 30G, подтверждён Stage 30J-revert2; CTO подтвердил работу в проде 29.04.2026). НЕ менять обратно на `gemini-1.5-flash` / `gemini-1.5-pro` — они мертвы на v1beta endpoint и возвращают 404. Алиас `*-latest` — единственный надёжный.
+> - **Amvera DeepSeek:** URL `https://kong-proxy.yc.amvera.ru/api/v1/models/deepseek` (Stage 30H), модель `deepseek-V3` **case-sensitive** (заглавная V обязательна!), парсинг ответа через `data.alternatives[0].message.text` (Stage 30H-fix2, 29.04.2026). Старая шапка ниже указывает `data.choices[0].message.content` — это было корректно только для эндпоинта `/models/gpt`; для `/models/deepseek` и `/models/llama|qwen` Amvera возвращает `alternatives[]`, а не `choices[]`.
+> - **Заголовок Amvera:** `X-Auth-Token: Bearer <token>` (Stage 30E — НЕ `Authorization`, иначе 401 `ALTERNATIVE_STATUS_FINAL`).
+> - **Поле сообщений Amvera:** `text` (НЕ `content`, общее правило для всех Amvera-роутов).
+> - **Geo-block гипотеза (Stage 30I):** опровергнута Stage 30J-revert2. Прод-Amvera штатно ходит к `generativelanguage.googleapis.com`.
 
 Архитектура «AI Gateway»: единая точка входа для генерации продающих описаний объявлений с возможностью переключать провайдера из админки без перезагрузки сервера. Цель — не зависеть от одного вендора и иметь fallback на отечественный российский инференс (Amvera AI), чтобы избежать рисков геоблокировок при коммерческом запуске.
 
@@ -1200,16 +1261,38 @@ bash scripts/github-push.sh "fix(ai): restore working gemini-flash-latest model 
 
 ## What Is NOT Yet Implemented (roadmap)
 
-- ~~Видео в Цифровом Акте~~ — **закрыто Stage 22b-followup**: отдельный endpoint `POST /api/upload-video` (multer, 100МБ, mime allowlist mp4/webm/quicktime, расширение нормализуется по mime), фронт-компонент `DigitalActUpload.tsx` с переключателем «ссылка / загрузить файл» и превью `<video>`, в роуте `digital_acts` валидация `videoUrl` принимает либо `/uploads/<uuid>.(mp4|webm|mov|m4v)`, либо абсолютный http(s) URL — иначе 400 `invalid_video_url`. data:URI и path-traversal `/uploads/../etc/passwd` отбиваются.
-- GPS-pin на карте в админке (координаты есть в metadata, визуализации нет)
-- Цифровая подпись сторон (renterSignature/ownerSignature)
-- Поток оплаты через СБП/QR + загрузка чека + подтверждение админом
-- Реальные выплаты из Shield-фонда (сейчас только статус)
-- Stage 21b — ЮKassa для покупки контактов (single/pack10/unlimited30d)
-- Stage 21c — ЮKassa-холд (capture:false) для бронирований Premium с защитой
-- Trust Score (Этап 3)
-- ~~**Stage 30I — Gemini geo-block с РФ-IP.**~~ **ВЫЧЕРКНУТО (Stage 30J-revert2, 29.04.2026).** Гипотеза опровергнута: Amvera-серверы успешно ходят к `generativelanguage.googleapis.com`, никакого geo-block нет. Вся симптоматика «Gemini не работает на проде» была вызвана исключительно неверным именем модели (`gemini-1.5-flash` мёртв на v1beta). После возврата к `gemini-flash-latest` Gemini работает с Amvera штатно — подтверждено CTO.
-- **Stage 30L (опц., если будет нужда) — кеш AI-генераций.** Ключ `(title, category, provider)` → результат на N часов. Экономия токенов на UX «не понравилось — давай ещё раз», особенно актуально на платных провайдерах (OpenAI, Amvera-paid).
+> 📌 **Stage 32 sync (29.04.2026):** список вычищен от закрытых пунктов и расщеплён на 4 категории. Полный актуальный чеклист — в разделе **Project Checklist** выше (✅ / 🟡 / 🛑 / 🔴). Этот раздел теперь — навигация для исторических ссылок.
+
+### Сознательно отложено до открытия ИП (Deferred by Design)
+
+См. подробности в Project Checklist → 🛑 «Сознательно отложено».
+
+- **Stage 21b — ЮKassa для покупки контактов** (single / pack10 / unlimited30d). Серверная инфраструктура готова; подключение зависит от Stage 24.
+- **Stage 21c / Stage 24 — ЮKassa-холд** (`capture:false`) для бронирований Premium с защитой и для пулов (`pool_shares.payment_status='escrow_held'`).
+- **Реальные выплаты из Shield-фонда** через ЮKassa Payouts API — сейчас только ручной mark-paid админом (Stage 17a/17b).
+- **KYC через сайт (152-ФЗ + 115-ФЗ)** — паспорт/ОГРН/селфи. Текущая верификация = ручная через `support_ticket category='verification_request'`. См. `AGENT_INSTRUCTIONS.md § 11d`.
+
+### Технический бэклог (можно делать сейчас)
+
+- **Stage 27 followup** — WebSocket/SSE вместо polling, унификация audit-trail bookings/claims через `audit_events`, гендерное склонение в нотификациях.
+- **Stage 28 followup** — `AlertDialog` вместо нативного `confirm()` в `BuyoutBlock`, кнопка «Отказаться» у participant выкупа, авто-cancel зависших buyout через cron.
+- **Stage 29 followup** — V7 (ежесуточный cron-пересчёт TrustScore), V8 (публичный UI score после калибровки на 100+ сделок и 50+ владельцах).
+- **Stage 30B followup** — кеш инфографик по `(photoHash, bulletsHash)`, embedded Montserrat/Inter в SVG, шаблоны 1200×630 / 1080×1920.
+- **Stage 30L (опц.)** — кеш AI-генераций по `(title, category, provider)`. Экономия токенов на UX «не понравилось — давай ещё раз», особенно актуально на платных провайдерах.
+
+### Закрыто (вычеркнуто из roadmap)
+
+- ~~**Видео в Цифровом Акте**~~ — закрыто **Stage 22b-followup** (`POST /api/upload-video`, multer 100МБ, magic-byte sniff `ftyp`/`EBML`, whitelist `/uploads/<uuid>.(mp4|webm|mov|m4v)`).
+- ~~**GPS-pin на карте в админке**~~ — закрыто **Stage 22b** (`DigitalActMap.tsx`, Leaflet read-only с фирменным пином `#C65D3B`).
+- ~~**Цифровая подпись сторон**~~ — закрыто **Stage 22b** (`SignaturePad.tsx`, server-side `validateSignature()` regex + лимит 300КБ + PNG-magic байты, обязательна для сохранения акта → 400 `signature_required`).
+- ~~**Trust Score (Этап 3)**~~ — V1-V6 закрыты **Stage 19g + Stage 29**. V7-V8 в техническом бэклоге выше.
+- ~~**ЮKassa интеграция (серверная)**~~ — закрыто **Stage 21a** для use-case промо. Закрытие для бронирований/пулов = Stage 24 (см. 🛑 Deferred by Design).
+- ~~**Stage 30I — Gemini geo-block с РФ-IP**~~ — гипотеза опровергнута Stage 30J-revert2 (29.04.2026). Симптомы «Gemini не работает на проде» были вызваны исключительно мёртвым алиасом `gemini-1.5-flash`; после возврата к `gemini-flash-latest` Gemini работает с Amvera штатно, подтверждено CTO.
+
+### Будущие фичи (Roadmap, не начато)
+
+- **Stage 33 — AI-Арбитражор (Vision Analysis)** — следующий research stage. Мультимодальный LLM-вердикт по спорам, human-in-the-loop. Перед стартом нужен design discovery с CTO по 5 открытым вопросам (см. журнал Stage 33 в `docs/AGENT_INSTRUCTIONS.md`).
+- Партнёрские бейджи для юрлиц (5% комиссии вместо 10%).
 
 ## Future Scaling
 

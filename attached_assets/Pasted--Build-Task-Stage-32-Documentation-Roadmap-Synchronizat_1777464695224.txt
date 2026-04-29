@@ -1,0 +1,39 @@
+Промпт для Агента (Режим Build)
+Task: Stage 32 - Documentation & Roadmap Synchronization (Reality Check)
+
+Context:
+Our recent codebase audit revealed that the documentation (replit.md and AGENT_INSTRUCTIONS.md) is outdated. Several features (Digital Acts, Video Uploads, Trust Score) are fully implemented but marked as "In Progress" or "Missing" in the docs. We need to sync the "Stage-Bible" with the actual code.
+
+Action Required (Read-Write):
+
+Update replit.md Checklist: >    - Move "Digital Act (check-in/check-out, video, signature, GPS-pin)" from "In Work" to COMPLETED (Stage 22b/22b-followup).
+
+Move "Trust Score" to COMPLETED (Stage 29).
+
+Move "YooKassa Server Integration" to COMPLETED (Stage 21a), but keep "Commercial Booking Holds" as DEFERRED (Stage 24).
+
+Add Missing Stage 29 Log: >    - Create a section for Stage 29 (Trust Score). Document the formula used in lib/trust-score.ts, the audit events, and the triggers in reviews.ts and admin.ts.
+
+Fix AI Documentation: >    - Update the AI Gateway description (Stage 30A/H) to reflect the correct response parsing (alternatives[0].message.text for DeepSeek/Amvera).
+
+Ensure the current GEMINI_MODEL = "gemini-flash-latest" and its functionality on Amvera are clearly stated as confirmed.
+
+Clarify Strategy (Political Sync):
+
+Explicitly mark KYC, Automatic Payouts, and Commercial Booking Holds as "DEFERRED BY DESIGN" until business readiness (IP/Legal setup).
+
+State clearly that the current "Verification" is a manual process via support tickets to avoid storing PII (152-FZ compliance).
+
+Update Roadmap: >    - Add Stage 33: AI Arbitrator (Vision Analysis) as the next planned research stage.
+
+Goal: > After this task, any new agent reading these files must see exactly what is working in the code today without contradictions.
+
+Commit:
+docs: sync replit.md and agent instructions with actual codebase (Stage 32)
+
+🚀 Что делать после:
+Как только Агент закончит «переписывание истории», сделай финальный пуш через Shell:
+
+Bash
+bash scripts/github-push.sh "docs: final documentation sync for Stage 32"
+После этого мы будем на 100% уверены, что наш проект прозрачен, а каждый байт кода задокументирован. И тогда мы со спокойной душой пойдем делать ИИ-Арбитраж — ту самую фичу, которой нет ни у кого! ⚖️🤖
