@@ -33,13 +33,26 @@ const GEMINI_TIMEOUT_MS = 25_000;
 // нежелательно, чтобы не словить ту же ошибку при следующей ротации алиасов.
 const GEMINI_MODEL = "gemini-flash-latest";
 
-// Stage 30H (28.04.2026): пивот Amvera со старого /models/llama (deprecated в их
-// openapi, на проде давал "empty response") на /models/gpt с моделью deepseek-v3.
-// Источник истины — https://lllm-swagger-amvera-services.amvera.io/openapi.yaml.
-// Поле сообщений и ответа всё ещё "text" (НЕ "content") — это не стандартный
-// OpenAI Chat Completions, а кастомная Amvera-схема поверх /gpt-роута.
-const AMVERA_URL = "https://kong-proxy.yc.amvera.ru/api/v1/models/gpt";
-const AMVERA_MODEL = "deepseek-v3";
+// Stage 30H (28.04.2026): пивот Amvera со старого /models/llama (deprecated, давал
+// "empty response" на проде) на /models/deepseek с моделью deepseek-V3.
+//
+// ВНИМАНИЕ: эндпоинт собирается как POST /models/<inference_name>, где
+// <inference_name> — СЕМЕЙСТВО, не модель. Согласно официальной документации
+// https://docs.amvera.ru/LLM/doc-inference-ru.html:
+//   /llama       → llama8b, llama70b
+//   /gpt         → gpt-4.1, gpt-5         (только OpenAI-модели!)
+//   /deepseek    → deepseek-R1, deepseek-V3
+//   /qwen        → qwen3_30b, qwen3_235b
+// Поэтому для DeepSeek-V3 используем именно /models/deepseek, а не /models/gpt
+// (как мог бы подсказать тэг GPT в swagger — он группирует только OpenAI-роут).
+//
+// Имя модели — РОВНО "deepseek-V3" с заглавной V (см. документацию). Lowercase
+// "deepseek-v3" Amvera не распознает и вернёт пустой ответ.
+//
+// Поле сообщений и ответа — "text" (НЕ "content"), общее правило для всех
+// Amvera-инференс-роутов; см. example в документации.
+const AMVERA_URL = "https://kong-proxy.yc.amvera.ru/api/v1/models/deepseek";
+const AMVERA_MODEL = "deepseek-V3";
 
 export type AiProvider = "mock" | "openai" | "amvera" | "gemini";
 
