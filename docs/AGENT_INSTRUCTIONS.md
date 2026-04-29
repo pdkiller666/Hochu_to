@@ -2515,6 +2515,35 @@ bash scripts/github-push.sh "fix(ai): restore working gemini-flash-latest model 
 bash scripts/github-push.sh "docs: sync replit.md and agent instructions with actual codebase (Stage 32)"
 ```
 
+## Журнал — Stage 32-debug (Smoke-pass + Cookie Fix, 29.04.2026)
+
+**Контекст.** Отладочный прогон между Stage 32 и Stage 33: smoke всех ключевых endpoints, LSP, проверка runtime-багов перед research-итерацией Stage 33.
+
+**Что сделано:**
+1. **Seed-БД восстановлен.** После сессионного restore-чекпойнта таблицы `regions/categories/listings` оказались пустыми (только `users:1`, `platform_settings:1`). Запустил `pnpm --filter @workspace/api-server seed` → 85 регионов, 10 категорий, 14 объявлений, 7 тест-юзеров (включая `admin@test.ru` / `Admin1234!` и `alexey@example.com` / `Test1234!`). Это норма после restore — seed надо помнить, не воспринимать пустые таблицы как баг продукта.
+2. **Cookie-fix в `routes/auth.ts:setRefreshCookie/clearRefreshCookie`.** Переменная `isProduction = process.env.NODE_ENV === "production"` была объявлена строкой выше, но НЕ применялась — стояло хардкод-`secure: true, sameSite: "none"`. На HTTP-localhost (curl-смоки, локальная отладка вне Replit-preview) браузеры/curl тихо отбрасывают такие cookie → `POST /api/auth/refresh` всегда падал в 401, refresh-flow был полностью сломан в dev-окружении. Исправил: `secure: isProduction`, `sameSite: isProduction ? "none" : "lax"`. Production-поведение (Amvera HTTPS + Replit iframe-preview через https://*.repl.co) не изменилось — там `NODE_ENV=production` и работает как раньше. В коде также убран некорректный комментарий «secure: true — обязателен для HTTPS в Amvera» и расписана логика двух режимов.
+
+**Smoke-результаты (после фикса, прогон 29.04.2026 16:42 MSK):**
+- **LSP:** `0 errors / 0 warnings / 0 infos` во всём монорепо (api-server, hochu-to, mockup-sandbox, lib/*) — это де-факто заменяет отсутствующий `tsc`.
+- **Auth flow:** `POST /login` → access-token + refresh-cookie ✅. `GET /me` с `Authorization: Bearer <access>` → корректный профиль ✅. `POST /refresh` с cookie → новый access-token ✅. `POST /logout` → cookie очищается, `POST /refresh` после → 401 ✅.
+- **RBAC:** `/api/admin/users` с admin-токеном → 200 (список юзеров), с owner-токеном (alexey) → 403, без токена → 401 ✅.
+- **AI mock-провайдер** (`POST /api/ai/generate-description` с `provider:"mock"`): `actualProvider:"mock"`, `fallback:false`, поле `text` содержит ~700-символьный русский маркетинг-блок с эмодзи, буллетами и описанием состояния ✅.
+- **Каталог:** `/api/listings` total=14, `/api/regions` 85, `/api/categories` 10.
+- **Health:** `/health` 200, esbuild build clean 283ms, никаких ERROR/WARN в логах api-server.
+
+**Чему это нас учит (НЕ регрессировать):**
+- **Cookie-флаги обязаны быть environment-aware.** Если в коде объявлена `isProduction` для security-параметров, она ОБЯЗАНА применяться ко всем `secure`/`sameSite` единообразно. Проверка: `rg "secure: true|sameSite:" artifacts/api-server/src` не должна находить хардкод-литералы. Этот паттерн — потенциальная регрессия в любом будущем cookie-эндпоинте (новые сессии, CSRF-токены и т.п.).
+- **Smoke auth-эндпоинтов делается под Bearer, не под cookie.** Архитектура: access-token — `Authorization: Bearer`, refresh-token — HTTP-only cookie. Curl-смок защищённого endpoint только с `-b cookies.txt` и без `-H "Authorization: Bearer ..."` всегда вернёт 401 — это **нормально** (защита от CSRF). Стандартный шаблон smoke: `TOKEN=$(curl -s ... /login | jq -r .token); curl -H "Authorization: Bearer $TOKEN" ...`.
+- **Seed после restore-чекпойнта = первая команда отладки.** Если БД выглядит пустой (нет регионов/категорий, /api/listings возвращает `{total:0,listings:[]}`) — это не баг продукта, а restore-«чистая» БД. Команда: `pnpm --filter @workspace/api-server seed` (idempotent, чистит и пересоздаёт regions/categories/listings, обновляет тестовых юзеров).
+- **AI-ответ имеет поле `text`, не `description`.** При smoke AI-эндпоинтов это легко перепутать. Shape: `{text, provider, actualProvider, fallback, fallbackReason}`. Смотри `routes/ai.ts` или `lib/ai-service.ts` для актуальной формы перед написанием jq-фильтра.
+- **typecheck-скрипт сейчас декоративный (известно, не блокирует).** В `package.json` обоих артефактов есть `"typecheck": "tsc -p tsconfig.json --noEmit"`, но `typescript` не установлен ни в root-`package.json`, ни в подпакетах — `tsc` бинаря в `node_modules/.bin` нет. LSP-сервер (внутри Replit IDE) компенсирует это полностью: `getLatestLspDiagnostics()` дал 0 ошибок. Установка `typescript` как root-devDep — отдельная инициатива, отложена до явного запроса/CI-пайплайна. Сейчас приоритета нет, риска тоже нет.
+- **«Двойной vite-процесс» — артефакт окружения, не баг кода.** При параллельном запуске composite workflow `Start application` (PORT=5000) и отдельного `artifacts/hochu-to: web` (без env, дефолт 21418) запускаются два vite-сервера; preview pane Replit ходит на :5000, и первый из них может не подняться из-за конфликта. Это не повод править код или workflows — пользователь сам выбирает, какой workflow запустить. Если preview пуст — посмотреть `pgrep -af vite` и оставить ровно один процесс.
+
+### Push
+```bash
+bash scripts/github-push.sh "fix(auth): NODE_ENV-aware cookie flags + Stage 32-debug smoke pass"
+```
+
 ## Журнал — Stage 33 (AI-Арбитражор / Vision Analysis, ПЛАНИРУЕТСЯ)
 
 **Контекст и мотивация.** Stage 22a/22b/22b-followup собрали полный пакет доказательной базы для каждого спора: 4-10 фото с EXIF/GPS, опционально видео ≤100МБ, электронная подпись участника, карта точки передачи. Сейчас этот пакет анализирует **админ вручную** через `routes/claims.ts` workflow (approve / mark-paid / reject). Stage 33 — research-итерация по добавлению LLM-помощника, который предлагает админу первичный вердикт.

@@ -67,7 +67,7 @@ Full-stack rental marketplace "Хочу_То" (I Want That) — a platform for r
 - **API codegen**: Orval (from OpenAPI spec)
 - **Build**: esbuild (CJS bundle)
 - **Frontend**: React + Vite, Tailwind CSS, Framer Motion, Wouter (routing), React Query
-- **Auth**: Simple JWT-like token (base64 encoded), bcryptjs for password hashing
+- **Auth**: JWT access-token (HS256, в `Authorization: Bearer`) + refresh-token cookie (`ht_refresh_token`, HttpOnly, secure/sameSite зависят от `NODE_ENV` — Stage 32-debug fix), bcryptjs для паролей
 
 ## Brand
 

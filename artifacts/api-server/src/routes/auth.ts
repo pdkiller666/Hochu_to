@@ -18,21 +18,30 @@ import {
 
 const router = Router();
 
-// В Amvera мы всегда работаем через HTTPS, поэтому принудительно ставим true для безопасности
 const isProduction = process.env.NODE_ENV === "production";
 
 /**
- * ИСПРАВЛЕННЫЕ НАСТРОЙКИ КУК ДЛЯ ОБЛАКА
- * 1. path: "/" — кука доступна для всего сайта
- * 2. sameSite: "none" — позволяет передавать куку между прокси-серверами
- * 3. secure: true — обязателен для HTTPS в Amvera
+ * Настройки refresh-cookie зависят от окружения:
+ *
+ * PRODUCTION (Amvera через HTTPS, фронт в iframe-preview):
+ *   secure: true + sameSite: "none" — обязательны: HTTPS-only кука, разрешено
+ *   передавать через cross-origin прокси (без этого preview-pane Replit и
+ *   webview-iframes не получат куку при cross-site запросах).
+ *
+ * DEVELOPMENT (curl/браузер на http://localhost:8080):
+ *   secure: false + sameSite: "lax" — Secure-куки тихо отбрасываются на HTTP,
+ *   что ломает auth в curl-смоках и в локальных dev-сценариях. Lax работает
+ *   для same-site запросов, что покрывает vite-proxy `/api → :8080`.
+ *
+ * До Stage 32 в этом блоке `isProduction` была объявлена, но НЕ применялась —
+ * `secure: true` стояло хардкодом, что ломало auth при curl-отладке на dev.
  */
 function setRefreshCookie(res: Response, token: string) {
   res.cookie(REFRESH_TOKEN_COOKIE, token, {
     httpOnly: true,
-    secure: true, 
-    sameSite: "none", 
-    path: "/", 
+    secure: isProduction,
+    sameSite: isProduction ? "none" : "lax",
+    path: "/",
     maxAge: 30 * 24 * 60 * 60 * 1000, // 30 дней
   });
 }
@@ -40,8 +49,8 @@ function setRefreshCookie(res: Response, token: string) {
 function clearRefreshCookie(res: Response) {
   res.clearCookie(REFRESH_TOKEN_COOKIE, {
     httpOnly: true,
-    secure: true,
-    sameSite: "none",
+    secure: isProduction,
+    sameSite: isProduction ? "none" : "lax",
     path: "/",
   });
 }
