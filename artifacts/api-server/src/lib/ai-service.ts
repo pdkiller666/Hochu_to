@@ -219,7 +219,8 @@ async function generateAmvera(input: GenerateInput): Promise<string> {
     // добавится третий формат — увидим в диагностике ниже.
     const text =
       data?.alternatives?.[0]?.message?.text ??
-      data?.choices?.[0]?.message?.text;
+      data?.choices?.[0]?.message?.text ??
+      data?.choices?.[0]?.message?.content;
     if (typeof text !== "string" || !text.trim()) {
       console.error(
         "[AI Service Error][Amvera/description]: Unexpected response shape, raw data slice:",
@@ -617,7 +618,8 @@ async function bulletsAmvera(
     // ответа Amvera (alternatives на /llama|/deepseek vs choices на /gpt).
     const text =
       data?.alternatives?.[0]?.message?.text ??
-      data?.choices?.[0]?.message?.text;
+      data?.choices?.[0]?.message?.text ??
+      data?.choices?.[0]?.message?.content;
     if (typeof text !== "string" || !text.trim()) {
       console.error(
         "[AI Service Error][Amvera/bullets]: Unexpected response shape, raw data slice:",
