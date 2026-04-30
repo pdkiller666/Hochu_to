@@ -71,6 +71,13 @@ const GEMINI_MODEL = "gemini-flash-latest";
 const AMVERA_URL = "https://kong-proxy.yc.amvera.ru/api/v1/models/deepseek";
 const AMVERA_MODEL = "deepseek-V3";
 
+// Stage 33.0: прямой DeepSeek API (api.deepseek.com) — второй резерв после Amvera.
+// Используется только если Amvera вернул ошибку или пустой ответ.
+// Формат — OpenAI-совместимый Chat Completions.
+const DEEPSEEK_DIRECT_URL = "https://api.deepseek.com/v1/chat/completions";
+const DEEPSEEK_DIRECT_MODEL = "deepseek-chat";
+const DEEPSEEK_DIRECT_TIMEOUT_MS = 30_000;
+
 export type AiProvider = "mock" | "openai" | "amvera" | "gemini";
 
 export interface GenerateInput {
@@ -241,6 +248,50 @@ async function generateAmvera(input: GenerateInput): Promise<string> {
   }
 }
 
+// ─── DIRECT DEEPSEEK (Stage 33.0) ─────────────────────────────────────────
+// Резервный провайдер: используется только когда Amvera недоступен или
+// вернул пустой ответ. Ключ — DEEPSEEK_API_KEY, OpenAI-совместимый формат.
+
+async function generateDirectDeepSeek(input: GenerateInput): Promise<string> {
+  const apiKey = process.env.DEEPSEEK_API_KEY?.trim();
+  if (!apiKey) throw new Error("DEEPSEEK_API_KEY is not set");
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), DEEPSEEK_DIRECT_TIMEOUT_MS);
+
+  try {
+    const res = await fetch(DEEPSEEK_DIRECT_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: DEEPSEEK_DIRECT_MODEL,
+        temperature: 0.8,
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          { role: "user", content: userPrompt(input) },
+        ],
+      }),
+      signal: ctrl.signal,
+    });
+
+    if (!res.ok) {
+      const txt = await res.text().catch(() => "");
+      throw new Error(`DeepSeek HTTP ${res.status}: ${txt.slice(0, 200)}`);
+    }
+    const data: any = await res.json();
+    const text = data?.choices?.[0]?.message?.content;
+    if (typeof text !== "string" || !text.trim()) {
+      throw new Error("DeepSeek: empty response");
+    }
+    return text.trim();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // ─── GEMINI ────────────────────────────────────────────────────────────────
 
 async function generateGemini(input: GenerateInput): Promise<string> {
@@ -342,7 +393,18 @@ export async function generateListingDescription(
     let text: string;
     if (requested === "openai") text = await generateOpenAi(input);
     else if (requested === "gemini") text = await generateGemini(input);
-    else text = await generateAmvera(input);
+    else {
+      // Stage 33.0: Amvera → Direct DeepSeek (промежуточный резерв перед mock)
+      try {
+        text = await generateAmvera(input);
+      } catch (amveraErr: any) {
+        logger.warn(
+          { err: amveraErr?.message },
+          "ai-service: Amvera failed, trying direct DeepSeek API",
+        );
+        text = await generateDirectDeepSeek(input);
+      }
+    }
 
     logger.info(
       { provider: requested, title: input.title.slice(0, 60) },
@@ -642,6 +704,52 @@ async function bulletsAmvera(
   }
 }
 
+// ─── DIRECT DEEPSEEK bullets (Stage 33.0) ─────────────────────────────────
+
+async function bulletsDirectDeepSeek(
+  title: string,
+  category?: string | null,
+): Promise<string[]> {
+  const apiKey = process.env.DEEPSEEK_API_KEY?.trim();
+  if (!apiKey) throw new Error("DEEPSEEK_API_KEY is not set");
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), DEEPSEEK_DIRECT_TIMEOUT_MS);
+
+  try {
+    const res = await fetch(DEEPSEEK_DIRECT_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: DEEPSEEK_DIRECT_MODEL,
+        temperature: 0.6,
+        messages: [
+          { role: "system", content: INFOGRAPHIC_SYSTEM_PROMPT },
+          { role: "user", content: infographicUserPrompt(title, category) },
+        ],
+      }),
+      signal: ctrl.signal,
+    });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => "");
+      throw new Error(`DeepSeek HTTP ${res.status}: ${txt.slice(0, 200)}`);
+    }
+    const data: any = await res.json();
+    const text = data?.choices?.[0]?.message?.content;
+    if (typeof text !== "string" || !text.trim()) {
+      throw new Error("DeepSeek: empty response");
+    }
+    const bullets = parseBullets(text);
+    if (bullets.length < 3) throw new Error("DeepSeek: less than 3 bullets parsed");
+    return bullets;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /**
  * Stage 30J — Premium-копирайтер для инфографики (простой прямой fetch).
  *
@@ -792,7 +900,18 @@ export async function generateInfographicBullets(
     let bullets: string[];
     if (requested === "openai") bullets = await bulletsOpenAi(title, category);
     else if (requested === "gemini") bullets = await bulletsGemini(title, category);
-    else bullets = await bulletsAmvera(title, category);
+    else {
+      // Stage 33.0: Amvera → Direct DeepSeek (промежуточный резерв перед mock)
+      try {
+        bullets = await bulletsAmvera(title, category);
+      } catch (amveraErr: any) {
+        logger.warn(
+          { err: amveraErr?.message },
+          "ai-service: Amvera bullets failed, trying direct DeepSeek API",
+        );
+        bullets = await bulletsDirectDeepSeek(title, category);
+      }
+    }
 
     logger.info(
       { provider: requested, title: title.slice(0, 60) },
