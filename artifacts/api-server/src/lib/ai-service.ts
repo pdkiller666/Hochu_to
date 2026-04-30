@@ -873,8 +873,46 @@ async function bulletsGemini(
   }
 }
 
+// ─── Infographic bullets cache (Stage 33.1) ──────────────────────────────────
+//
+// In-memory кэш буллетов. Ключ = lowercase(title + "|" + category).
+// TTL = 24 часа. Позволяет повторно использовать буллеты для одинаковых
+// вещей без дополнительных вызовов LLM.
+//
+// Архитектурное решение: in-memory (не БД), потому что буллеты зависят только
+// от title+category, перезапуск сервера раз в сутки допустим, а DB-миграция
+// излишня для этой задачи.
+
+interface BulletsEntry {
+  bullets: string[];
+  provider: AiProvider;
+  actualProvider: AiProvider;
+  cachedAt: number;
+}
+
+const BULLETS_CACHE = new Map<string, BulletsEntry>();
+const BULLETS_CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 ч
+
+function bulletsCacheKey(title: string, category?: string | null): string {
+  return `${title.trim().toLowerCase()}|${(category ?? "").toLowerCase()}`;
+}
+
+function bulletsCacheGet(key: string): BulletsEntry | null {
+  const entry = BULLETS_CACHE.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.cachedAt > BULLETS_CACHE_TTL_MS) {
+    BULLETS_CACHE.delete(key);
+    return null;
+  }
+  return entry;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 /**
  * Stage 30B/30C: получить 3 коротких буллета для инфографики.
+ * Stage 33.1: добавлен in-memory кэш (TTL 24ч) — повторные запросы для
+ * одинакового title+category не тратят LLM-токены.
  * Логика fallback идентична generateListingDescription: при ошибке реального
  * провайдера мягко падаем в mock, чтобы UX не сломался.
  */
@@ -896,6 +934,22 @@ export async function generateInfographicBullets(
     };
   }
 
+  // ── Проверяем кэш (только для не-mock провайдеров) ──────────────────────
+  const cacheKey = bulletsCacheKey(title, category);
+  const cached = bulletsCacheGet(cacheKey);
+  if (cached) {
+    logger.info(
+      { provider: cached.provider, title: title.slice(0, 60), fromCache: true },
+      "ai-service: infographic bullets cache hit",
+    );
+    return {
+      bullets: cached.bullets,
+      provider: cached.provider,
+      actualProvider: cached.actualProvider,
+      fallback: false,
+    };
+  }
+
   try {
     let bullets: string[];
     if (requested === "openai") bullets = await bulletsOpenAi(title, category);
@@ -912,6 +966,14 @@ export async function generateInfographicBullets(
         bullets = await bulletsDirectDeepSeek(title, category);
       }
     }
+
+    // Сохраняем в кэш
+    BULLETS_CACHE.set(cacheKey, {
+      bullets,
+      provider: requested,
+      actualProvider: requested,
+      cachedAt: Date.now(),
+    });
 
     logger.info(
       { provider: requested, title: title.slice(0, 60) },

@@ -1,6 +1,61 @@
 import { db, notificationsTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 
+// ─── Gender helpers (Stage 33.1) ─────────────────────────────────────────────
+//
+// Определяем грамматический род по имени — используем эвристики:
+//   • имена, оканчивающиеся на «а»/«я», как правило женские
+//   • исключения: мужские имена на «а»/«я» (Никита, Илья, Петя, …)
+//   • двусмысленные имена (Саша, Женя, Валя) → нейтральный
+//
+// Если род неизвестен — возвращаем нейтральную форму (maleForm по умолчанию,
+// или явный neutralForm, если передан).
+
+const MALE_A_ENDINGS = new Set([
+  "никита","илья","кузьма","фома","савва","коля","петя","вася","дима",
+  "миша","паша","лёша","алёша","серёжа","витя","костя","митя","стёпа",
+  "лёва","федя","гоша","тёма","яша","сеня","антоша","лёня","гриша",
+]);
+
+const AMBIGUOUS = new Set(["саша","женя","валя","шура","зоря"]);
+
+export type Gender = "m" | "f" | "n";
+
+/** Определяет пол по первому слову имени на основе русских эвристик. */
+export function detectGender(name: string): Gender {
+  if (!name?.trim()) return "n";
+  const first = name.trim().split(/\s+/)[0].toLowerCase();
+  if (AMBIGUOUS.has(first)) return "n";
+  if (MALE_A_ENDINGS.has(first)) return "m";
+  if (first.endsWith("а") || first.endsWith("я")) return "f";
+  return "m";
+}
+
+/**
+ * Возвращает нужную форму слова/глагола исходя из рода владельца имени.
+ * @param name       имя пользователя
+ * @param maleForm   мужская форма  («подтвердил», «Владелец»)
+ * @param femaleForm женская форма  («подтвердила», «Владелица»)
+ * @param neutralForm нейтральная форма; если не передана — используется maleForm
+ */
+export function genderedWord(
+  name: string,
+  maleForm: string,
+  femaleForm: string,
+  neutralForm?: string,
+): string {
+  const g = detectGender(name);
+  if (g === "f") return femaleForm;
+  return g === "m" ? maleForm : (neutralForm ?? maleForm);
+}
+
+/** Краткий alias: возвращает «его» или «её» для имени. */
+export function genderPronounGen(name: string): string {
+  return genderedWord(name, "него", "неё", "него");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 export type NotifType =
   | "booking_submitted"
   | "booking_created"

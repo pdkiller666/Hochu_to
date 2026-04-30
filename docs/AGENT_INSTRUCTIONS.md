@@ -2646,6 +2646,75 @@ bash scripts/github-push.sh "feat(ai): direct DeepSeek API fallback (Amvera→De
 
 ---
 
+## Журнал — Stage 33.1 (UI & Logic Polish — GPS, Gender, Cache, 30.04.2026)
+
+**Контекст.** Продолжение полировки после Stage 33.0. Три независимых улучшения: визуализация GPS-пинов на карте в админке, гендерно-чувствительные уведомления, кэш буллетов инфографики.
+
+### Что сделано
+
+**1. GPS — несколько пинов на карте (wow-эффект для администратора)**
+
+Файлы: `artifacts/hochu-to/src/components/DigitalActMap.tsx`, `artifacts/hochu-to/src/pages/AdminPage.tsx`
+
+- `DigitalActMap` принимает новый проп `pins: Array<{lat, lng, label?}>` в дополнение к старым `lat`/`lng` (обратная совместимость сохранена).
+- При нескольких пинах карта автоматически вызывает `fitBounds(group.getBounds().pad(0.25))` — все маркеры видны сразу.
+- Клик по маркеру открывает popup с координатами и номером фото (`Фото 1`, `Фото 2`, …).
+- `AdminPage.tsx` / `DigitalActsBlock`: теперь извлекает **все** GPS-точки из `meta.photoExif[]` (а не только первую), передаёт их в `DigitalActMap` как `pins`. Бейдж "📍 GPS" показывает количество точек если > 1.
+
+**2. Гендерно-чувствительные уведомления**
+
+Файлы: `artifacts/api-server/src/lib/notifications.ts`, `artifacts/api-server/src/routes/bookings.ts`
+
+Новые экспорты в `notifications.ts`:
+```typescript
+type Gender = "m" | "f" | "n"
+function detectGender(name: string): Gender        // эвристика по имени
+function genderedWord(name, maleForm, femaleForm, neutralForm?): string
+function genderPronounGen(name: string): string     // "него" / "неё"
+```
+
+Эвристика: имена на «а»/«я» — женские; список исключений (Никита, Илья, Петя, Миша, …) — мужские; двусмысленные (Саша, Женя, Валя) — нейтральные (fallback = maleForm).
+
+Обновлённые сообщения в `bookings.ts`:
+| Событие | До | После (пример: владелица Мария) |
+|---|---|---|
+| `booking_confirmed` | «Владелец подтвердил» | «Владелица подтвердила» |
+| `booking_active` | «Владелец подтвердил передачу» | «Владелица подтвердила передачу» |
+| `booking_return_pending` | «Арендатор инициировал возврат» | «Арендаторша инициировала возврат» |
+| `booking_rejected` | «Владелец отклонил» | «Владелица отклонила» |
+| `booking_cancelled` | «Владелец отменил(а)» | «Владелица отменила» |
+| `booking_created` | «оставил заявку. Свяжитесь с ним» | «оставила заявку. Свяжитесь с ней» |
+
+**3. Кэш буллетов инфографики**
+
+Файл: `artifacts/api-server/src/lib/ai-service.ts`
+
+- In-memory `Map<string, BulletsEntry>` с TTL 24 часа.
+- Ключ кэша: `lowercase(title) + "|" + lowercase(category)`.
+- При повторном запросе для того же объявления (title+category) буллеты берутся из кэша — нет вызова LLM. Экономия токенов.
+- Лог при cache hit: `"ai-service: infographic bullets cache hit"` с флагом `fromCache: true`.
+- Mock-провайдер обходит кэш (всегда возвращает детерминированный шаблон).
+
+**4. Исправлен баг: роль admin не слетает при смене телефона**
+
+Файлы: `artifacts/api-server/src/routes/users.ts`, `artifacts/hochu-to/src/pages/Dashboard.tsx`
+
+- Бэкенд: перед обновлением профиля читает текущую роль из БД; если `role === "admin"` — поле role в SET-запросе игнорируется.
+- Фронтенд: переключатель «Арендатор/Владелец» скрыт для пользователей с `user.role === "admin"`.
+
+### Правило «не регрессировать»
+- `detectGender` никогда не бросает — при пустом имени возвращает `"n"`.
+- `genderedWord` при `gender === "n"` возвращает `neutralForm ?? maleForm` (никогда не пустую строку).
+- Кэш буллетов не блокирует генерацию: если TTL истёк или ключ не найден — идём в LLM как обычно.
+- Карта с несколькими пинами не сломается при 1 пине — ветка `pins.length === 1` устанавливает `setView([...], 16)` без fitBounds.
+
+### Коммит
+```
+refactor(ui/logic): GPS multi-pins, gender-aware notifications, bullets cache (Stage 33.1)
+```
+
+---
+
 ## Журнал — Stage 33 (AI-Арбитражор / Vision Analysis, ПЛАНИРУЕТСЯ)
 
 **Контекст и мотивация.** Stage 22a/22b/22b-followup собрали полный пакет доказательной базы для каждого спора: 4-10 фото с EXIF/GPS, опционально видео ≤100МБ, электронная подпись участника, карта точки передачи. Сейчас этот пакет анализирует **админ вручную** через `routes/claims.ts` workflow (approve / mark-paid / reject). Stage 33 — research-итерация по добавлению LLM-помощника, который предлагает админу первичный вердикт.

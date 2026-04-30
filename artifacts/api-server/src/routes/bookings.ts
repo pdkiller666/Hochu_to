@@ -3,7 +3,7 @@ import { db, bookingsTable, listingsTable, usersTable, bookingEventsTable, booki
 import { eq, or, and, sql, ne, asc, desc, inArray } from "drizzle-orm";
 import { requireAuth, AuthRequest } from "../middleware/auth.js";
 import { CreateBookingBody } from "@workspace/api-zod";
-import { createNotification } from "../lib/notifications.js";
+import { createNotification, genderedWord } from "../lib/notifications.js";
 import { getPlatformSettings, num } from "../lib/platform-settings.js";
 import { applyBookingCountDelta, bookingCountDelta, bookingCounts } from "../lib/listing-counters.js";
 import { recordAuditEvent } from "../lib/audit-events.js";
@@ -322,9 +322,16 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
       title: isBetaMode
         ? `📩 Новая заявка — «${listing.title}»`
         : `📞 Прямой запрос контактов — «${listing.title}»`,
-      message: isBetaMode
-        ? `${renterUser?.name ?? "Пользователь"} оставил заявку на аренду. Свяжитесь с ним и договоритесь о встрече.`
-        : `${renterUser?.name ?? "Пользователь"} оплатил открытие ваших контактов (${CONTACT_FEE} ₽). Ожидайте сообщения.`,
+      message: (() => {
+        const rn = renterUser?.name ?? "Пользователь";
+        if (isBetaMode) {
+          const verb = genderedWord(rn, "оставил", "оставила");
+          const pron = genderedWord(rn, "ним", "ней");
+          return `${rn} ${verb} заявку на аренду. Свяжитесь с ${pron} и договоритесь о встрече.`;
+        }
+        const verb = genderedWord(rn, "оплатил", "оплатила");
+        return `${rn} ${verb} открытие ваших контактов (${CONTACT_FEE} ₽). Ожидайте сообщения.`;
+      })(),
       bookingId: booking.id,
       listingTitle: listing.title ?? undefined,
     });
@@ -532,7 +539,8 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
   const upgradeNote = isFreeUpgrade
     ? ` Тип сделки изменён на «Защищённая» — действует Гарантийный фонд платформы. Вы получите ${rent} ₽ (100% аренды) — все комиссии и страховку оплатил арендатор.`
     : "";
-  const msgText = `${renterUser?.name ?? "Арендатор"} хочет взять вещь на ${days} ${days === 1 ? "день" : "дней"} (${startDate} — ${endDate}).${upgradeNote}`;
+  const rn = renterUser?.name ?? "Арендатор";
+  const msgText = `${rn} ${genderedWord(rn, "хочет", "хочет")} взять вещь на ${days} ${days === 1 ? "день" : "дней"} (${startDate} — ${endDate}).${upgradeNote}`;
   await createNotification({
     userId: listing.ownerId,
     type: "booking_created",
@@ -773,41 +781,54 @@ router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
   }
 
   // Notifications (best-effort, не должны блокировать ответ при сбое БД)
+  // Stage 33.1: гендерно-чувствительные формулировки через genderedWord()
+  const ownerName  = owner?.name  ?? "Владелец";
+  const renterName = renter?.name ?? "Арендатор";
   try {
   if (status === "confirmed") {
+    const ownerVerb = genderedWord(ownerName, "подтвердил", "подтвердила");
+    const ownerRole = genderedWord(ownerName, "Владелец", "Владелица");
     await createNotification({
       userId: updated.renterId,
       type: "booking_confirmed",
       title: `✅ Заявка подтверждена — «${title}»`,
-      message: `Владелец подтвердил вашу заявку ${bookingNumber}. Договоритесь о встрече для передачи вещи.`,
+      message: `${ownerRole} ${ownerVerb} вашу заявку ${bookingNumber}. Договоритесь о встрече для передачи вещи.`,
       bookingId: updated.id,
       listingTitle: title,
     });
   } else if (status === "active") {
+    const ownerVerb = genderedWord(ownerName, "подтвердил", "подтвердила");
+    const ownerRole = genderedWord(ownerName, "Владелец", "Владелица");
     await createNotification({
       userId: updated.renterId,
       type: "booking_active",
       title: `🤝 Вещь передана — «${title}»`,
-      message: `Владелец подтвердил передачу вещи по заявке ${bookingNumber}. Аренда началась! Когда вернёте — нажмите «Возвращаю вещь».`,
+      message: `${ownerRole} ${ownerVerb} передачу вещи по заявке ${bookingNumber}. Аренда началась! Когда вернёте — нажмите «Возвращаю вещь».`,
       bookingId: updated.id,
       listingTitle: title,
     });
   } else if (status === "return_pending") {
+    const renterVerb = genderedWord(renterName, "инициировал", "инициировала");
+    const renterRole = genderedWord(renterName, "Арендатор", "Арендаторша");
     await createNotification({
       userId: updated.ownerId,
       type: "booking_return_pending",
-      title: `📦 Арендатор возвращает вещь — «${title}»`,
-      message: `Арендатор инициировал возврат по заявке ${bookingNumber}. Встретьтесь и подтвердите получение вещи.`,
+      title: `📦 ${renterRole} возвращает вещь — «${title}»`,
+      message: `${renterRole} ${renterVerb} возврат по заявке ${bookingNumber}. Встретьтесь и подтвердите получение вещи.`,
       bookingId: updated.id,
       listingTitle: title,
     });
   } else if (status === "rejected") {
     const reason = ownerComment?.trim();
+    const ownerVerb = genderedWord(ownerName, "отклонил", "отклонила");
+    const ownerRole = genderedWord(ownerName, "Владелец", "Владелица");
     await createNotification({
       userId: updated.renterId,
       type: "booking_rejected",
       title: `❌ Заявка отклонена — «${title}»`,
-      message: reason ? `Заявка ${bookingNumber} отклонена. Причина: ${reason}` : `Владелец отклонил заявку ${bookingNumber}. Попробуйте другие объявления.`,
+      message: reason
+        ? `Заявка ${bookingNumber} отклонена. Причина: ${reason}`
+        : `${ownerRole} ${ownerVerb} заявку ${bookingNumber}. Попробуйте другие объявления.`,
       bookingId: updated.id,
       listingTitle: title,
     });
@@ -831,12 +852,16 @@ router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
   } else if (status === "cancelled") {
     // Уведомляем ДРУГУЮ сторону (не того, кто отменил)
     const notifyUserId = actorRole === "renter" ? updated.ownerId : updated.renterId;
-    const cancellerWord = actorRole === "renter" ? "Арендатор" : "Владелец";
+    const cancellerName = actorRole === "renter" ? renterName : ownerName;
+    const cancellerRole = actorRole === "renter"
+      ? genderedWord(cancellerName, "Арендатор", "Арендаторша")
+      : genderedWord(cancellerName, "Владелец", "Владелица");
+    const cancellerVerb = genderedWord(cancellerName, "отменил", "отменила");
     await createNotification({
       userId: notifyUserId,
       type: "booking_cancelled",
       title: `🚫 Аренда отменена — «${title}»`,
-      message: `${cancellerWord} отменил(а) заявку ${bookingNumber}.`,
+      message: `${cancellerRole} ${cancellerVerb} заявку ${bookingNumber}.`,
       bookingId: updated.id,
       listingTitle: title,
     });
