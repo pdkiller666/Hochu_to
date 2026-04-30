@@ -108,12 +108,20 @@ router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
   const { name, phone, avatar, regionId, role, bio, telegram, website } = req.body;
   const validRoles = ["renter", "owner"];
 
+  // Protect admin role: fetch current role before updating
+  const [currentUser] = await db
+    .select({ role: usersTable.role })
+    .from(usersTable)
+    .where(eq(usersTable.id, id))
+    .limit(1);
+  const allowRoleChange = currentUser?.role !== "admin";
+
   const [updated] = await db.update(usersTable).set({
     ...(name && { name }),
     ...(phone !== undefined && { phone }),
     ...(avatar !== undefined && { avatar }),
     ...(regionId !== undefined && { regionId }),
-    ...(role && validRoles.includes(role) && { role }),
+    ...(allowRoleChange && role && validRoles.includes(role) && { role }),
     ...(bio !== undefined && { bio }),
     ...(telegram !== undefined && { telegram }),
     ...(website !== undefined && { website }),

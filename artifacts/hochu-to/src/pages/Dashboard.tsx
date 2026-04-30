@@ -2515,7 +2515,8 @@ export default function Dashboard() {
                 <div className="bg-white border border-border rounded-2xl p-6 shadow-sm">
                   <form className="space-y-6" onSubmit={handleProfileSave}>
 
-                    {/* Role */}
+                    {/* Role — hidden for admin users */}
+                    {user.role !== "admin" && (
                     <div>
                       <label className="block text-xs font-bold mb-3 text-muted-foreground uppercase tracking-widest">Роль в сервисе</label>
                       <div className="grid grid-cols-2 gap-3">
@@ -2542,6 +2543,7 @@ export default function Dashboard() {
                         </p>
                       )}
                     </div>
+                    )}
 
                     {/* Basic info */}
                     <div className="border-t border-border pt-5">
