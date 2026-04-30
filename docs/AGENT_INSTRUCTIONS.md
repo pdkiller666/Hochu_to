@@ -112,6 +112,9 @@ node artifacts/api-server/dist/index.mjs             # запуск сервер
 | `ADMIN_EMAIL` | Email первого администратора |
 | `ADMIN_PASSWORD` | Пароль первого администратора |
 | `SESSION_SECRET` | Секрет JWT/сессий (≥32 символа, `openssl rand -hex 32`) |
+| `GEMINI_API_KEY` | Google Gemini API — основной AI-провайдер (генерация описаний + инфографика) |
+| `AMVERA_API_TOKEN` | Amvera AI Inference (DeepSeek-V3 через `/models/deepseek`) — второй AI-провайдер |
+| `DEEPSEEK_API_KEY` | Прямой DeepSeek API (`api.deepseek.com`) — третий AI-провайдер, резерв после Amvera (Stage 33.0). Значение: `sk-bbf4cc431aa4488895da859c9516492e` |
 | `YOOKASSA_SHOP_ID` | ID магазина ЮKassa (Stage 21a, **обязателен** при `is_commercial_mode=true`) |
 | `YOOKASSA_SECRET_KEY` | Секретный ключ API ЮKassa (Stage 21a, обязателен в коммерческом режиме) |
 | `YOOKASSA_WEBHOOK_SECRET` | Секрет для верификации HMAC-SHA256 подписи вебхуков (Stage 21a, **обязателен в production** — иначе webhook отдаёт 401) |
@@ -134,6 +137,9 @@ node artifacts/api-server/dist/index.mjs             # запуск сервер
 |---|---|---|
 | `SESSION_SECRET` | подпись JWT/сессий — **обязательно** | Сгенерировать любую строку ≥32 символов: `openssl rand -hex 32` |
 | `GITHUB_TOKEN` | для пуша на GitHub (опционально) | Тот же `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` (см. раздел 2) или новый PAT |
+| `GEMINI_API_KEY` | Google Gemini — основной AI-провайдер (опционально, без ключа работает mock) | Google AI Studio: https://aistudio.google.com/apikey |
+| `AMVERA_API_TOKEN` | Amvera DeepSeek-V3 — второй AI-провайдер (опционально) | Панель управления Amvera |
+| `DEEPSEEK_API_KEY` | Прямой DeepSeek API — резерв после Amvera (Stage 33.0, опционально) | `sk-bbf4cc431aa4488895da859c9516492e` |
 
 `DATABASE_URL`, `PGHOST`, `PGPASSWORD` и т.п. **Replit задаёт автоматически** при наличии модуля `postgresql-16`.
 
@@ -2543,6 +2549,102 @@ bash scripts/github-push.sh "docs: sync replit.md and agent instructions with ac
 ```bash
 bash scripts/github-push.sh "fix(auth): NODE_ENV-aware cookie flags + Stage 32-debug smoke pass"
 ```
+
+## Журнал — Stage 33.0 (AI Redundancy + UI Polish, 30.04.2026)
+
+**Контекст.** Домен `www.hochuto.ru` активен. Добавлен прямой ключ DeepSeek API для AI-резервирования. Цепочка провайдеров для генерации описаний и буллетов инфографики расширена с двух до трёх уровней.
+
+### Что сделано
+
+**1. AI-избыточность — прямой DeepSeek API как третий провайдер**
+
+Файл: `artifacts/api-server/src/lib/ai-service.ts`
+
+Новая цепочка для провайдера `amvera` (и когда activeAiProvider = 'amvera' в platform_settings):
+```
+Amvera (kong-proxy.yc.amvera.ru) → Direct DeepSeek (api.deepseek.com) → Mock
+```
+
+Добавлены три новые константы у топа файла:
+```ts
+const DEEPSEEK_DIRECT_URL     = "https://api.deepseek.com/v1/chat/completions";
+const DEEPSEEK_DIRECT_MODEL   = "deepseek-chat";
+const DEEPSEEK_DIRECT_TIMEOUT_MS = 30_000;
+```
+
+Добавлены две новые функции:
+- `generateDirectDeepSeek(input: GenerateInput): Promise<string>` — OpenAI-совместимый формат (`Authorization: Bearer`, поле `content`, модель `deepseek-chat`).
+- `bulletsDirectDeepSeek(title, category): Promise<string[]>` — аналог для инфографических буллетов.
+
+Ключевая особенность: прямой DeepSeek использует **стандартный OpenAI Chat Completions формат** (в отличие от Amvera, где поле `text` вместо `content` и нестандартный хедер `X-Auth-Token`). Не регрессировать.
+
+Изменения в роутере (`generateListingDescription` и `generateInfographicBullets`): вместо единого try/catch amvera-ветка получила вложенный try/catch:
+```ts
+else {
+  try {
+    text = await generateAmvera(input);
+  } catch (amveraErr: any) {
+    logger.warn({ err: amveraErr?.message }, "Amvera failed, trying direct DeepSeek API");
+    text = await generateDirectDeepSeek(input);  // бросит → внешний catch → mock
+  }
+}
+```
+
+**Ключ:** `DEEPSEEK_API_KEY` = `sk-bbf4cc431aa4488895da859c9516492e`
+**Платформа:** https://platform.deepseek.com
+**Модель:** `deepseek-chat` (стабильный alias DeepSeek-V3)
+
+**2. UI-полировка — AlertDialog вместо window.confirm**
+
+Файл: `artifacts/hochu-to/src/pages/ListingForm.tsx`, компонент `AiDescriptionButton`
+
+Браузерный `window.confirm()` заблокирован в Replit-iframe (silent fail) и несовместим с фирменным UI. Заменён на контролируемый `AlertDialog` из `@radix-ui/react-alert-dialog` (компонент уже был в проекте).
+
+Логика:
+- Кнопка «Сгенерировать ИИ-описание» вызывает `handleClick`.
+- Если `currentText.trim().length > 30` — открывается диалог с предупреждением «Заменить описание?».
+- Кнопка «Заменить» (фирменный цвет `#C65D3B`) подтверждает → `doGenerate()`.
+- Кнопка «Отмена» закрывает без действия.
+
+`doGenerate` выделен в `useCallback` — одна функция и для прямого вызова (когда текст пустой/короткий), и для подтверждения в диалоге.
+
+Добавлен импорт `useCallback` из React.
+
+**3. Домен — нет пользовательских amvera.io URL в TSX**
+
+Проверено: grep по `amvera\.io` в `.tsx`-файлах вернул `0 совпадений` в пользовательском коде. Все вхождения — только в комментариях кода (URL документации Amvera API), `replit.md` и `docs/AGENT_INSTRUCTIONS.md`. Замена не требуется.
+
+**4. Инфраструктура Replit**
+
+На текущем Replit созданы два воркфлоу:
+- **API Server** (`console`, порт 8080): `PORT=8080 pnpm --filter @workspace/api-server run dev`
+- **Start application** (`webview`, порт 5000): `PORT=5000 BASE_PATH=/ pnpm --filter @workspace/hochu-to run dev`
+
+### Чему это нас учит (НЕ регрессировать)
+
+- **Direct DeepSeek ≠ Amvera.** Для прямого DeepSeek используется стандартный Chat Completions формат: `Authorization: Bearer DEEPSEEK_API_KEY`, поле сообщений `content` (не `text`), ответ в `choices[0].message.content`. Это противоположно Amvera, где `X-Auth-Token: Bearer`, поле `text`, ответ в `alternatives[0].message.text`.
+- **window.confirm в iframe = тихий баг.** Replit и другие iframe-среды блокируют нативный диалог без вывода ошибки — пользователь видит, что нажал кнопку, но ничего не произошло. При любом новом confirm-паттерне сразу использовать AlertDialog.
+- **Цепочка провайдеров теперь трёхуровневая.** При смоке AI-эндпоинтов с `provider: "amvera"` и отсутствующим Amvera-токеном система должна попробовать DeepSeek, и только если и он недоступен — вернуть mock. Если возвращается mock при живом DEEPSEEK_API_KEY — искать ошибку в промежуточном catch.
+
+### Smoke (PASS на dev, 30.04.2026)
+1. esbuild api-server build — без ошибок типов ✓
+2. Workflow `API Server` (порт 8080) + `Start application` (порт 5000) подняты и работают ✓
+3. `GET /api/health`, `/api/listings`, `/api/categories`, `/api/regions` → 200 ✓
+4. AI mock-режим: `POST /api/ai/generate-description` с `provider:"mock"` → `actualProvider:"mock"`, `fallback:false` ✓
+5. Фронтенд (`/`) рендерится, хедер, hero, CTA-кнопки — всё на месте ✓
+
+### Прод-чеклист (после деплоя на Amvera/hochuto.ru)
+1. Установить `DEEPSEEK_API_KEY = sk-bbf4cc431aa4488895da859c9516492e` в переменные окружения Amvera.
+2. Проверить: `POST /api/ai/generate-description` с `provider: "amvera"` — если Amvera жив, должен вернуть `actualProvider: "amvera"`, `fallback: false`.
+3. Временно убрать `AMVERA_API_TOKEN` → повторить запрос → должен сработать DeepSeek (`actualProvider` будет `"amvera"`, но в логах — `"Amvera failed, trying direct DeepSeek API"` + успех).
+4. UI: в форме добавления вещи нажать «Сгенерировать ИИ-описание» при заполненном поле — должен появиться AlertDialog (не нативный confirm).
+
+### Push
+```bash
+bash scripts/github-push.sh "feat(ai): direct DeepSeek API fallback (Amvera→DeepSeek→Mock); refactor(ui): AlertDialog instead of window.confirm"
+```
+
+---
 
 ## Журнал — Stage 33 (AI-Арбитражор / Vision Analysis, ПЛАНИРУЕТСЯ)
 
