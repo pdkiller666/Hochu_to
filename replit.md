@@ -185,6 +185,11 @@ bash scripts/setup-new-replit.sh
 - `SESSION_SECRET` — ≥32 символа (`openssl rand -hex 32`)
 - `DATABASE_URL` — Replit ставит автоматически
 
+**Опциональные AI-ключи (для реальной генерации описаний):**
+- `GEMINI_API_KEY` — Google Gemini (рекомендуется как основной провайдер)
+- `AMVERA_API_TOKEN` — Amvera DeepSeek-V3 (российский шлюз)
+- `DEEPSEEK_API_KEY` — прямой DeepSeek API (api.deepseek.com), второй резерв после Amvera (Stage 33.0)
+
 **Опциональные (нужны только при `is_commercial_mode=true` — Stage 21a):**
 - `YOOKASSA_SHOP_ID`, `YOOKASSA_SECRET_KEY` — реквизиты ИП в ЮKassa
 - `YOOKASSA_WEBHOOK_SECRET` — обязателен в production (HMAC-SHA256 подпись вебхуков)
@@ -1291,6 +1296,7 @@ bash scripts/github-push.sh "fix(ai): restore working gemini-flash-latest model 
 
 ### Будущие фичи (Roadmap, не начато)
 
+- **Stage 33.0 (30.04.2026)** — AI-избыточность + UI-полировка: прямой DeepSeek API (`api.deepseek.com`) как второй резерв (Amvera → Direct DeepSeek → Mock); `window.confirm()` заменён на кастомный AlertDialog в `ListingForm.tsx`; секрет `DEEPSEEK_API_KEY` добавлен.
 - **Stage 33 — AI-Арбитражор (Vision Analysis)** — следующий research stage. Мультимодальный LLM-вердикт по спорам, human-in-the-loop. Перед стартом нужен design discovery с CTO по 5 открытым вопросам (см. журнал Stage 33 в `docs/AGENT_INSTRUCTIONS.md`).
 - Партнёрские бейджи для юрлиц (5% комиссии вместо 10%).
 
