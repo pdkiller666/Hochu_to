@@ -1,8 +1,10 @@
+import { createServer } from "http";
 import app from "./app";
 import { logger } from "./lib/logger";
 import { startScheduler } from "./lib/scheduler";
 import { ensurePlatformSettings } from "./lib/platform-settings";
 import { backfillListingCounters } from "./lib/backfill-counters";
+import { initWebSocketServer } from "./lib/websocket";
 import { db, usersTable } from "@workspace/db";
 import { sql, eq } from "drizzle-orm";
 import bcrypt from "bcryptjs";
@@ -25,13 +27,11 @@ async function seedDefaultAdmin() {
   try {
     const defaultEmail = process.env["ADMIN_EMAIL"] ?? "admin@hochu.to";
     
-    // 1. Ищем пользователя именно по email, так как он должен быть уникальным
     const existingUser = await db.query.usersTable.findFirst({
       where: eq(usersTable.email, defaultEmail),
     });
     
     if (existingUser) {
-      // 2. Если пользователь уже существует, но он не админ — выдаем ему права админа
       if (existingUser.role !== "admin") {
         await db.update(usersTable)
           .set({ role: "admin" })
@@ -46,7 +46,6 @@ async function seedDefaultAdmin() {
     const defaultPassword = process.env["ADMIN_PASSWORD"] ?? "Admin123!";
     const passwordHash = await bcrypt.hash(defaultPassword, 10);
 
-    // 3. Защита на уровне БД: onConflictDoNothing
     await db.insert(usersTable).values({
       name: "Администратор",
       email: defaultEmail,
@@ -56,14 +55,11 @@ async function seedDefaultAdmin() {
 
     logger.info({ email: defaultEmail }, "Default admin created. Change password after first login.");
   } catch (err) {
-    // 4. Защита от падения: сервер продолжит работу даже при сбое БД в этой функции
     logger.warn({ err }, "Non-fatal error during seedDefaultAdmin. Server will continue to start.");
   }
 }
 
 // ─── Stage 30D: AI provider env diagnostics ────────────────────────────────
-// Печатаем только наличие и длину ключей, чтобы убедиться, что они доехали
-// до контейнера. Сами ключи НИКОГДА не логируем.
 console.log("--- AI CONFIG DIAGNOSTICS ---");
 console.log(
   "GEMINI_KEY exists:",
@@ -79,7 +75,11 @@ console.log(
 );
 console.log("-----------------------------");
 
-app.listen(port, "0.0.0.0", async (err) => {
+// ─── Stage 34: HTTP server + WebSocket server ────────────────────────────────
+const httpServer = createServer(app);
+initWebSocketServer(httpServer);
+
+httpServer.listen(port, "0.0.0.0", async (err?: Error) => {
   if (err) {
     logger.error({ err }, "Error listening on port");
     process.exit(1);

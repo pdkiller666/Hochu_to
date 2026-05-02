@@ -1,0 +1,51 @@
+Task: Stage 34 – Real-time WebSockets (Chats & Notifications - Robust Architecture)
+
+Context:
+We need to replace HTTP polling for chats and notifications with a real-time WebSocket connection.
+
+🚨 CRITICAL SAFETY RULES:
+
+Keep existing POST endpoints for sending messages/notifications. WS is ONLY for pushing updates to the client.
+
+Security: DO NOT send tokens in the WS query string.
+
+Action 1: Backend WebSocket Setup (artifacts/api-server/src/index.ts or similar)
+
+Install ws and @types/ws. Attach WebSocketServer to the HTTP server.
+
+Auth Protocol: The client connects without a token. The server waits up to 5 seconds for a { type: "auth", token: "..." } message. If valid, associate the socket with userId in an in-memory Map (add a comment: // TODO: Replace Map with Redis Pub/Sub for horizontal scaling). If invalid/timeout, close the socket.
+
+Heartbeat: Implement a ping/pong interval (e.g., 30s). Close sockets that don't respond to prevent memory leaks.
+
+Export broadcastToUser(userId, event, payload) function.
+
+Action 2: Backend Triggers (Broadcasts)
+
+Chats: After saving a new message to DB, call broadcastToUser(receiverId, 'NEW_MESSAGE', messageData). Crucial: Do not broadcast to the author of the message to prevent UI duplicates.
+
+Notifications: After generating a notification, call broadcastToUser(userId, 'NEW_NOTIFICATION', notificationData).
+
+Action 3: Frontend Hook (artifacts/hochu-to/src/lib/use-websocket.ts)
+
+Create a global React hook or Context Provider.
+
+On connect, immediately send the auth frame: { type: "auth", token: localStorageToken }.
+
+Implement auto-reconnect (every 3-5 seconds if dropped).
+
+Expose isConnected boolean and a way to subscribe to events (NEW_MESSAGE, NEW_NOTIFICATION).
+
+Action 4: Frontend UI Cleanup (BookingChat.tsx, Notifications.tsx etc.)
+
+REMOVE all setInterval HTTP polling logic.
+
+State Sync logic: Fetch the full list of messages/notifications via standard REST only on component mount AND whenever isConnected flips from false to true (to catch missed messages during disconnect).
+
+Push new items to the state reactively when WS events arrive.
+
+Display a subtle connection indicator (e.g., a small green/orange dot) in the chat header using the isConnected flag.
+
+Commit:
+feat(realtime): implement robust WebSockets with secure auth, ping/pong, and sync logic
+
+Эта задача потребует от агента концентрации, так как затрагивает и ядро сервера, и стейт-менеджмент фронтенда.

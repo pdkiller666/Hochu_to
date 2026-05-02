@@ -1,5 +1,6 @@
 import { db, notificationsTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
+import { broadcastToUser } from "./websocket.js";
 
 // ─── Gender helpers (Stage 33.1) ─────────────────────────────────────────────
 //
@@ -100,14 +101,19 @@ export async function createNotification(params: {
   bookingId?: number;
   listingTitle?: string;
 }) {
-  await db.insert(notificationsTable).values({
+  const [notif] = await db.insert(notificationsTable).values({
     userId: params.userId,
     type: params.type,
     title: params.title,
     message: params.message,
     bookingId: params.bookingId,
     listingTitle: params.listingTitle,
-  });
+  }).returning();
+
+  // Stage 34: push notification to the user via WebSocket
+  if (notif) {
+    broadcastToUser(params.userId, "NEW_NOTIFICATION", notif);
+  }
 }
 
 export async function reminderAlreadySent(

@@ -38,6 +38,7 @@ import { SupportSection } from "@/components/ui/SupportSection";
 import { usePersistedState } from "@/lib/use-persisted-state";
 import { useToast } from "@/hooks/use-toast";
 import { usePublicSettings } from "@/lib/use-public-settings";
+import { useWs } from "@/lib/use-websocket";
 
 type BookingStatusFilter = "all" | "pending" | "confirmed" | "active" | "return_pending" | "completed" | "rejected" | "cancelled";
 type ListingVisFilter = "all" | "active" | "hidden";
@@ -299,6 +300,8 @@ export default function Dashboard() {
   const [unreadCounts, setUnreadCounts] = useState<Record<number, number>>({});
   const [chatResetKey, setChatResetKey] = useState(0);
 
+  const { isConnected, subscribe } = useWs();
+
   const fetchMessages = useCallback(async (bookingId: number, silent = false) => {
     try {
       const res = await fetch(`${DASHBOARD_API}/api/bookings/${bookingId}/messages`, {
@@ -331,16 +334,30 @@ export default function Dashboard() {
     } catch { /* silent */ }
   }, [DASHBOARD_API, openChatId]);
 
-  // Initial unread counts load
-  useEffect(() => { fetchUnreadCounts(); }, [fetchUnreadCounts]);
+  // Stage 34: fetch on mount + refetch when WS reconnects (catch missed messages)
+  useEffect(() => { fetchUnreadCounts(); }, [fetchUnreadCounts, isConnected]);
 
-  // Poll messages when a chat is open (every 5s)
+  // Stage 34: fetch messages on open + refetch on reconnect (no polling)
   useEffect(() => {
     if (openChatId === null) return;
     fetchMessages(openChatId);
-    const id = setInterval(() => fetchMessages(openChatId, true), 5_000);
-    return () => clearInterval(id);
-  }, [openChatId, fetchMessages]);
+  }, [openChatId, fetchMessages, isConnected]);
+
+  // Stage 34: push incoming messages reactively from WebSocket
+  useEffect(() => {
+    return subscribe("NEW_MESSAGE", (payload) => {
+      const msg = payload as ChatMessage;
+      // Add to open chat immediately; increment unread badge for closed chats
+      setChatMessages((prev) => {
+        const existing = prev[msg.bookingId] ?? [];
+        if (existing.some((m) => m.id === msg.id)) return prev;
+        return { ...prev, [msg.bookingId]: [...existing, msg] };
+      });
+      if (openChatId !== msg.bookingId) {
+        setUnreadCounts((prev) => ({ ...prev, [msg.bookingId]: (prev[msg.bookingId] ?? 0) + 1 }));
+      }
+    });
+  }, [subscribe, openChatId]);
 
   // Scroll chat panel into view when opened
   useEffect(() => {
@@ -1404,6 +1421,11 @@ export default function Dashboard() {
                     {unread}
                   </span>
                 )}
+                {/* Stage 34: WS connection indicator */}
+                <span
+                  title={isConnected ? "Чат подключён" : "Переподключение..."}
+                  className={`w-2 h-2 rounded-full flex-shrink-0 ${isConnected ? "bg-emerald-500" : "bg-amber-400"}`}
+                />
                 <span className="text-xs text-muted-foreground ml-auto">{isChatOpen ? "▲" : "▼"}</span>
               </button>
             </div>

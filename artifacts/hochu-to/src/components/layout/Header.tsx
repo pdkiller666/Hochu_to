@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { useAuthState, getToken, getAuthHeaders } from "@/lib/auth";
 import { useGetCurrentUser, useGetRegions } from "@workspace/api-client-react";
 import { AppNotification } from "@workspace/api-client-react";
+import { useWs } from "@/lib/use-websocket";
 import { cn } from "@/lib/utils";
 import { useRegion, getCachedGeoRegion, detectRegionByServerGeoIP } from "@/lib/region-context";
 import { useFavorites } from "@/lib/favorites-context";
@@ -169,6 +170,8 @@ export function Header() {
   const notifRef = useRef<HTMLDivElement>(null);
   const unreadCount = notifications.filter(n => !n.isRead).length;
 
+  const { isConnected, subscribe } = useWs();
+
   const fetchNotifications = useCallback(async () => {
     if (!token) return;
     try {
@@ -179,12 +182,23 @@ export function Header() {
     } catch {}
   }, [token]);
 
+  // Stage 34: fetch on mount and whenever WS reconnects (catches missed events)
   useEffect(() => {
     if (!isAuthenticated) return;
     fetchNotifications();
-    const interval = setInterval(fetchNotifications, 30000);
-    return () => clearInterval(interval);
-  }, [isAuthenticated, fetchNotifications]);
+  }, [isAuthenticated, fetchNotifications, isConnected]);
+
+  // Stage 34: push new notifications from WS (no more polling)
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    return subscribe("NEW_NOTIFICATION", (payload) => {
+      const notif = payload as AppNotification;
+      setNotifications((prev) => {
+        if (prev.some((n) => n.id === notif.id)) return prev;
+        return [notif, ...prev];
+      });
+    });
+  }, [isAuthenticated, subscribe]);
 
   // Close dropdown when clicking outside
   useEffect(() => {

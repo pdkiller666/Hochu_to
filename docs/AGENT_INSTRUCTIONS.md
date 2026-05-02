@@ -2928,6 +2928,85 @@ fix(ai): harden Stage 33 arbitration with timeouts, explicit model fallback, and
 
 ---
 
+## Журнал — Stage 34 (Real-time WebSockets — Chats & Notifications, 02.05.2026)
+
+**Контекст.** Чаты в `Dashboard.tsx` опрашивали сервер каждые 5 секунд (`setInterval`), уведомления в `Header.tsx` — каждые 30 секунд. Stage 34 заменяет HTTP polling на WebSocket push.
+
+### Архитектура
+
+```
+Client                          Server
+  │  connect  ws://host/ws        │
+  │ ─────────────────────────>    │
+  │  { type:"auth", token }       │
+  │ ─────────────────────────>    │
+  │         { type:"authenticated"│
+  │ <─────────────────────────    │
+  │                               │
+  │         { type:"NEW_MESSAGE"  │  ← после POST /bookings/:id/messages
+  │ <─────────────────────────    │     broadcastToUser(receiverId)
+  │     { type:"NEW_NOTIFICATION" │  ← после createNotification()
+  │ <─────────────────────────    │
+```
+
+**Ключевые решения:**
+- Токен передаётся в первом сообщении (`{ type:"auth", token }`), **не** в query string — безопасно.
+- 5-секундный таймаут аутентификации — если клиент не прислал auth-фрейм, сокет закрывается.
+- Heartbeat: ping каждые 30 сек, terminate если нет pong (предотвращает утечку памяти).
+- `// TODO: Replace Map with Redis Pub/Sub for horizontal scaling` — в `websocket.ts`.
+- broadcast ТОЛЬКО получателю сообщения (НЕ отправителю) — предотвращает дублирование в UI.
+
+### Что сделано
+
+**Action 1 — Бэкенд `artifacts/api-server/src/lib/websocket.ts` (новый файл):**
+- `initWebSocketServer(httpServer)` — WebSocketServer на пути `/ws`.
+- Auth timeout 5 сек, ping/pong каждые 30 сек.
+- `clients: Map<userId, Set<AuthenticatedSocket>>` — in-memory registry.
+- `broadcastToUser(userId, event, payload)` — отправляет JSON всем открытым вкладкам пользователя.
+- `pnpm add ws` + `pnpm add -D @types/ws`.
+
+**Action 2 — Бэкенд `artifacts/api-server/src/index.ts`:**
+- `app.listen(...)` → `createServer(app)` + `initWebSocketServer(httpServer)` + `httpServer.listen(...)`.
+
+**Action 3 — Бэкенд triggers:**
+- `routes/bookings.ts` (`POST /:id/messages`): после `insert(bookingMessagesTable)` вызывает `broadcastToUser(receiverId, "NEW_MESSAGE", message)`.
+- `lib/notifications.ts` (`createNotification`): `insert(...).returning()` + `broadcastToUser(userId, "NEW_NOTIFICATION", notif)`.
+
+**Action 4 — Фронтенд `artifacts/hochu-to/src/lib/use-websocket.ts` (новый файл):**
+- `WsProvider` + `useWs()` hook.
+- Подключение при монтировании, auth-фрейм сразу после `onopen`.
+- Auto-reconnect через 4 сек после разрыва.
+- `subscribe(event, cb)` → возвращает unsubscribe-функцию.
+- Экспортирует `isConnected: boolean`.
+
+**Action 5 — Фронтенд `artifacts/hochu-to/src/App.tsx`:**
+- `<WsProvider>` обёртывает весь `<QueryClientProvider>`.
+
+**Action 6 — Фронтенд `artifacts/hochu-to/vite.config.ts`:**
+- Добавлен WS-прокси: `/ws` → `ws://localhost:8080` с `ws: true`.
+
+**Action 7 — Фронтенд `Header.tsx`:**
+- **Удалён** `setInterval(fetchNotifications, 30000)`.
+- Fetch при mount и при `isConnected` flip (синхронизация после переподключения).
+- `subscribe("NEW_NOTIFICATION", ...)` — push новых уведомлений.
+
+**Action 8 — Фронтенд `Dashboard.tsx`:**
+- **Удалён** `setInterval(() => fetchMessages(...), 5_000)`.
+- Fetch при `openChatId` + `isConnected` flip.
+- `subscribe("NEW_MESSAGE", ...)` — push входящих сообщений + обновление `unreadCounts`.
+- 🟢/🟡 индикатор соединения (2px dot) в заголовке каждого чата (`title="Чат подключён"` / `"Переподключение..."`).
+
+**Проверка:**
+```
+[18:44:22.792] INFO: WS: WebSocket server initialized at /ws  ✅
+```
+
+```bash
+feat(realtime): Stage 34 – implement robust WebSockets with secure auth, ping/pong, and sync logic
+```
+
+---
+
 ## Журнал — Quick Fix: Stable Gemini Alias for Vision (02.05.2026)
 
 **Проблема.** В Stage 33.1 AI hardening дефолт `GEMINI_VISION_MODEL` был ошибочно выставлен в `"gemini-1.5-flash"`. Этот алиас даёт **404 Not Found** на `v1beta` endpoint Google (задокументировано в Stage 30G journal). Единственный стабильный алиас — `"gemini-flash-latest"`.

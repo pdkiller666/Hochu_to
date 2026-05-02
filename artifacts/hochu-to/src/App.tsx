@@ -10,6 +10,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { useEffect } from "react";
 import { RegionProvider } from "@/lib/region-context";
 import { FavoritesProvider } from "@/lib/favorites-context";
+import { WsProvider } from "@/lib/use-websocket";
 import { getToken, refreshAccessToken, logoutEverywhere } from "@/lib/auth";
 import NotFound from "@/pages/not-found";
 
@@ -113,17 +114,19 @@ function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <RegionProvider>
-        <FavoritesProvider>
-          <TooltipProvider>
-            <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-              <BetaBanner />
-              <Router />
-            </WouterRouter>
-            <Toaster />
-          </TooltipProvider>
-        </FavoritesProvider>
-      </RegionProvider>
+      <WsProvider>
+        <RegionProvider>
+          <FavoritesProvider>
+            <TooltipProvider>
+              <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+                <BetaBanner />
+                <Router />
+              </WouterRouter>
+              <Toaster />
+            </TooltipProvider>
+          </FavoritesProvider>
+        </RegionProvider>
+      </WsProvider>
     </QueryClientProvider>
   );
 }

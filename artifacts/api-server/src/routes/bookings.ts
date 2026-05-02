@@ -8,6 +8,7 @@ import { getPlatformSettings, num } from "../lib/platform-settings.js";
 import { applyBookingCountDelta, bookingCountDelta, bookingCounts } from "../lib/listing-counters.js";
 import { recordAuditEvent } from "../lib/audit-events.js";
 import { recalcTrustScoreForUsers } from "../lib/trust-score.js";
+import { broadcastToUser } from "../lib/websocket.js";
 
 const router = Router();
 
@@ -1119,6 +1120,11 @@ router.post("/:id/messages", requireAuth, async (req: AuthRequest, res) => {
     .insert(bookingMessagesTable)
     .values({ bookingId, senderId: req.userId!, content })
     .returning();
+
+  // Stage 34: push new message to the receiver via WebSocket
+  // Do NOT broadcast to the sender — prevents UI duplicates
+  const receiverId = booking.ownerId === req.userId ? booking.renterId : booking.ownerId;
+  broadcastToUser(receiverId, "NEW_MESSAGE", message);
 
   res.status(201).json(message);
 });

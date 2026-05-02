@@ -71,6 +71,11 @@ export default defineConfig({
         target: `http://localhost:${process.env.API_PORT ?? "8080"}`,
         changeOrigin: true,
       },
+      "/ws": {
+        target: `ws://localhost:${process.env.API_PORT ?? "8080"}`,
+        ws: true,
+        changeOrigin: true,
+      },
     },
     fs: {
       strict: true,
