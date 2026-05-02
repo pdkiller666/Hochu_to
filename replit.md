@@ -331,15 +331,32 @@ Located at `artifacts/api-server/src/lib/scheduler.ts`. Runs every hour via `nod
 - **Язык общения**: всегда отвечать на русском
 - **Git push**: после каждой успешной итерации работы ОБЯЗАТЕЛЬНО выполнять `bash scripts/github-push.sh "описание"` — проект должен быть актуален на GitHub для деплоя через Amvera
 - Если `git add/commit` блокируется Replit (index.lock), скрипт всё равно пушит последний checkpoint-коммит
-- Деплой: GitHub → Amvera (Docker через прямой git push)
-- **Amvera git push** (выполняется пользователем в Shell — агент не может делать git push):
+- Деплой: GitHub `main` → Amvera webhook → Docker build
+
+### ⚠️ КРИТИЧНО: Ветки Amvera
+
+| Где | Ветка |
+|-----|-------|
+| Replit / GitHub | `main` |
+| Amvera git repo (`git.msk0.amvera.ru`) | `master` |
+| Amvera webhook (слушает GitHub) | `main` |
+
+**Это разные ветки!** Amvera держит свой git-репозиторий на ветке `master`, но webhook настроен слушать GitHub `main`. При прямом push в Amvera нужно указывать `main:master`.
+
+- **Основной деплой (через GitHub webhook — автоматически):**
   ```bash
-  # Установить remote (один раз):
-  git remote set-url amvera https://pdkiller666:4_5AznCgvidfr5x@git.msk0.amvera.ru/pdkiller666/hocuto
-  # Запушить:
-  git push amvera main
+  git push https://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@github.com/pdkiller666/Hochu_to.git main
   ```
-  Amvera автоматически пересобирает Docker-образ при получении пуша в main.
+  Amvera получает webhook от GitHub и запускает пересборку.
+
+- **Прямой push в Amvera (emergency — если webhook не сработал):**
+  ```bash
+  # Обычный пуш (если истории совпадают):
+  git push https://pdkiller666:4_5AznCgvidfr5x@git.msk0.amvera.ru/pdkiller666/hocuto main:master
+
+  # Форс-пуш (если rejected non-fast-forward — Amvera master расходится с нашей историей):
+  git push --force https://pdkiller666:4_5AznCgvidfr5x@git.msk0.amvera.ru/pdkiller666/hocuto main:master
+  ```
 - **GitHub push** (2 способа): `bash scripts/github-push.sh "сообщение"` ИЛИ `GITHUB_TOKEN=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 git push origin main`
 - **Документация — синхронно с пушем**: на каждой итерации обновлять оба файла:
   - `docs/AGENT_INSTRUCTIONS.md` — добавлять блок «Журнал — Stage X» (что сделано, какие схемы/эндпоинты/UI, какие миграции, что проверено).

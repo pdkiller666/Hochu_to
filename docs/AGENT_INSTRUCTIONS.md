@@ -79,9 +79,40 @@ pnpm --filter @workspace/api-server run seed    # seed данные
 
 Amvera — российский Docker-хостинг. Деплой происходит автоматически через **GitHub webhook** при каждом пуше в ветку `main`.
 
-### Workflow деплоя:
+### ⚠️ КРИТИЧНО: Ветки Amvera
+
+| Где | Ветка |
+|-----|-------|
+| Replit / GitHub | `main` |
+| Amvera git repo (`git.msk0.amvera.ru`) | `master` |
+| Amvera webhook (слушает GitHub) | `main` |
+
+Это **разные ветки**. Amvera держит свой git-репозиторий на ветке `master`, но webhook настроен слушать GitHub `main`. При прямом push в Amvera нужно указывать `main:master`.
+
+### Workflow деплоя (основной — через GitHub):
 ```
-git push → GitHub → Amvera webhook → Docker build (Kaniko) → запуск контейнера
+Replit checkpoint (main) → git push → GitHub (main) → Amvera webhook → Docker build из master → запуск контейнера
+```
+
+### Команды деплоя (выполняет пользователь в Shell — агент не может делать git push):
+
+**Шаг 1 — push в GitHub (тригерит webhook Amvera автоматически):**
+```bash
+git push https://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@github.com/pdkiller666/Hochu_to.git main
+```
+Если `Everything up-to-date` (нечего пушить) — сделать пустой commit:
+```bash
+git commit --allow-empty -m "trigger amvera build"
+git push https://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@github.com/pdkiller666/Hochu_to.git main
+```
+
+**Шаг 2 (emergency) — прямой push в Amvera если webhook не сработал:**
+```bash
+# Обычный пуш:
+git push https://pdkiller666:4_5AznCgvidfr5x@git.msk0.amvera.ru/pdkiller666/hocuto main:master
+
+# Форс-пуш (если rejected non-fast-forward — Amvera master расходится с нашей историей):
+git push --force https://pdkiller666:4_5AznCgvidfr5x@git.msk0.amvera.ru/pdkiller666/hocuto main:master
 ```
 
 ### При старте контейнера (CMD в Dockerfile):
@@ -2798,11 +2829,17 @@ refactor(ui/logic): GPS multi-pins, gender-aware notifications, bullets cache (S
 - **Любой нативный npm-пакет** (с бинарниками) должен быть явно прописан в `dependencies` И в `onlyBuiltDependencies` в `pnpm-workspace.yaml`. Иначе prod-контейнер его не получит / не скомпилирует.
 - При добавлении нового пакета проверять: нужен ли он в prod (не только в dev)? Если да — в `dependencies`, а не в `devDependencies`.
 
-### Amvera push команды (сохранить)
+### Amvera push команды (актуальные)
+
+> ⚠️ Amvera git-репозиторий использует ветку `master`, GitHub — `main`. При прямом push в Amvera всегда указывать `main:master`.
 
 ```bash
-# Добавить/обновить remote (пароль вшит в URL):
-git remote set-url amvera https://pdkiller666:4_5AznCgvidfr5x@git.msk0.amvera.ru/pdkiller666/hocuto
-# Запушить:
-git push amvera main
+# Основной путь — push в GitHub (webhook Amvera тригерится автоматически):
+git push https://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@github.com/pdkiller666/Hochu_to.git main
+
+# Emergency: прямой push в Amvera (если webhook не сработал):
+git push https://pdkiller666:4_5AznCgvidfr5x@git.msk0.amvera.ru/pdkiller666/hocuto main:master
+
+# Emergency + форс (если rejected non-fast-forward):
+git push --force https://pdkiller666:4_5AznCgvidfr5x@git.msk0.amvera.ru/pdkiller666/hocuto main:master
 ```
