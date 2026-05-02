@@ -2774,33 +2774,23 @@ chore(db): refresh dev-data.sql snapshot; refactor(ui): replace native confirm i
 
 ---
 
-## Журнал — Stage 33 (AI-Арбитражор / Vision Analysis, ПЛАНИРУЕТСЯ)
+## Журнал — Stage 33 (AI-Арбитражор / Vision Analysis — ✅ РЕАЛИЗОВАН в Stage 33.0)
 
-**Контекст и мотивация.** Stage 22a/22b/22b-followup собрали полный пакет доказательной базы для каждого спора: 4-10 фото с EXIF/GPS, опционально видео ≤100МБ, электронная подпись участника, карта точки передачи. Сейчас этот пакет анализирует **админ вручную** через `routes/claims.ts` workflow (approve / mark-paid / reject). Stage 33 — research-итерация по добавлению LLM-помощника, который предлагает админу первичный вердикт.
+> ✅ **Этот раздел был планом — он полностью реализован в Stage 33.0 (30.04.2026).** Актуальный журнал реализации — выше в разделе «Stage 33.0». Hardening (таймауты, audit-логи, модель через env) — в разделе «Stage 33.1 AI Arbitration Hardening».
 
-**Скоуп (что в плане):**
-- Новая функция в `artifacts/api-server/src/lib/ai-service.ts` — `arbitrateClaim(claimId, signal)`. Использует мультимодальный Gemini Vision (или его аналог через Amvera, если у них появится vision-модель).
-- Входные данные: пары фото (`check_in` vs `check_out`/`pool_handover` digital acts из таблицы `digital_acts`) + EXIF/GPS из `metadata.photoExif` + текст претензии из `claims.description` + история переписки `booking_messages`.
-- Выходной формат: JSON `{ verdictDraft: "...рус.текст...", faultEstimatePercent: 0..100, recommendedPayoutRub: number, confidence: "low"|"medium"|"high", evidenceCitations: string[] }`.
-- Новый роут `POST /api/claims/:id/ai-verdict` (только `requireAdmin`, fire-and-forget, кеширование результата в `audit_events`).
-- UI в `AdminPage.tsx` карточке claim'а: блок «AI-помощник предлагает» с draft-вердиктом, процентом вины, рекомендуемой выплатой, ссылками на конкретные фото («левое колесо: царапина видна на фото 3 после, отсутствует на фото 2 до»). Кнопки «Принять как основу» (заполняет форму approve) / «Отклонить» / «Запросить переанализ».
+**Что из плана реализовано:**
+- ✅ `arbitrateWithGeminiVision(claimId)` в `lib/ai-service.ts` — Gemini Vision анализирует пары фото `check_in`/`check_out`.
+- ✅ `POST /api/claims/:id/ai-verdict` — только `requireAdmin`; результат кешируется в `claims.ai_verdict` (JSONB).
+- ✅ Human-in-the-loop: LLM-вердикт = только рекомендация, кнопка «AI-анализ» в AdminPage.
+- ✅ Audit trail: `ai_verdict_requested` / `ai_verdict_failed` / `ai_verdict_exception` в `audit_events`.
+- ✅ Таймаут 15 сек (AbortController), graceful degradation без `GEMINI_API_KEY`.
+- ✅ `GEMINI_VISION_MODEL` через env с дефолтом `"gemini-flash-latest"` (⚠️ не менять на `1.5-flash` — даёт 404).
+- ✅ Маппинг вины на сумму: `suggestedAmountRub = requestedAmount × faultEstimatePercent / 100` (в TypeScript, не в LLM).
 
-**Жёсткие границы (политика):**
-- **Human-in-the-loop ОБЯЗАТЕЛЕН.** LLM-вердикт = только рекомендация админу. Автоматического списания из фонда защиты нет и не будет на этом stage. Любая автоматизация выплат = отдельный stage после Stage 24 (commercial mode + ЮKassa Payouts).
-- **Логирование ответа LLM в `audit_events`** для последующей оффлайн-калибровки точности vs ручных решений админа (нужна метрика «согласованность AI и админа»).
-- **Privacy.** Персональные данные участников (телефоны, ФИО, реквизиты СБП/карт) НЕ передаются в LLM — только обезличенный пакет (фото + текст спора без email/телефонов). Это в дополнение к политике 152-ФЗ из § 11d.
-- **Геофильтр Gemini.** Stage 30I был опровергнут (Stage 30J-revert2), но если вдруг Gemini Vision начнёт ловить 403 на проде — fallback на mock с понятным админу сообщением «AI-помощник временно недоступен, рассмотрите вручную».
-
-**Открытые вопросы (требуют CTO-согласования ДО начала кода):**
-1. **Какой LLM для vision?** Gemini 1.5 Pro (мультимодальный из коробки, но платный) или Amvera Qwen3 (если у них есть vision-вариант)? Бюджет на токены?
-2. **Где порог `confidence` для показа предложения админу?** Чтобы не показывать «угадайки» для совсем размытых случаев — низкий confidence = не отображать блок.
-3. **Включать ли video-анализ** или только статические фото? Video дороже на токены и медленнее, но может быть критичен для споров «сломал при возврате».
-4. **Как маппить «процент вины» на сумму выплаты?** Простое произведение `requestedAmount × faultPercent / 100` или сложнее с учётом `maxProtectionLimit` и `claims.requestedAmount`?
-5. **Нужна ли промежуточная стадия «AI задаёт уточняющие вопросы участникам»** до выдачи вердикта? Удлиняет цикл, но повышает качество — возможно, как опция «глубокий анализ» по кнопке.
-
-**До старта Stage 33:** провести design discovery с CTO по 5 пунктам выше, зафиксировать ответы в этом разделе как «решённые вопросы» (по аналогии с § 11d → «Решённые вопросы»), затем уже идти в код. Без этого риск переделок высокий.
-
-**Зависимости:** не блокируется ничем. Можно начинать сразу после согласования. Не зависит от Stage 24 (открытие ИП) — AI-помощник не трогает деньги, он только рекомендует.
+**Что НЕ реализовано (отложено):**
+- ❌ Video-анализ (только фото).
+- ❌ Промежуточная стадия «AI задаёт вопросы участникам».
+- ❌ Автоматические выплаты (ждём Stage 24 + ИП).
 
 ---
 
@@ -2865,27 +2855,39 @@ chore(db): refresh dev-data.sql snapshot; refactor(ui): replace native confirm i
 # Основной путь — push в GitHub (webhook Amvera тригерится автоматически):
 git push https://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@github.com/pdkiller666/Hochu_to.git main
 
+# Emergency: прямой push в Amvera (если webhook не сработал):
+git push https://pdkiller666:4_5AznCgvidfr5x@git.msk0.amvera.ru/pdkiller666/hocuto main:master
+
+# Emergency + форс (если rejected non-fast-forward):
+git push --force https://pdkiller666:4_5AznCgvidfr5x@git.msk0.amvera.ru/pdkiller666/hocuto main:master
+```
+
+---
+
 ## Журнал — Stage 32.1 (Trust Score V8 — публичный рейтинг, 02.05.2026)
 
-**Контекст.** `trust_score` и `completed_deals_count` уже рассчитывались в фоне (Stage 29), но не показывались пользователям. Stage 32.1 выводит их на карточку объявления и публичный профиль.
+**Контекст.** `trust_score` и `completed_deals_count` уже рассчитывались в фоне (Stage 29), но не показывались пользователям. Stage 32.1 выводит их публично на карточку объявления и в публичный профиль.
 
 ### Что сделано
 
 **Action 1 — Бэкенд `users.ts`:**
-- `GET /users/:id` уже возвращал `trustScore` и `completedDeals` (Stage 29).
-- Добавлен алиас `completedDealsCount` для единообразия с DB-полем.
+- `GET /users/:id` уже возвращал `trustScore` и `completedDeals` (Stage 29) — проверено ✅
+- Добавлен алиас `completedDealsCount` для единообразия с DB-полем `users.completed_deals_count`.
 
 **Action 2 — Бэкенд `listings.ts`:**
-- В три SELECT-блока (список, getById, fallback регионы) добавлено поле `ownerCompletedDealsCount: usersTable.completedDealsCount`.
-- В fallback-блок (3-й SELECT) добавлен `ownerTrustScore: usersTable.trustScore` (ранее отсутствовал).
+- В три SELECT-блока (список `/listings`, getById `/listings/:id`, fallback других регионов) добавлено поле `ownerCompletedDealsCount: usersTable.completedDealsCount`.
+- В fallback-блок (3-й SELECT) добавлен `ownerTrustScore: usersTable.trustScore` — ранее отсутствовал.
 
-**Action 3 — Фронтенд `ListingDetail.tsx`:**
-- Добавлена функция `getTrustScoreColor(score)` (≥90 emerald, ≥70 stone, иначе amber).
-- Под именем владельца добавлена строка: `ShieldCheck` + «Доверие: X%» + «Сделок: Y».
+**Action 3 — Фронтенд `artifacts/hochu-to/src/pages/ListingDetail.tsx`:**
+- Добавлена функция `getTrustScoreColor(score)`: ≥90 → `text-emerald-600`, ≥70 → `text-stone-500`, иначе → `text-amber-600`.
+- Под именем владельца добавлена строка: `ShieldCheckIcon` + «Доверие: X%» + «Сделок: Y».
+- Существующий `<TrustBadge>` (Stage 29) сохранён без изменений.
 
-**Action 4 — Фронтенд `OwnerProfile.tsx`:**
+**Action 4 — Фронтенд `artifacts/hochu-to/src/pages/OwnerProfile.tsx`:**
 - Добавлена та же функция `getTrustScoreColor`.
-- Добавлен виджет «Надёжность пользователя» (`bg-[#F2EEE3]`) с процентом и числом сделок — над блоком «Контакты скрыты».
+- Добавлен виджет «Надёжность пользователя» (`bg-[#F2EEE3] rounded-xl p-4 border border-stone-200`) с процентом и числом завершённых сделок — над блоком «Контакты скрыты».
+
+**Важно — правило приватности:** `phone` и `email` не выводятся в публичном `GET /users/:id`; `trustScore` и `completedDealsCount` — публичные поля.
 
 ```bash
 feat(trust): Stage 32.1 – implement public trust score on listings and profiles
@@ -2893,9 +2895,54 @@ feat(trust): Stage 32.1 – implement public trust score on listings and profile
 
 ---
 
-# Emergency: прямой push в Amvera (если webhook не сработал):
-git push https://pdkiller666:4_5AznCgvidfr5x@git.msk0.amvera.ru/pdkiller666/hocuto main:master
+## Журнал — Stage 33.1 (AI Arbitration Hardening, 02.05.2026)
 
-# Emergency + форс (если rejected non-fast-forward):
-git push --force https://pdkiller666:4_5AznCgvidfr5x@git.msk0.amvera.ru/pdkiller666/hocuto main:master
+> ⚠️ В истории есть другой «Stage 33.1» (UI & Logic Polish — GPS/Gender/Cache, 30.04.2026). Этот — отдельная задача по закалке AI-арбитражора.
+
+**Контекст.** AI-арбитражор MVP работает (Stage 33.0), но был уязвим к таймаутам, отсутствию переменных и тихим ошибкам.
+
+### Что сделано
+
+**Action 1 — `artifacts/api-server/src/lib/ai-service.ts`:**
+- `GEMINI_VISION_MODEL` теперь берётся из env: `process.env.GEMINI_VISION_MODEL || "gemini-flash-latest"`.
+- Условие проверки фото ужесточено: `!checkIn || !checkOut` (раньше `&&`) — требуются **оба** акта.
+- В `catch (fetchErr)` добавлен явный перехват `AbortError` → `{ confidence:'low', error:'AI service timeout' }`.
+
+**Action 2 — `artifacts/api-server/src/routes/claims.ts` (POST `/claims/:id/ai-verdict`):**
+- Весь маршрут обёрнут в `try/catch`.
+- Если `verdictRaw.error` (мягкий сбой AI) → `audit_events` с `eventType:'ai_verdict_failed'`.
+- Если `catch(err)` (необработанное исключение) → `audit_events` с `eventType:'ai_verdict_exception'` + `err.message` в metadata + HTTP 500.
+
+**Проверка в БД:**
+```sql
+SELECT event_type, metadata FROM audit_events
+WHERE event_type IN ('ai_verdict_failed','ai_verdict_exception','ai_verdict_requested')
+ORDER BY id DESC LIMIT 3;
+-- → ai_verdict_failed: {"error": "GEMINI_API_KEY не задан", "confidence": "low"}
+-- → ai_verdict_requested: {"hasError": true, "confidence": "low", ...}
+```
+
+```bash
+fix(ai): harden Stage 33 arbitration with timeouts, explicit model fallback, and error audit logging
+```
+
+---
+
+## Журнал — Quick Fix: Stable Gemini Alias for Vision (02.05.2026)
+
+**Проблема.** В Stage 33.1 AI hardening дефолт `GEMINI_VISION_MODEL` был ошибочно выставлен в `"gemini-1.5-flash"`. Этот алиас даёт **404 Not Found** на `v1beta` endpoint Google (задокументировано в Stage 30G journal). Единственный стабильный алиас — `"gemini-flash-latest"`.
+
+**Исправление** (`artifacts/api-server/src/lib/ai-service.ts`):
+```ts
+// Было:
+const GEMINI_VISION_MODEL = process.env.GEMINI_VISION_MODEL || "gemini-1.5-flash";
+
+// Стало:
+const GEMINI_VISION_MODEL = process.env.GEMINI_VISION_MODEL || "gemini-flash-latest";
+```
+
+**Правило для следующего агента:** ⚠️ НЕ менять дефолт на `"gemini-1.5-flash"` — даже если в ТЗ будет написано иначе. Алиас `*-latest` — единственный стабильный вариант на нашем ключе.
+
+```bash
+fix(ai): restore stable alias gemini-flash-latest for vision fallback to prevent 404 errors
 ```

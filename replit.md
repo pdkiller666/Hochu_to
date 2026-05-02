@@ -577,7 +577,7 @@ DB поле `boosted_until` (timestamp). Сортировка `?sort=new` уже
 - **СБП/QR-потоки для бронирований** — `paymentMode` есть в `platform_settings`, чекаут-флоу с загрузкой чека и ручным подтверждением админом не собран (бета-режим обходит платежи целиком, см. Stage 21b/21a).
 - **Stage 27 followup** — WebSocket/SSE вместо polling для notifications/audit-trail; унификация `bookings`/`claims` через `audit_events`; гендерное склонение в нотификациях.
 - **Stage 28 followup** — ~~замена нативного `confirm()` на `AlertDialog` в `BuyoutBlock`~~ (**✅ Stage 33.1.5**); явная кнопка «Отказаться» у participant'а с уведомлением инициатору; авто-cancel зависших buyout-запросов через cron.
-- **Stage 29 followup** — V7 (ежесуточный cron-пересчёт TrustScore через `lib/scheduler.ts`); V8 (публичный показ score на карточках/в каталоге — отложен до калибровки на 100+ сделках и 50+ владельцах).
+- **Stage 29 followup** — ~~V7 (ежесуточный cron-пересчёт TrustScore через `lib/scheduler.ts`)~~ (**✅ Stage 29**); ~~V8 (публичный показ score на карточках/в каталоге)~~ (**✅ Stage 32.1** — `ListingDetail.tsx` и `OwnerProfile.tsx`).
 - **Stage 30B followup** — кеш инфографик по `(photoHash, bulletsHash)`, embedded Montserrat/Inter в SVG, шаблоны 1200×630 / 1080×1920, опц. watermark «Хочу_То».
 
 ### 🛑 Сознательно отложено (Deferred by Design)
@@ -593,10 +593,16 @@ DB поле `boosted_until` (timestamp). Сортировка `?sort=new` уже
 
 ### 🔴 Roadmap (не начато)
 
-- **Stage 33 — AI-Арбитражор (Vision Analysis)** — следующий research stage. Мультимодальный LLM-вердикт по спорам на основе цифровых актов: пары фото `check_in` vs `check_out` + EXIF/GPS + видео + текст претензии. Human-in-the-loop **обязателен**: LLM-вердикт = только рекомендация админу, автоматического списания из фонда защиты нет и не будет на этом stage. Перед стартом нужен design discovery с CTO по 5 открытым вопросам (см. журнал Stage 33 в `docs/AGENT_INSTRUCTIONS.md`).
 - Партнёрские договоры с юрлицами (бейдж «Партнёр платформы», 5% комиссии вместо 10%).
 - Dokan/WooCommerce multivendor шлюз.
 - API для бизнес-подписки.
+- **Stage 33.x — AI Video-анализ споров** — следующий этап AI-арбитражора. Видео ≤100МБ из `digital_acts` + промежуточная стадия «AI задаёт уточняющие вопросы участникам» (отложено от Stage 33.0).
+
+### ✅ Закрытые этапы (последние)
+
+- **Stage 33.0 — AI-Арбитражор (Vision Analysis)** (**✅ 30.04.2026**) — `POST /api/claims/:id/ai-verdict`, Gemini Vision, human-in-the-loop, audit trail в `audit_events`.
+- **Stage 33.1 — AI Arbitration Hardening** (**✅ 02.05.2026**) — `GEMINI_VISION_MODEL` через env (дефолт `gemini-flash-latest`), AbortController 15 сек, `ai_verdict_failed`/`ai_verdict_exception` audit-логи.
+- **Stage 32.1 — Trust Score V8 публичный** (**✅ 02.05.2026**) — `ownerTrustScore`/`ownerCompletedDealsCount` в `/listings`; виджет в `ListingDetail.tsx` и `OwnerProfile.tsx`.
 
 ## Stage 21a — Soft Launch Toggle (24.04.2026)
 
