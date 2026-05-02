@@ -1,28 +1,107 @@
 /**
  * Stage 30B — AI Visual Magic: генератор инфографики.
  *
- * Превращает обычное фото вещи в маркетплейс-карточку 1080×1080 с тремя
- * буллетами-преимуществами в фирменных цветах «Хочу_То».
+ * Stage 32-B followup:
+ *   - Шрифты Montserrat-Bold + Inter-Regular встроены прямо в SVG через @font-face
+ *     data URI (base64). librsvg подхватывает их без системного fontconfig.
+ *     Фоллбэк: DejaVu Sans (установлен в Dockerfile) при ошибке загрузки файлов.
+ *   - Disk-кэш готовых WebP в /tmp/infographic-cache/ по SHA-256(photo+bullets).
+ *     Повторная генерация одной и той же инфографики: 0 мс (fs.readFile).
+ *     Кэш живёт 24 часа, очищается при старте модуля.
+ *   - Горизонтальный шаблон 1200×630 (OpenGraph / соцсети): buildHorizontalImage().
  *
- * Используется библиотека sharp (нативная, externalized в build.mjs).
- *
- * Палитра:
- *   #F2EEE3 — фоновый кремовый
- *   #C65D3B — терракотовый акцент (галочки, плашка бренда)
- *   #2B2B2B — основной текст
- *
- * Шрифт: расширенный system-стек (Stage 30B-Fix) — librsvg/fontconfig в минимальном
- * контейнере Amvera (`node:20-slim`) подбирает первый доступный шрифт с поддержкой
- * кириллицы и не падает в "tofu" (□□□) для русских символов.
+ * Палитра: #F2EEE3 кремовый · #C65D3B терракотовый · #2B2B2B текст
  */
+import { createHash } from "crypto";
+import { promises as fs } from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 import sharp from "sharp";
 
-// Stage 30B-Fix (heavy plan): "DejaVu Sans" и "Liberation Sans" ставятся в Dockerfile
-// (fonts-dejavu-core + fonts-liberation) — они гарантированно содержат полный набор
-// кириллических глифов. Остальные имена в стеке — фоллбэк для локальной разработки
-// (NixOS / macOS / Windows). librsvg/fontconfig идёт по списку слева направо.
-const FONT_STACK =
-  "'DejaVu Sans', 'Liberation Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Ubuntu, 'Helvetica Neue', sans-serif";
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Шрифты лежат в src/assets/fonts/. Путь работает и из dist/lib/ (скомпилировано),
+// и из src/lib/ (если запуск напрямую): оба на 2 уровня выше project-root, затем src/.
+const FONTS_DIR = path.join(__dirname, "../../src/assets/fonts");
+
+// ─── Disk cache ───────────────────────────────────────────────────────────────
+
+const CACHE_DIR = "/tmp/infographic-cache";
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+async function initCache(): Promise<void> {
+  await fs.mkdir(CACHE_DIR, { recursive: true });
+  try {
+    const files = await fs.readdir(CACHE_DIR);
+    const now = Date.now();
+    await Promise.all(
+      files.map(async (f) => {
+        const fp = path.join(CACHE_DIR, f);
+        const stat = await fs.stat(fp);
+        if (now - stat.mtimeMs > CACHE_TTL_MS) await fs.unlink(fp).catch(() => {});
+      }),
+    );
+  } catch { /* ignore */ }
+}
+initCache().catch(() => {});
+
+function makeCacheKey(prefix: string, photoBuffer: Buffer, bullets: string[]): string {
+  return prefix + "_" + createHash("sha256")
+    .update(photoBuffer)
+    .update("|")
+    .update(bullets.join("|"))
+    .digest("hex");
+}
+
+async function getCached(key: string): Promise<Buffer | null> {
+  try {
+    return await fs.readFile(path.join(CACHE_DIR, `${key}.webp`));
+  } catch { return null; }
+}
+
+async function putCached(key: string, data: Buffer): Promise<void> {
+  try {
+    await fs.writeFile(path.join(CACHE_DIR, `${key}.webp`), data);
+  } catch { /* ignore */ }
+}
+
+// ─── Font loading (lazy, cached in memory) ────────────────────────────────────
+
+let _fontFaceBlock: string | null = null;
+
+async function getFontFaceBlock(): Promise<string> {
+  if (_fontFaceBlock !== null) return _fontFaceBlock;
+  try {
+    const [montserratBuf, interBuf] = await Promise.all([
+      fs.readFile(path.join(FONTS_DIR, "Montserrat-Bold.ttf")),
+      fs.readFile(path.join(FONTS_DIR, "Inter-Regular.ttf")),
+    ]);
+    const mb64 = montserratBuf.toString("base64");
+    const ib64 = interBuf.toString("base64");
+    _fontFaceBlock = `
+    @font-face {
+      font-family: 'Montserrat';
+      font-weight: 700;
+      src: url('data:font/truetype;base64,${mb64}') format('truetype');
+    }
+    @font-face {
+      font-family: 'Inter';
+      font-weight: 400;
+      src: url('data:font/truetype;base64,${ib64}') format('truetype');
+    }`;
+  } catch {
+    // Шрифты не найдены — пустой блок, librsvg использует DejaVu (установлен в Dockerfile)
+    _fontFaceBlock = "";
+  }
+  return _fontFaceBlock;
+}
+
+// ─── Font stacks ──────────────────────────────────────────────────────────────
+
+const FONT_HEADING = "'Montserrat', 'DejaVu Sans', 'Liberation Sans', sans-serif";
+const FONT_BODY = "'Inter', 'DejaVu Sans', 'Liberation Sans', sans-serif";
+
+// ─── Constants: 1080×1080 (квадрат) ─────────────────────────────────────────
 
 const CANVAS = 1080;
 const PHOTO_X = 500;
@@ -30,25 +109,32 @@ const PHOTO_Y = 120;
 const PHOTO_W = 540;
 const PHOTO_H = 840;
 const PHOTO_RADIUS = 36;
-
 const TEXT_X = 60;
 const TEXT_Y = 120;
 const TEXT_W = 420;
 const TEXT_H = 840;
-
-// Stage 30B-Fix v2: уменьшили шрифт и max-chars, чтобы кириллица гарантированно
-// помещалась в текстовую колонку без обрезки. Раньше 32px / 24 символа на строку
-// давали overflow по ширине (DejaVu Sans Bold cyrillic ~ 18px на символ).
-//
-// MAX_CHARS=16 — эмпирически безопасно для кириллицы 28px при ширине колонки
-// TEXT_W-BULLET_TEXT_X = 320px. Шире — широкие глифы «щ»/«ы»/«м» обрезаются
-// (из-за того что SVG-композит ограничен width=420 и текст за границей клипается).
 const BULLET_FONT_SIZE = 28;
 const BULLET_LINE_HEIGHT = 36;
 const BULLET_TEXT_X = 100;
 const BULLET_MAX_CHARS = 16;
 
-/** Защита от XML-инъекций через буллеты. */
+// ─── Constants: 1200×630 (горизонталь / OG) ──────────────────────────────────
+
+const H_W = 1200;
+const H_H = 630;
+const H_PHOTO_X = 600;
+const H_PHOTO_Y = 0;
+const H_PHOTO_W = 600;
+const H_PHOTO_H = 630;
+const H_TEXT_W = 560;
+const H_TEXT_H = 630;
+const H_BULLET_TEXT_X = 80;
+const H_BULLET_MAX_CHARS = 22;
+const H_BULLET_FONT_SIZE = 24;
+const H_BULLET_LINE_HEIGHT = 30;
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
 function escapeXml(s: string): string {
   return s
     .replace(/&/g, "&amp;")
@@ -58,7 +144,13 @@ function escapeXml(s: string): string {
     .replace(/'/g, "&apos;");
 }
 
-/** Аккуратный перенос длинной строки на 2 строки по словам (≤BULLET_MAX_CHARS на строку). */
+const STICKY_NEXT = new Set([
+  "в", "и", "к", "с", "у", "о", "а",
+  "от", "по", "до", "на", "за", "из",
+  "для", "под", "над", "при", "без",
+  "не", "ни", "но", "же", "ли",
+]);
+
 function wrapBullet(s: string, maxChars = BULLET_MAX_CHARS): string[] {
   if (s.length <= maxChars) return [s];
   const words = s.split(/\s+/);
@@ -72,12 +164,10 @@ function wrapBullet(s: string, maxChars = BULLET_MAX_CHARS): string[] {
     const line2 = words.slice(i).join(" ");
     if (line1.length > maxChars) break;
     if (line2.length > maxChars) continue;
-
     const lastW1 = words[i - 1].toLowerCase();
     const stickyPenalty = STICKY_NEXT.has(lastW1) ? 1000 : 0;
     const balance = Math.abs(line1.length - line2.length);
     const score = balance + stickyPenalty;
-
     if (!best || score < best.score) best = { line1, line2, score };
   }
 
@@ -85,31 +175,25 @@ function wrapBullet(s: string, maxChars = BULLET_MAX_CHARS): string[] {
   return [words[0], words.slice(1).join(" ")];
 }
 
-/**
- * Короткие предлоги/союзы, которые нельзя оставлять в конце строки —
- * иначе они «осиротеют», а следующее слово уедет на новую строку отдельно
- * («Идеально для и / туризм спорт»).
- */
-const STICKY_NEXT = new Set([
-  "в", "и", "к", "с", "у", "о", "а",
-  "от", "по", "до", "на", "за", "из",
-  "для", "под", "над", "при", "без",
-  "не", "ни", "но", "же", "ли",
-]);
+function buildPhotoMaskSvg(w: number, h: number, r: number): string {
+  return `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
+    <rect x="0" y="0" width="${w}" height="${h}" rx="${r}" ry="${r}" fill="white" />
+  </svg>`;
+}
 
-/** Генерация SVG-наклейки с 3 буллетами (галочка + текст). */
-function buildBulletsSvg(bullets: string[]): string {
+// ─── SVG builders ─────────────────────────────────────────────────────────────
+
+function buildBulletsSvg(bullets: string[], fontFaceBlock: string): string {
   const safe = bullets.slice(0, 3).map(escapeXml);
-  // Распределяем 3 строки в колонке высотой TEXT_H, начиная сверху после плашки бренда
   const rowYs = [240, 440, 640];
   const rows = safe
     .map((b, idx) => {
-      const lines = wrapBullet(b);
+      const lines = wrapBullet(b, BULLET_MAX_CHARS);
       const y = rowYs[idx] ?? 240 + idx * 200;
       const textNodes = lines
         .map(
           (line, li) =>
-            `<text x="${BULLET_TEXT_X}" y="${y + 12 + li * BULLET_LINE_HEIGHT}" class="bullet" font-family="${FONT_STACK}" text-anchor="start">${line}</text>`,
+            `<text x="${BULLET_TEXT_X}" y="${y + 12 + li * BULLET_LINE_HEIGHT}" class="bullet" text-anchor="start">${line}</text>`,
         )
         .join("");
       return `
@@ -125,31 +209,63 @@ function buildBulletsSvg(bullets: string[]): string {
 
   return `<svg width="${TEXT_W}" height="${TEXT_H}" xmlns="http://www.w3.org/2000/svg">
   <style>
-    .brand { font-weight: 800; font-size: 44px; fill: #2B2B2B; }
-    .brand-accent { fill: #C65D3B; }
-    .tagline { font-weight: 600; font-size: 18px; fill: #6B5E50; letter-spacing: 1px; }
-    .bullet { font-weight: 700; font-size: ${BULLET_FONT_SIZE}px; fill: #2B2B2B; }
+    ${fontFaceBlock}
+    .brand   { font-family: ${FONT_HEADING}; font-weight: 700; font-size: 44px; fill: #2B2B2B; }
+    .accent  { fill: #C65D3B; }
+    .tagline { font-family: ${FONT_BODY}; font-weight: 400; font-size: 18px; fill: #6B5E50; letter-spacing: 1px; }
+    .bullet  { font-family: ${FONT_BODY}; font-weight: 400; font-size: ${BULLET_FONT_SIZE}px; fill: #2B2B2B; }
   </style>
-  <text x="0" y="60" class="brand" font-family="${FONT_STACK}" text-anchor="start">Хочу<tspan class="brand-accent">_То</tspan></text>
-  <text x="0" y="92" class="tagline" font-family="${FONT_STACK}" text-anchor="start">МАРКЕТПЛЕЙС АРЕНДЫ</text>
+  <text x="0" y="60" class="brand" text-anchor="start">Хочу<tspan class="accent">_То</tspan></text>
+  <text x="0" y="92" class="tagline" text-anchor="start">МАРКЕТПЛЕЙС АРЕНДЫ</text>
   ${rows}
   <line x1="0" y1="${TEXT_H - 30}" x2="${TEXT_W - 40}" y2="${TEXT_H - 30}" stroke="#C65D3B" stroke-width="3" />
 </svg>`;
 }
 
-/** SVG-маска со скруглением углов для фото. */
-function buildPhotoMaskSvg(w: number, h: number, r: number): string {
-  return `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
-    <rect x="0" y="0" width="${w}" height="${h}" rx="${r}" ry="${r}" fill="white" />
-  </svg>`;
+function buildHorizontalBulletsSvg(bullets: string[], fontFaceBlock: string): string {
+  const safe = bullets.slice(0, 3).map(escapeXml);
+  const rowYs = [200, 360, 510];
+  const rows = safe
+    .map((b, idx) => {
+      const lines = wrapBullet(b, H_BULLET_MAX_CHARS);
+      const y = rowYs[idx] ?? 200 + idx * 150;
+      const textNodes = lines
+        .map(
+          (line, li) =>
+            `<text x="${H_BULLET_TEXT_X}" y="${y + 10 + li * H_BULLET_LINE_HEIGHT}" class="bullet" text-anchor="start">${line}</text>`,
+        )
+        .join("");
+      return `
+        <g>
+          <circle cx="34" cy="${y}" r="26" fill="#C65D3B" />
+          <path d="M21 ${y} L31 ${y + 10} L47 ${y - 10}"
+                stroke="white" stroke-width="5"
+                stroke-linecap="round" stroke-linejoin="round" fill="none" />
+          ${textNodes}
+        </g>`;
+    })
+    .join("");
+
+  return `<svg width="${H_TEXT_W}" height="${H_TEXT_H}" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    ${fontFaceBlock}
+    .brand   { font-family: ${FONT_HEADING}; font-weight: 700; font-size: 40px; fill: #2B2B2B; }
+    .accent  { fill: #C65D3B; }
+    .tagline { font-family: ${FONT_BODY}; font-weight: 400; font-size: 16px; fill: #6B5E50; letter-spacing: 1px; }
+    .bullet  { font-family: ${FONT_BODY}; font-weight: 400; font-size: ${H_BULLET_FONT_SIZE}px; fill: #2B2B2B; }
+  </style>
+  <text x="30" y="64" class="brand" text-anchor="start">Хочу<tspan class="accent">_То</tspan></text>
+  <text x="30" y="88" class="tagline" text-anchor="start">МАРКЕТПЛЕЙС АРЕНДЫ</text>
+  ${rows}
+  <line x1="30" y1="${H_TEXT_H - 20}" x2="${H_TEXT_W - 20}" y2="${H_TEXT_H - 20}" stroke="#C65D3B" stroke-width="2" />
+</svg>`;
 }
 
+// ─── Public API ───────────────────────────────────────────────────────────────
+
 /**
- * Главная функция Stage 30B: собрать инфографику 1080×1080.
- *
- * @param imageBuffer  исходное фото пользователя (любой формат, любой размер)
- * @param bullets      ровно 3 коротких буллета (если меньше — добиваем плейсхолдерами)
- * @returns Buffer формата WebP (качество 88) — компактный, поддержка прозрачности.
+ * Собрать инфографику 1080×1080 (квадрат, Instagram/Avito).
+ * Результат кэшируется на диске 24 ч по SHA-256(photo+bullets).
  */
 export async function buildInfographicImage(
   imageBuffer: Buffer,
@@ -158,7 +274,12 @@ export async function buildInfographicImage(
   const safeBullets = [...bullets];
   while (safeBullets.length < 3) safeBullets.push("Готово к работе");
 
-  // 1) Базовый кремовый холст 1080×1080
+  const cacheKey = makeCacheKey("sq", imageBuffer, safeBullets);
+  const cached = await getCached(cacheKey);
+  if (cached) return cached;
+
+  const fontFaceBlock = await getFontFaceBlock();
+
   const base = sharp({
     create: {
       width: CANVAS,
@@ -168,31 +289,22 @@ export async function buildInfographicImage(
     },
   });
 
-  // 2) Подготовка фото: автоповорот по EXIF, contain-fit в PHOTO_W×PHOTO_H
-  //    (с белыми полосами при необходимости), скруглённые углы через маску.
   const fittedPhoto = await sharp(imageBuffer)
-    .rotate() // EXIF auto-rotate
-    .resize(PHOTO_W, PHOTO_H, {
-      fit: "cover",
-      position: "centre",
-    })
+    .rotate()
+    .resize(PHOTO_W, PHOTO_H, { fit: "cover", position: "centre" })
     .png()
     .toBuffer();
 
   const maskedPhoto = await sharp(fittedPhoto)
-    .composite([
-      {
-        input: Buffer.from(buildPhotoMaskSvg(PHOTO_W, PHOTO_H, PHOTO_RADIUS)),
-        blend: "dest-in",
-      },
-    ])
+    .composite([{
+      input: Buffer.from(buildPhotoMaskSvg(PHOTO_W, PHOTO_H, PHOTO_RADIUS)),
+      blend: "dest-in",
+    }])
     .png()
     .toBuffer();
 
-  // 3) SVG с буллетами
-  const textSvg = Buffer.from(buildBulletsSvg(safeBullets));
+  const textSvg = Buffer.from(buildBulletsSvg(safeBullets, fontFaceBlock));
 
-  // 4) Финальный композит → WebP
   const out = await base
     .composite([
       { input: maskedPhoto, top: PHOTO_Y, left: PHOTO_X },
@@ -201,5 +313,52 @@ export async function buildInfographicImage(
     .webp({ quality: 88 })
     .toBuffer();
 
+  await putCached(cacheKey, out);
+  return out;
+}
+
+/**
+ * Собрать инфографику 1200×630 (горизонталь, OpenGraph / ВКонтакте / Telegram).
+ * Кэш по тому же механизму (24 ч).
+ */
+export async function buildHorizontalImage(
+  imageBuffer: Buffer,
+  bullets: string[],
+): Promise<Buffer> {
+  const safeBullets = [...bullets];
+  while (safeBullets.length < 3) safeBullets.push("Готово к работе");
+
+  const cacheKey = makeCacheKey("hz", imageBuffer, safeBullets);
+  const cached = await getCached(cacheKey);
+  if (cached) return cached;
+
+  const fontFaceBlock = await getFontFaceBlock();
+
+  const base = sharp({
+    create: {
+      width: H_W,
+      height: H_H,
+      channels: 4,
+      background: { r: 0xf2, g: 0xee, b: 0xe3, alpha: 1 },
+    },
+  });
+
+  const fittedPhoto = await sharp(imageBuffer)
+    .rotate()
+    .resize(H_PHOTO_W, H_PHOTO_H, { fit: "cover", position: "centre" })
+    .png()
+    .toBuffer();
+
+  const textSvg = Buffer.from(buildHorizontalBulletsSvg(safeBullets, fontFaceBlock));
+
+  const out = await base
+    .composite([
+      { input: fittedPhoto, top: H_PHOTO_Y, left: H_PHOTO_X },
+      { input: textSvg, top: 0, left: 0 },
+    ])
+    .webp({ quality: 88 })
+    .toBuffer();
+
+  await putCached(cacheKey, out);
   return out;
 }

@@ -1,6 +1,6 @@
 # Workspace — Хочу_То Rental Marketplace
 
-## Overview
+## Overview 
 
 Full-stack rental marketplace "Хочу_То" (I Want That) — a platform for renting items and joint purchases in Russia. Built as a pnpm monorepo with React+Vite frontend and Express API backend.
 
@@ -185,6 +185,11 @@ bash scripts/setup-new-replit.sh
 - `SESSION_SECRET` — ≥32 символа (`openssl rand -hex 32`)
 - `DATABASE_URL` — Replit ставит автоматически
 
+**Опциональные AI-ключи (для реальной генерации описаний):**
+- `GEMINI_API_KEY` — Google Gemini (рекомендуется как основной провайдер)
+- `AMVERA_API_TOKEN` — Amvera DeepSeek-V3 (российский шлюз)
+- `DEEPSEEK_API_KEY` — прямой DeepSeek API (api.deepseek.com), второй резерв после Amvera (Stage 33.0)
+
 **Опциональные (нужны только при `is_commercial_mode=true` — Stage 21a):**
 - `YOOKASSA_SHOP_ID`, `YOOKASSA_SECRET_KEY` — реквизиты ИП в ЮKassa
 - `YOOKASSA_WEBHOOK_SECRET` — обязателен в production (HMAC-SHA256 подпись вебхуков)
@@ -304,6 +309,15 @@ Indexed on `booking_id`, `booking_number`, `actor_id`, `created_at` for fast loo
 
 Located at `artifacts/api-server/src/lib/scheduler.ts`. Runs every hour via `node-cron`. Started in `index.ts` on server boot (also runs once immediately on startup).
 
+**Расписание (Stage 32 полировка, 02.05.2026):**
+- **Каждый час:** reminders + auto-transitions + buyout-cancel + promo-cleanup
+- **Ежедневно в 03:00:** trust-score-recalc
+
+**Новые cron-функции (Stage 32):**
+- `runBuyoutAutoCancel` — отменяет `buyout_requests` в статусе `pending`/`awaiting_payment`, созданные более 24ч назад; шлёт `buyout_request_cancelled` инициатору и участникам.
+- `runPromoCleanup` — очищает истёкшие промо-флаги (`isFeatured`, `isUrgent`, `boostedUntil`) в таблице `listingsTable`.
+- `runDailyTrustScoreRecalc` — ежесуточный пересчёт `trust_score` через `recalcTrustScoreForUsers` для всех незабаненных пользователей.
+
 **8 reminder rules tied to booking dates:**
 1. `pending` + created_at > 24h → `reminder_confirm_pending` to **owner** (+ 48h to **renter**)
 2a. `confirmed` + startDate = tomorrow + нет check_in акта → `reminder_checkin_soon` to **both** (Stage 22b-followup, 24ч-предупреждение «оформите Цифровой акт»)
@@ -326,7 +340,51 @@ Located at `artifacts/api-server/src/lib/scheduler.ts`. Runs every hour via `nod
 - **Язык общения**: всегда отвечать на русском
 - **Git push**: после каждой успешной итерации работы ОБЯЗАТЕЛЬНО выполнять `bash scripts/github-push.sh "описание"` — проект должен быть актуален на GitHub для деплоя через Amvera
 - Если `git add/commit` блокируется Replit (index.lock), скрипт всё равно пушит последний checkpoint-коммит
-- Деплой: GitHub webhook → Amvera (Docker)
+- Деплой: GitHub `main` → Amvera webhook → Docker build
+
+## SEO-хук (`useDocumentMeta`)
+
+Создан в `artifacts/hochu-to/src/lib/use-document-meta.ts`. Устанавливает `document.title`, `<meta name="description">` и полный набор OG/Twitter-тегов для каждой страницы. Автоматически сбрасывает title при размонтировании.
+
+**Применён к страницам (Stage 32 полировка, 02.05.2026):**
+| Страница | title | noindex |
+|---|---|---|
+| Home | "Аренда вещей рядом с вами" | — |
+| Catalog | "Каталог аренды" | — |
+| ListingDetail | динамически = `listing.title` + город + цена + первое фото как og:image | — |
+| About | "О нас" | — |
+| Contacts | "Контакты" | — |
+| How-to-rent | "Как арендовать вещь" | — |
+| How-to-list | "Как сдать вещь в аренду" | — |
+| Guarantee-fund | "Гарантийный фонд" | — |
+| Privacy | "Политика конфиденциальности" | ✅ |
+| Terms | "Пользовательское соглашение" | ✅ |
+
+### ⚠️ КРИТИЧНО: Ветки Amvera
+
+| Где | Ветка |
+|-----|-------|
+| Replit / GitHub | `main` |
+| Amvera git repo (`git.msk0.amvera.ru`) | `master` |
+| Amvera webhook (слушает GitHub) | `main` |
+
+**Это разные ветки!** Amvera держит свой git-репозиторий на ветке `master`, но webhook настроен слушать GitHub `main`. При прямом push в Amvera нужно указывать `main:master`.
+
+- **Основной деплой (через GitHub webhook — автоматически):**
+  ```bash
+  git push https://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@github.com/pdkiller666/Hochu_to.git main
+  ```
+  Amvera получает webhook от GitHub и запускает пересборку.
+
+- **Прямой push в Amvera (emergency — если webhook не сработал):**
+  ```bash
+  # Обычный пуш (если истории совпадают):
+  git push https://pdkiller666:4_5AznCgvidfr5x@git.msk0.amvera.ru/pdkiller666/hocuto main:master
+
+  # Форс-пуш (если rejected non-fast-forward — Amvera master расходится с нашей историей):
+  git push --force https://pdkiller666:4_5AznCgvidfr5x@git.msk0.amvera.ru/pdkiller666/hocuto main:master
+  ```
+- **GitHub push** (2 способа): `bash scripts/github-push.sh "сообщение"` ИЛИ `GITHUB_TOKEN=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 git push origin main`
 - **Документация — синхронно с пушем**: на каждой итерации обновлять оба файла:
   - `docs/AGENT_INSTRUCTIONS.md` — добавлять блок «Журнал — Stage X» (что сделано, какие схемы/эндпоинты/UI, какие миграции, что проверено).
   - `replit.md` — обновлять разделы `API Routes`, `Database Schema`, `Project Checklist` (✅ / 🟡 / 🔴) так, чтобы карта проекта всегда отражала реальность.
@@ -491,7 +549,8 @@ DB поле `boosted_until` (timestamp). Сортировка `?sort=new` уже
 - **Совместные закупки** (заявки + страница)
 - **GeoIP** для авто-выбора региона
 - **Health endpoint + Vite proxy** для dev
-- **Деплой**: GitHub → Amvera webhook (Docker), пуш через `bash scripts/github-push.sh`
+- **Деплой**: GitHub → Amvera (прямой git push), пуш через `bash scripts/github-push.sh` + `git push amvera main`
+- **Prod-Fix-1 (02.05.2026) — sharp в prod-зависимостях**: `sharp` добавлен в `artifacts/api-server/package.json` `dependencies` (ранее был только в lockfile → при `pnpm install --prod` в Dockerfile не устанавливался → `ERR_MODULE_NOT_FOUND` на эндпоинте `/api/ai/generate-infographic`). `sharp` добавлен в `onlyBuiltDependencies` в `pnpm-workspace.yaml` (нативные бинарники собираются при install). Задеплоено на Amvera 02.05.2026.
 - **Stage 17a — Payout Requests**: реквизиты карты/СБП, очередь заявок владельцев на вывод, ручной mark-paid с проставлением `payoutSettledAt` на бронях.
 - **Stage 17b-core — Compensation Payouts**: claims расширены реквизитами получателя, админский поток approve→mark-paid→reject, кнопка «Подать претензию» на завершённой Premium-броне в Dashboard.
 - **Stage 17b-limits — Анти-фрод фонда**: настройки `fundReserveRatioPct/maxClaimAmountSingleRub/maxClaimsPerUserMonth/maxClaimAmountPerListingPct`, проверки на POST/approve/mark-paid, расширенные KPI-карточки (Поступило/Выплачено/Баланс/Резерв/К выплате).
@@ -517,7 +576,7 @@ DB поле `boosted_until` (timestamp). Сортировка `?sort=new` уже
 - **Подписки владельцев** (Pro / Бизнес) — спроектированы, не реализованы.
 - **СБП/QR-потоки для бронирований** — `paymentMode` есть в `platform_settings`, чекаут-флоу с загрузкой чека и ручным подтверждением админом не собран (бета-режим обходит платежи целиком, см. Stage 21b/21a).
 - **Stage 27 followup** — WebSocket/SSE вместо polling для notifications/audit-trail; унификация `bookings`/`claims` через `audit_events`; гендерное склонение в нотификациях.
-- **Stage 28 followup** — замена нативного `confirm()` на `AlertDialog` в `BuyoutBlock`; явная кнопка «Отказаться» у participant'а с уведомлением инициатору; авто-cancel зависших buyout-запросов через cron.
+- **Stage 28 followup** — ~~замена нативного `confirm()` на `AlertDialog` в `BuyoutBlock`~~ (**✅ Stage 33.1.5**); явная кнопка «Отказаться» у participant'а с уведомлением инициатору; авто-cancel зависших buyout-запросов через cron.
 - **Stage 29 followup** — V7 (ежесуточный cron-пересчёт TrustScore через `lib/scheduler.ts`); V8 (публичный показ score на карточках/в каталоге — отложен до калибровки на 100+ сделках и 50+ владельцах).
 - **Stage 30B followup** — кеш инфографик по `(photoHash, bulletsHash)`, embedded Montserrat/Inter в SVG, шаблоны 1200×630 / 1080×1920, опц. watermark «Хочу_То».
 
@@ -1274,10 +1333,10 @@ bash scripts/github-push.sh "fix(ai): restore working gemini-flash-latest model 
 
 ### Технический бэклог (можно делать сейчас)
 
-- **Stage 27 followup** — WebSocket/SSE вместо polling, унификация audit-trail bookings/claims через `audit_events`, гендерное склонение в нотификациях.
+- **Stage 27 followup** — WebSocket/SSE вместо polling, гендерное склонение в нотификациях. ~~Унификация audit-trail bookings через `audit_events`~~ — закрыто **Stage 32-B** (02.05.2026): `recordEvent()` в bookings.ts → `recordAuditEvent(entityType="booking")`; admin.ts audit trail читает из `auditEventsTable`; scheduler auto-transitions → audit_events. `booking_events` сохранена как read-only (легаси данные).
 - **Stage 28 followup** — `AlertDialog` вместо нативного `confirm()` в `BuyoutBlock`, кнопка «Отказаться» у participant выкупа, авто-cancel зависших buyout через cron.
 - **Stage 29 followup** — V7 (ежесуточный cron-пересчёт TrustScore), V8 (публичный UI score после калибровки на 100+ сделок и 50+ владельцах).
-- **Stage 30B followup** — кеш инфографик по `(photoHash, bulletsHash)`, embedded Montserrat/Inter в SVG, шаблоны 1200×630 / 1080×1920.
+- ~~**Stage 30B followup**~~ — закрыто **Stage 32-B** (02.05.2026): disk-кэш инфографик 24ч по SHA-256(photo+bullets) в `/tmp/infographic-cache/`; Montserrat-Bold + Inter-Regular base64-embedded в SVG через `@font-face`; шаблон 1200×630 (`buildHorizontalImage`) + endpoint параметр `?format=horizontal`.
 - **Stage 30L (опц.)** — кеш AI-генераций по `(title, category, provider)`. Экономия токенов на UX «не понравилось — давай ещё раз», особенно актуально на платных провайдерах.
 
 ### Закрыто (вычеркнуто из roadmap)
@@ -1291,6 +1350,7 @@ bash scripts/github-push.sh "fix(ai): restore working gemini-flash-latest model 
 
 ### Будущие фичи (Roadmap, не начато)
 
+- **Stage 33.0 (30.04.2026)** — AI-избыточность + UI-полировка: прямой DeepSeek API (`api.deepseek.com`) как второй резерв (Amvera → Direct DeepSeek → Mock); `window.confirm()` заменён на кастомный AlertDialog в `ListingForm.tsx`; секрет `DEEPSEEK_API_KEY` добавлен.
 - **Stage 33 — AI-Арбитражор (Vision Analysis)** — следующий research stage. Мультимодальный LLM-вердикт по спорам, human-in-the-loop. Перед стартом нужен design discovery с CTO по 5 открытым вопросам (см. журнал Stage 33 в `docs/AGENT_INSTRUCTIONS.md`).
 - Партнёрские бейджи для юрлиц (5% комиссии вместо 10%).
 

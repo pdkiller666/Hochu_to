@@ -1,12 +1,30 @@
 import { Layout } from "@/components/layout/Layout";
 import { Shield, CheckCircle, Info } from "lucide-react";
 import { Link, useLocation } from "wouter";
+import { useDocumentMeta } from "@/lib/use-document-meta";
 
 export default function Instructions() {
   const [location] = useLocation();
   const isRent = location === "/how-to-rent";
   const isList = location === "/how-to-list";
   const isFund = location === "/guarantee-fund";
+
+  useDocumentMeta(
+    isFund
+      ? {
+          title: "Гарантийный фонд",
+          description: "Система защиты владельцев ХочуТо: 5% с каждой аренды идёт в общий фонд. Компенсация ущерба при порче имущества арендатором.",
+        }
+      : isRent
+      ? {
+          title: "Как арендовать вещь",
+          description: "Простая инструкция по аренде вещей на ХочуТо: найдите вещь, выберите даты, оформите бронь и заберите.",
+        }
+      : {
+          title: "Как сдать вещь в аренду",
+          description: "Инструкция для владельцев: зарегистрируйтесь, добавьте объявление и начните зарабатывать на своих вещах.",
+        }
+  );
 
   if (isFund) {
     return (

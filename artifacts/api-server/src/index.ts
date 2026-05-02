@@ -22,23 +22,43 @@ if (Number.isNaN(port) || port <= 0) {
 }
 
 async function seedDefaultAdmin() {
-  const existingAdmin = await db.query.usersTable.findFirst({
-    where: eq(usersTable.role, "admin"),
-  });
-  if (existingAdmin) return;
+  try {
+    const defaultEmail = process.env["ADMIN_EMAIL"] ?? "admin@hochu.to";
+    
+    // 1. Ищем пользователя именно по email, так как он должен быть уникальным
+    const existingUser = await db.query.usersTable.findFirst({
+      where: eq(usersTable.email, defaultEmail),
+    });
+    
+    if (existingUser) {
+      // 2. Если пользователь уже существует, но он не админ — выдаем ему права админа
+      if (existingUser.role !== "admin") {
+        await db.update(usersTable)
+          .set({ role: "admin" })
+          .where(eq(usersTable.email, defaultEmail));
+        logger.info({ email: defaultEmail }, "Existing user promoted to admin.");
+      } else {
+        logger.info({ email: defaultEmail }, "Default admin already exists, skipping seed.");
+      }
+      return;
+    }
 
-  const defaultEmail = process.env["ADMIN_EMAIL"] ?? "admin@hochu.to";
-  const defaultPassword = process.env["ADMIN_PASSWORD"] ?? "Admin123!";
-  const passwordHash = await bcrypt.hash(defaultPassword, 10);
+    const defaultPassword = process.env["ADMIN_PASSWORD"] ?? "Admin123!";
+    const passwordHash = await bcrypt.hash(defaultPassword, 10);
 
-  await db.insert(usersTable).values({
-    name: "Администратор",
-    email: defaultEmail,
-    passwordHash,
-    role: "admin",
-  });
+    // 3. Защита на уровне БД: onConflictDoNothing
+    await db.insert(usersTable).values({
+      name: "Администратор",
+      email: defaultEmail,
+      passwordHash,
+      role: "admin",
+    }).onConflictDoNothing({ target: usersTable.email });
 
-  logger.info({ email: defaultEmail }, "Default admin created. Change password after first login.");
+    logger.info({ email: defaultEmail }, "Default admin created. Change password after first login.");
+  } catch (err) {
+    // 4. Защита от падения: сервер продолжит работу даже при сбое БД в этой функции
+    logger.warn({ err }, "Non-fatal error during seedDefaultAdmin. Server will continue to start.");
+  }
 }
 
 // ─── Stage 30D: AI provider env diagnostics ────────────────────────────────

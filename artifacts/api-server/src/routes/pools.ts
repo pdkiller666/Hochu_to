@@ -14,7 +14,7 @@ import { requireAuth, type AuthRequest } from "../middleware/auth.js";
 import { getPlatformSettings } from "../lib/platform-settings.js";
 import { logger } from "../lib/logger.js";
 import { recordAuditEvent } from "../lib/audit-events.js";
-import { createNotification } from "../lib/notifications.js";
+import { createNotification, genderedWord } from "../lib/notifications.js";
 
 const router = Router();
 
@@ -430,11 +430,13 @@ router.post("/:id/shares", requireAuth, async (req: AuthRequest, res: Response) 
           .from(usersTable)
           .where(eq(usersTable.id, req.userId!))
           .limit(1);
-        const who = (contributor?.name ?? "").trim() || `Пользователь #${req.userId}`;
+        const contributorName = (contributor?.name ?? "").trim();
+        const who = contributorName || `Пользователь #${req.userId}`;
+        const transferVerb = genderedWord(contributorName, "перевёл", "перевела");
         await createNotification({
           userId: pool.creatorId,
           type: "pool_share_received_funds",
-          title: `${who} перевёл средства за долю`,
+          title: `${who} ${transferVerb} средства за долю`,
           message: `Откройте «${pool.title}» и подтвердите получение ${parsed.data.amountRub} ₽.`,
           listingTitle: pool.title,
         });
@@ -1024,11 +1026,18 @@ router.post(
           .where(eq(poolsTable.id, poolId))
           .limit(1);
         if (result.offer.buyerId) {
+          const [seller] = await db
+            .select({ name: usersTable.name })
+            .from(usersTable)
+            .where(eq(usersTable.id, req.userId!))
+            .limit(1);
+          const sellerName = (seller?.name ?? "").trim();
+          const confirmVerb = genderedWord(sellerName, "подтвердил", "подтвердила");
           await createNotification({
             userId: result.offer.buyerId,
             type: "pool_share_received",
             title: "Доля перешла к вам!",
-            message: `Продавец подтвердил получение средств в пуле${poolRow ? ` «${poolRow.title}»` : ""}. Доля теперь ваша.`,
+            message: `Продавец ${confirmVerb} получение средств в пуле${poolRow ? ` «${poolRow.title}»` : ""}. Доля теперь ваша.`,
             listingTitle: poolRow?.title ?? null,
           });
         }

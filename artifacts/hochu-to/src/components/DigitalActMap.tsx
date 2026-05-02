@@ -2,9 +2,18 @@ import { useEffect, useRef } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
-interface Props {
+interface Pin {
   lat: number;
   lng: number;
+  label?: string;
+}
+
+interface Props {
+  /** Single-pin legacy mode */
+  lat?: number;
+  lng?: number;
+  /** Multi-pin mode — overrides lat/lng */
+  pins?: Pin[];
   height?: number;
 }
 
@@ -18,21 +27,34 @@ const pinIcon = L.divIcon({
   html: PIN_SVG,
   iconSize: [28, 42],
   iconAnchor: [14, 42],
+  popupAnchor: [0, -38],
 });
 
 /**
  * Stage 22b — компактная карта точки съёмки Цифрового Акта.
  *
- * Используется в админке (DigitalActsBlock). Read-only, один пин,
- * scrollWheelZoom выключен — карта внутри длинной модалки арбитража.
- * Тайлы — публичный OSM (тот же источник, что у ListingMap).
+ * Stage 33.1 — поддержка нескольких пинов (pins[]).
+ * При наличии нескольких маркеров карта автоматически подгоняет
+ * bounds, чтобы все пины были видны. Клик по маркеру открывает
+ * popup с координатами (и label, если передан).
+ *
+ * Используется в админке (DigitalActsBlock). Read-only,
+ * scrollWheelZoom выключен — карта внутри длинной модалки.
+ * Тайлы — публичный OSM.
  */
-export function DigitalActMap({ lat, lng, height = 180 }: Props) {
+export function DigitalActMap({ lat, lng, pins, height = 180 }: Props) {
   const mapRef = useRef<HTMLDivElement>(null);
   const instanceRef = useRef<L.Map | null>(null);
 
+  // Нормализуем список пинов из обоих форматов пропсов
+  const normalizedPins: Pin[] = pins && pins.length > 0
+    ? pins
+    : (lat != null && lng != null ? [{ lat, lng }] : []);
+
+  const pinKey = normalizedPins.map(p => `${p.lat},${p.lng}`).join("|");
+
   useEffect(() => {
-    if (!mapRef.current) return;
+    if (!mapRef.current || normalizedPins.length === 0) return;
 
     if (instanceRef.current) {
       instanceRef.current.remove();
@@ -48,8 +70,23 @@ export function DigitalActMap({ lat, lng, height = 180 }: Props) {
     instanceRef.current = map;
 
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(map);
-    map.setView([lat, lng], 16);
-    L.marker([lat, lng], { icon: pinIcon }).addTo(map);
+
+    const markers: L.Marker[] = [];
+    for (const pin of normalizedPins) {
+      const m = L.marker([pin.lat, pin.lng], { icon: pinIcon }).addTo(map);
+      const popupText = pin.label
+        ? `<b>${pin.label}</b><br/>${pin.lat.toFixed(5)}, ${pin.lng.toFixed(5)}`
+        : `${pin.lat.toFixed(5)}, ${pin.lng.toFixed(5)}`;
+      m.bindPopup(popupText);
+      markers.push(m);
+    }
+
+    if (normalizedPins.length === 1) {
+      map.setView([normalizedPins[0].lat, normalizedPins[0].lng], 16);
+    } else {
+      const group = L.featureGroup(markers);
+      map.fitBounds(group.getBounds().pad(0.25));
+    }
 
     return () => {
       if (instanceRef.current) {
@@ -57,7 +94,8 @@ export function DigitalActMap({ lat, lng, height = 180 }: Props) {
         instanceRef.current = null;
       }
     };
-  }, [lat, lng]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pinKey, height]);
 
   return (
     <div

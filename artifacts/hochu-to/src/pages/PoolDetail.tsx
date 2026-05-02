@@ -1,6 +1,16 @@
 import { Layout } from "@/components/layout/Layout";
 import { Link, useParams, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useGetCurrentUser } from "@workspace/api-client-react";
 import {
   getPool,
@@ -784,6 +794,7 @@ function SellerOfferActions({ pool, offer }: { pool: PoolDetail; offer: ShareOff
   const qc = useQueryClient();
   const { toast } = useToast();
   const reserved = offer.buyerId !== null;
+  const [cancelDialog, setCancelDialog] = useState<"reserved" | "listed" | null>(null);
 
   const confirmMut = useMutation({
     mutationFn: () => confirmShareTransfer(pool.id, offer.id),
@@ -833,28 +844,66 @@ function SellerOfferActions({ pool, offer }: { pool: PoolDetail; offer: ShareOff
           Подтвердить получение и передать долю
         </button>
         <button
-          onClick={() => {
-            if (confirm("Отменить оффер? Резервация покупателя сбросится.")) cancelMut.mutate();
-          }}
+          onClick={() => setCancelDialog("reserved")}
           disabled={cancelMut.isPending}
           className="px-3 py-2 bg-stone-100 hover:bg-stone-200 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 disabled:opacity-50 transition-colors"
         >
           <X className="w-3.5 h-3.5" /> Отменить
         </button>
+
+        <AlertDialog open={cancelDialog === "reserved"} onOpenChange={(o) => !o && setCancelDialog(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Отменить оффер?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Резервация покупателя сбросится. Долю можно будет выставить снова.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Назад</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-red-600 hover:bg-red-700"
+                onClick={() => { setCancelDialog(null); cancelMut.mutate(); }}
+              >
+                Отменить оффер
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </>
     );
   }
 
   return (
-    <button
-      onClick={() => {
-        if (confirm("Снять долю с продажи?")) cancelMut.mutate();
-      }}
-      disabled={cancelMut.isPending}
-      className="px-3 py-2 bg-stone-100 hover:bg-stone-200 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 disabled:opacity-50 transition-colors"
-    >
-      <X className="w-3.5 h-3.5" /> Снять с продажи
-    </button>
+    <>
+      <button
+        onClick={() => setCancelDialog("listed")}
+        disabled={cancelMut.isPending}
+        className="px-3 py-2 bg-stone-100 hover:bg-stone-200 rounded-lg text-xs font-bold inline-flex items-center gap-1.5 disabled:opacity-50 transition-colors"
+      >
+        <X className="w-3.5 h-3.5" /> Снять с продажи
+      </button>
+
+      <AlertDialog open={cancelDialog === "listed"} onOpenChange={(o) => !o && setCancelDialog(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Снять долю с продажи?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Оффер будет удалён. Вы сможете выставить долю снова в любое время.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Назад</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              onClick={() => { setCancelDialog(null); cancelMut.mutate(); }}
+            >
+              Снять с продажи
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
 
@@ -1415,6 +1464,7 @@ function BuyoutBlock({ pool, meId }: { pool: PoolDetail; meId: number | null }) 
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [confirmingCreate, setConfirmingCreate] = useState(false);
+  const [cancelBuyoutOpen, setCancelBuyoutOpen] = useState(false);
   // Какие участники уже «согласились» (показывать СБП). Локальный UI-state, без БД.
   const [acceptedParticipants, setAcceptedParticipants] = useState<Set<number>>(new Set());
 
@@ -1586,18 +1636,36 @@ function BuyoutBlock({ pool, meId }: { pool: PoolDetail; meId: number | null }) 
           <h3 className="font-semibold text-stone-900">Идёт выкуп пула</h3>
         </div>
         {iAmInitiator && (
-          <button
-            onClick={() => {
-              if (confirm("Отменить запрос на выкуп? Все участники получат уведомление.")) {
-                cancelMut.mutate(request.id);
-              }
-            }}
-            disabled={cancelMut.isPending}
-            className="text-xs text-stone-500 hover:text-red-600 underline disabled:opacity-50"
-            data-testid="button-cancel-buyout"
-          >
-            Отменить запрос
-          </button>
+          <>
+            <button
+              onClick={() => setCancelBuyoutOpen(true)}
+              disabled={cancelMut.isPending}
+              className="text-xs text-stone-500 hover:text-red-600 underline disabled:opacity-50"
+              data-testid="button-cancel-buyout"
+            >
+              Отменить запрос
+            </button>
+
+            <AlertDialog open={cancelBuyoutOpen} onOpenChange={setCancelBuyoutOpen}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Отменить запрос на выкуп?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Все участники пула получат уведомление об отмене.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Назад</AlertDialogCancel>
+                  <AlertDialogAction
+                    className="bg-red-600 hover:bg-red-700"
+                    onClick={() => { setCancelBuyoutOpen(false); cancelMut.mutate(request.id); }}
+                  >
+                    Отменить запрос
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </>
         )}
       </div>
 

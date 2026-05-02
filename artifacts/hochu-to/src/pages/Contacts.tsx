@@ -3,8 +3,13 @@ import { Mail, MapPin, Phone } from "lucide-react";
 import { useState } from "react";
 import { useSubmitContactForm } from "@workspace/api-client-react";
 import { useToast } from "@/hooks/use-toast";
+import { useDocumentMeta } from "@/lib/use-document-meta";
 
 export default function Contacts() {
+  useDocumentMeta({
+    title: "Контакты",
+    description: "Свяжитесь с командой ХочуТо. Мы отвечаем быстро на вопросы об аренде, платформе и сотрудничестве.",
+  });
   const { toast } = useToast();
   const mutation = useSubmitContactForm();
   const [form, setForm] = useState({ name: "", email: "", subject: "", message: "" });

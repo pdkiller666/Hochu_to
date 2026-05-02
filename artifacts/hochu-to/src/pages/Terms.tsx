@@ -1,6 +1,12 @@
 import { Layout } from "@/components/layout/Layout";
+import { useDocumentMeta } from "@/lib/use-document-meta";
 
 export default function Terms() {
+  useDocumentMeta({
+    title: "Пользовательское соглашение",
+    description: "Публичная оферта и пользовательское соглашение платформы ХочуТо. Условия аренды, права и обязанности участников.",
+    noindex: true,
+  });
   return (
     <Layout>
       <div className="max-w-3xl mx-auto px-4 py-12 md:py-16">

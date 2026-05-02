@@ -7,6 +7,7 @@ import { Search, X, SlidersHorizontal, MapPin, Loader2, ChevronDown, ChevronUp, 
 import { getToken, getAuthHeaders } from "@/lib/auth";
 import { getCachedGeoRegion, setCachedGeoRegion, detectRegionByServerGeoIP, useRegion } from "@/lib/region-context";
 import { readPersistedState, clearPersistedState } from "@/lib/use-persisted-state";
+import { useDocumentMeta } from "@/lib/use-document-meta";
 
 const STORAGE_KEY = "catalog_filters";
 
@@ -71,6 +72,11 @@ async function detectRegionByGeo(regions: { name: string; slug: string }[]): Pro
 }
 
 export default function Catalog() {
+  useDocumentMeta({
+    title: "Каталог аренды",
+    description: "Тысячи объявлений аренды вещей по всей России. Инструменты, техника, туристическое снаряжение, электроника и многое другое — безопасно и выгодно.",
+  });
+
   const [location] = useLocation();
   const searchStr = useSearch();
 

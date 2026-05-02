@@ -770,13 +770,13 @@ function DigitalActsBlock({ bookingId }: { bookingId: number }) {
       {items.map((act: any) => {
         const photos: string[] = Array.isArray(act.photos) ? act.photos : [];
         const meta = act.metadata || {};
-        // Stage 22b — координаты для карты: первое фото с GPS из EXIF.
-        const gpsPhoto = Array.isArray(meta.photoExif)
-          ? meta.photoExif.find((e: any) => typeof e?.lat === "number" && typeof e?.lng === "number")
-          : null;
-        const lat: number | null = gpsPhoto?.lat ?? null;
-        const lng: number | null = gpsPhoto?.lng ?? null;
-        const hasGps = lat != null && lng != null;
+        // Stage 33.1 — все GPS-пины из EXIF (по одному на каждое фото с координатами).
+        const gpsPins: { lat: number; lng: number; label?: string }[] = Array.isArray(meta.photoExif)
+          ? meta.photoExif
+              .filter((e: any) => typeof e?.lat === "number" && typeof e?.lng === "number")
+              .map((e: any, i: number) => ({ lat: e.lat, lng: e.lng, label: `Фото ${i + 1}` }))
+          : [];
+        const hasGps = gpsPins.length > 0;
         const signature: string | null = typeof meta.signature === "string" && meta.signature.startsWith("data:image/png;base64,")
           ? meta.signature
           : null;
@@ -793,7 +793,9 @@ function DigitalActsBlock({ bookingId }: { bookingId: number }) {
                   {new Date(act.createdAt).toLocaleString("ru-RU")}
                 </span>
                 {hasGps && (
-                  <span className="text-[10px] text-emerald-700 font-medium">📍 GPS</span>
+                  <span className="text-[10px] text-emerald-700 font-medium">
+                    📍 GPS {gpsPins.length > 1 ? `(${gpsPins.length} точки)` : ""}
+                  </span>
                 )}
                 {signature && (
                   <span className="text-[10px] text-violet-700 font-medium">✍️ Подпись</span>
@@ -817,11 +819,12 @@ function DigitalActsBlock({ bookingId }: { bookingId: number }) {
             )}
             {hasGps && (
               <div>
-                <div className="text-[11px] text-stone-500 mb-1 flex items-center gap-1">
-                  📍 Местонахождение съёмки
-                  <span className="text-stone-400">({lat!.toFixed(5)}, {lng!.toFixed(5)})</span>
+                <div className="text-[11px] text-stone-500 mb-1 flex items-center gap-1 flex-wrap">
+                  📍 {gpsPins.length === 1
+                    ? `Местонахождение съёмки (${gpsPins[0].lat.toFixed(5)}, ${gpsPins[0].lng.toFixed(5)})`
+                    : `${gpsPins.length} точки съёмки — все пины на карте`}
                 </div>
-                <DigitalActMap lat={lat!} lng={lng!} height={160} />
+                <DigitalActMap pins={gpsPins} height={gpsPins.length > 1 ? 200 : 160} />
               </div>
             )}
             {signature && (
@@ -3019,8 +3022,9 @@ function PayoutsTab() {
   const load = async () => {
     setLoading(true);
     try {
+      const token = localStorage.getItem("token");
       const url = statusFilter === "all" ? "/api/admin/payouts" : `/api/admin/payouts?status=${statusFilter}`;
-      const r = await fetch(url, { credentials: "include" });
+      const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
       if (!r.ok) throw new Error(String(r.status));
       const j = await r.json();
       setRows(j.requests || []);
@@ -3038,7 +3042,8 @@ function PayoutsTab() {
     if (!confirm(`Одобрить заявку #${row.id} на ${row.amountRub} ₽?`)) return;
     setBusyId(row.id);
     try {
-      const r = await fetch(`/api/admin/payouts/${row.id}/approve`, { method: "POST", credentials: "include" });
+      const token = localStorage.getItem("token");
+      const r = await fetch(`/api/admin/payouts/${row.id}/approve`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
       if (!r.ok) throw new Error(await r.text());
       await load();
     } catch (e: any) {
@@ -3212,10 +3217,10 @@ function MarkPaidModal({ row, onClose, onDone }: { row: AdminPayoutRow; onClose:
     setErr(null);
     setSaving(true);
     try {
+      const token = localStorage.getItem("token");
       const r = await fetch(`/api/admin/payouts/${row.id}/mark-paid`, {
         method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ paymentRef, adminNote: adminNote || undefined }),
       });
       if (!r.ok) {
@@ -3276,10 +3281,10 @@ function RejectPayoutModal({ row, onClose, onDone }: { row: AdminPayoutRow; onCl
     setErr(null);
     setSaving(true);
     try {
+      const token = localStorage.getItem("token");
       const r = await fetch(`/api/admin/payouts/${row.id}/reject`, {
         method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ rejectionReason: reason }),
       });
       if (!r.ok) {

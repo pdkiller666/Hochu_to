@@ -13,11 +13,24 @@
  */
 
 import { schedule } from "node-cron";
-import { db, bookingsTable, listingsTable, notificationsTable, bookingEventsTable, digitalActsTable } from "@workspace/db";
-import { inArray, and, eq } from "drizzle-orm";
+import {
+  db,
+  bookingsTable,
+  listingsTable,
+  notificationsTable,
+  auditEventsTable,
+  digitalActsTable,
+  buyoutRequestsTable,
+  buyoutParticipantsTable,
+  poolsTable,
+  usersTable,
+} from "@workspace/db";
+import { recordAuditEvent } from "./audit-events.js";
+import { inArray, and, eq, lt, isNotNull, sql } from "drizzle-orm";
 import type { NotifType } from "./notifications";
+import { createNotification } from "./notifications.js";
 import { logger } from "./logger";
-import { recalcTrustScoreForUsers } from "./trust-score.js";
+import { recalcTrustScoreForUsers, calculateAndUpdateTrustScore } from "./trust-score.js";
 
 const REMINDER_TYPES: NotifType[] = [
   "reminder_confirm_pending",
@@ -367,17 +380,18 @@ async function runAutoTransitions(): Promise<AutoTransitionResult> {
   if (candidates.returnPending.length > 0) {
     const rpIds = candidates.returnPending.map((b) => b.id);
 
-    // Source 1: booking_events
+    // Source 1: audit_events (entityType='booking', metadata.toStatus='return_pending')
     const events = await db
       .select({
-        bookingId: bookingEventsTable.bookingId,
-        createdAt: bookingEventsTable.createdAt,
+        bookingId: auditEventsTable.entityId,
+        createdAt: auditEventsTable.createdAt,
       })
-      .from(bookingEventsTable)
+      .from(auditEventsTable)
       .where(
         and(
-          inArray(bookingEventsTable.bookingId, rpIds),
-          eq(bookingEventsTable.toStatus, "return_pending"),
+          eq(auditEventsTable.entityType, "booking"),
+          inArray(auditEventsTable.entityId, rpIds),
+          sql`(${auditEventsTable.metadata}->>'toStatus') = 'return_pending'`,
         ),
       );
 
@@ -546,9 +560,25 @@ async function runAutoTransitions(): Promise<AutoTransitionResult> {
     );
   }
 
-  // Batch insert events and notifications
+  // Batch insert events to audit_events and notifications
   if (newEvents.length > 0) {
-    await db.insert(bookingEventsTable).values(newEvents);
+    await Promise.all(
+      newEvents.map((e) =>
+        recordAuditEvent({
+          entityType: "booking",
+          entityId: e.bookingId,
+          actorId: null,
+          eventType: e.eventType,
+          metadata: {
+            bookingNumber: e.bookingNumber,
+            actorRole: e.actorRole,
+            fromStatus: e.fromStatus,
+            toStatus: e.toStatus,
+            comment: e.comment,
+          },
+        }),
+      ),
+    );
   }
   if (newNotifs.length > 0) {
     await db.insert(notificationsTable).values(newNotifs);
@@ -561,17 +591,247 @@ async function runAutoTransitions(): Promise<AutoTransitionResult> {
   return result;
 }
 
+// ─── Buyout Auto-Cancel ───────────────────────────────────────────────────────
+// Запросы на выкуп пула (buyout_requests), которые висят в статусе pending
+// дольше BUYOUT_AUTO_CANCEL_HOURS, отменяются автоматически.
+// Участники и инициатор получают уведомление.
+
+const BUYOUT_AUTO_CANCEL_HOURS = 24;
+
+async function runBuyoutAutoCancel(): Promise<{ cancelled: number }> {
+  const startTime = Date.now();
+  logger.info("BuyoutAutoCancel: starting check");
+
+  const cutoff = new Date(Date.now() - BUYOUT_AUTO_CANCEL_HOURS * 3_600_000);
+
+  const expiredRequests = await db
+    .select({
+      id: buyoutRequestsTable.id,
+      poolId: buyoutRequestsTable.poolId,
+      initiatorId: buyoutRequestsTable.initiatorId,
+    })
+    .from(buyoutRequestsTable)
+    .where(
+      and(
+        eq(buyoutRequestsTable.status, "pending"),
+        lt(buyoutRequestsTable.createdAt, cutoff),
+      ),
+    );
+
+  if (expiredRequests.length === 0) {
+    logger.info("BuyoutAutoCancel: no expired buyout requests");
+    return { cancelled: 0 };
+  }
+
+  let cancelled = 0;
+
+  for (const request of expiredRequests) {
+    try {
+      // Загружаем участников ДО отмены (для уведомлений)
+      const participants = await db
+        .select({ id: buyoutParticipantsTable.id, userId: buyoutParticipantsTable.userId })
+        .from(buyoutParticipantsTable)
+        .where(eq(buyoutParticipantsTable.buyoutRequestId, request.id));
+
+      const [pool] = await db
+        .select({ title: poolsTable.title })
+        .from(poolsTable)
+        .where(eq(poolsTable.id, request.poolId))
+        .limit(1);
+      const poolTitle = pool?.title ?? "пул";
+
+      // Отменяем запрос
+      await db
+        .update(buyoutRequestsTable)
+        .set({ status: "canceled" })
+        .where(eq(buyoutRequestsTable.id, request.id));
+
+      // Audit event (best-effort, не бросает)
+      void recordAuditEvent({
+        entityType: "pool",
+        entityId: request.poolId,
+        actorId: null,
+        eventType: "buyout_auto_cancelled",
+        metadata: {
+          buyoutRequestId: request.id,
+          initiatorId: request.initiatorId,
+          participantsCount: participants.length,
+          reason: `Автоматически отменён: не завершён за ${BUYOUT_AUTO_CANCEL_HOURS} ч`,
+        },
+      });
+
+      // Уведомление инициатору
+      try {
+        await createNotification({
+          userId: request.initiatorId,
+          type: "pool_buyout_canceled",
+          title: `⏰ Запрос на выкуп аннулирован — «${poolTitle}»`,
+          message: `Время на подтверждение выкупа истекло (${BUYOUT_AUTO_CANCEL_HOURS} ч). Заявка аннулирована автоматически — все участники освобождены. Вы можете создать новый запрос.`,
+          listingTitle: poolTitle,
+        });
+      } catch (err) {
+        logger.error({ err, buyoutRequestId: request.id }, "BuyoutAutoCancel: failed to notify initiator");
+      }
+
+      // Уведомление каждому участнику
+      for (const participant of participants) {
+        try {
+          await createNotification({
+            userId: participant.userId,
+            type: "pool_buyout_canceled",
+            title: `⏰ Запрос на выкуп аннулирован — «${poolTitle}»`,
+            message: `Инициатор не завершил выкуп в течение ${BUYOUT_AUTO_CANCEL_HOURS} часов. Заявка аннулирована автоматически — ваша доля в пуле остаётся у вас.`,
+            listingTitle: poolTitle,
+          });
+        } catch (err) {
+          logger.error({ err, participantUserId: participant.userId }, "BuyoutAutoCancel: failed to notify participant");
+        }
+      }
+
+      cancelled++;
+      logger.info(
+        { buyoutRequestId: request.id, poolId: request.poolId, participants: participants.length },
+        "BuyoutAutoCancel: cancelled expired request",
+      );
+    } catch (err) {
+      // Изоляция: ошибка одного запроса не останавливает остальные
+      logger.error({ err, buyoutRequestId: request.id }, "BuyoutAutoCancel: failed to process request");
+    }
+  }
+
+  logger.info({ cancelled, ms: Date.now() - startTime }, "BuyoutAutoCancel: done");
+  return { cancelled };
+}
+
+// ─── Promo Cleanup ────────────────────────────────────────────────────────────
+// Очищает просроченные флаги продвижения в БД.
+// UI уже скрывает их визуально, но в БД они оставались — теперь чистим реально.
+// Безопасно: три независимых UPDATE, каждый в своём try/catch.
+
+async function runPromoCleanup(): Promise<{ cleared: number }> {
+  const startTime = Date.now();
+  const now = new Date();
+  logger.info("PromoCleanup: starting check");
+
+  let cleared = 0;
+
+  try {
+    const rows = await db
+      .update(listingsTable)
+      .set({ isFeatured: false })
+      .where(and(
+        eq(listingsTable.isFeatured, true),
+        isNotNull(listingsTable.featuredUntil),
+        lt(listingsTable.featuredUntil, now),
+      ))
+      .returning({ id: listingsTable.id });
+    cleared += rows.length;
+    if (rows.length > 0) logger.info({ count: rows.length }, "PromoCleanup: cleared isFeatured");
+  } catch (err) {
+    logger.error({ err }, "PromoCleanup: failed to clear isFeatured");
+  }
+
+  try {
+    const rows = await db
+      .update(listingsTable)
+      .set({ isUrgent: false })
+      .where(and(
+        eq(listingsTable.isUrgent, true),
+        isNotNull(listingsTable.urgentUntil),
+        lt(listingsTable.urgentUntil, now),
+      ))
+      .returning({ id: listingsTable.id });
+    cleared += rows.length;
+    if (rows.length > 0) logger.info({ count: rows.length }, "PromoCleanup: cleared isUrgent");
+  } catch (err) {
+    logger.error({ err }, "PromoCleanup: failed to clear isUrgent");
+  }
+
+  try {
+    const rows = await db
+      .update(listingsTable)
+      .set({ boostedUntil: null })
+      .where(and(
+        isNotNull(listingsTable.boostedUntil),
+        lt(listingsTable.boostedUntil, now),
+      ))
+      .returning({ id: listingsTable.id });
+    cleared += rows.length;
+    if (rows.length > 0) logger.info({ count: rows.length }, "PromoCleanup: cleared boostedUntil");
+  } catch (err) {
+    logger.error({ err }, "PromoCleanup: failed to clear boostedUntil");
+  }
+
+  logger.info({ cleared, ms: Date.now() - startTime }, "PromoCleanup: done");
+  return { cleared };
+}
+
+// ─── Daily Trust Score Recalc ─────────────────────────────────────────────────
+// Ежесуточный пересчёт Trust Score для всех не-забаненных пользователей.
+// Ошибка пересчёта одного юзера не останавливает обработку остальных.
+// Работа ведётся последовательно (не Promise.all) — щадящий режим для БД.
+
+async function runDailyTrustScoreRecalc(): Promise<{ processed: number; failed: number }> {
+  const startTime = Date.now();
+  logger.info("TrustScoreRecalc: starting daily recalc");
+
+  const users = await db
+    .select({ id: usersTable.id })
+    .from(usersTable)
+    .where(eq(usersTable.isBanned, false));
+
+  if (users.length === 0) {
+    logger.info("TrustScoreRecalc: no users to process");
+    return { processed: 0, failed: 0 };
+  }
+
+  logger.info({ total: users.length }, "TrustScoreRecalc: processing users");
+
+  let processed = 0;
+  let failed = 0;
+
+  for (const user of users) {
+    try {
+      // calculateAndUpdateTrustScore уже имеет внутренний try/catch и никогда не бросает,
+      // но мы оборачиваем повторно для гарантированной изоляции.
+      await calculateAndUpdateTrustScore(user.id, null, "daily_recalc");
+      processed++;
+    } catch (err) {
+      logger.error({ err, userId: user.id }, "TrustScoreRecalc: unexpected error for user");
+      failed++;
+    }
+  }
+
+  logger.info(
+    { processed, failed, total: users.length, ms: Date.now() - startTime },
+    "TrustScoreRecalc: done",
+  );
+  return { processed, failed };
+}
+
 export function startScheduler() {
-  const runAll = async () => {
+  // Часовые задачи: напоминания + авто-переходы + отмена выкупов + очистка промо
+  const runHourly = async () => {
     await runReminders().catch((err) => logger.error({ err }, "Scheduler: reminders failed"));
     await runAutoTransitions().catch((err) => logger.error({ err }, "Scheduler: auto-transitions failed"));
+    await runBuyoutAutoCancel().catch((err) => logger.error({ err }, "Scheduler: buyout auto-cancel failed"));
+    await runPromoCleanup().catch((err) => logger.error({ err }, "Scheduler: promo cleanup failed"));
   };
 
-  runAll();
+  // Запускаем немедленно при старте сервера
+  runHourly();
 
+  // Каждый час
   schedule("0 * * * *", () => {
-    runAll().catch((err) => logger.error({ err }, "Scheduler: hourly run failed"));
+    runHourly().catch((err) => logger.error({ err }, "Scheduler: hourly run failed"));
   });
 
-  logger.info("Scheduler started (runs every hour): reminders + auto-transitions");
+  // Каждый день в 03:00 — пересчёт Trust Score для всех пользователей
+  schedule("0 3 * * *", () => {
+    runDailyTrustScoreRecalc().catch((err) => logger.error({ err }, "Scheduler: trust score recalc failed"));
+  });
+
+  logger.info(
+    "Scheduler started — hourly: reminders + auto-transitions + buyout-cancel + promo-cleanup; daily 03:00: trust-score-recalc",
+  );
 }

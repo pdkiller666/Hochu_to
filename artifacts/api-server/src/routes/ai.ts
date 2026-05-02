@@ -17,7 +17,7 @@ import {
   generateListingDescription,
   generateInfographicBullets,
 } from "../lib/ai-service.js";
-import { buildInfographicImage } from "../lib/image-service.js";
+import { buildInfographicImage, buildHorizontalImage } from "../lib/image-service.js";
 import { UPLOADS_DIR } from "../lib/uploadsDir.js";
 import { logger } from "../lib/logger.js";
 
@@ -187,6 +187,12 @@ router.post(
           ? req.body.provider.trim().toLowerCase()
           : null;
 
+      // format=horizontal → 1200×630 для соцсетей; по умолчанию — 1080×1080 (квадрат)
+      const format =
+        typeof req.body?.format === "string"
+          ? req.body.format.trim().toLowerCase()
+          : "square";
+
       if (!title) {
         res.status(400).json({
           error: "invalid_input",
@@ -221,11 +227,10 @@ router.post(
           requestedProvider,
         );
 
-        // 2) Собираем картинку 1080×1080 (sharp + SVG композит)
-        const webpBuffer = await buildInfographicImage(
-          file.buffer,
-          bulletsResult.bullets,
-        );
+        // 2) Собираем картинку: 1080×1080 (квадрат) или 1200×630 (горизонталь)
+        const webpBuffer = format === "horizontal"
+          ? await buildHorizontalImage(file.buffer, bulletsResult.bullets)
+          : await buildInfographicImage(file.buffer, bulletsResult.bullets);
 
         // 3) Сохраняем как обычный файл в UPLOADS_DIR — фронт получит
         //    стандартный URL вида /uploads/<uuid>.webp и просто добавит

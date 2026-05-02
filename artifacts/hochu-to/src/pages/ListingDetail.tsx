@@ -6,6 +6,7 @@ import { formatPrice, calculateTotalPrice, calcDeposit, calcMaxProtectionLimit, 
 import { useState, useEffect, useCallback } from "react";
 import { useAuthState, getToken } from "@/lib/auth";
 import { Link, useLocation } from "wouter";
+import { useDocumentMeta } from "@/lib/use-document-meta";
 import { useFavorites } from "@/lib/favorites-context";
 import { format, parseISO, differenceInCalendarDays } from "date-fns";
 import { ru } from "date-fns/locale";
@@ -78,6 +79,16 @@ export default function ListingDetail() {
 
   const { data: listing, isLoading, error } = useGetListingById(id);
   const { data: unavailableDates } = useGetListingUnavailableDates(id);
+
+  useDocumentMeta(
+    listing
+      ? {
+          title: listing.title,
+          description: `Аренда: ${listing.title}${listing.city ? ` в ${listing.city}` : ""}. ${listing.pricePerDay ? `От ${listing.pricePerDay} ₽/сутки.` : ""} Безопасная сделка с гарантийным фондом ХочуТо.`,
+          image: listing.photos?.[0] ? listing.photos[0] : undefined,
+        }
+      : { title: "Объявление" }
+  );
 
   const { data: currentUser } = useGetCurrentUser(
     { request: { headers: { Authorization: `Bearer ${token}` } } },

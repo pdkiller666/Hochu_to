@@ -1,6 +1,12 @@
 import { Layout } from "@/components/layout/Layout";
+import { useDocumentMeta } from "@/lib/use-document-meta";
 
 export default function Privacy() {
+  useDocumentMeta({
+    title: "Политика конфиденциальности",
+    description: "Политика конфиденциальности платформы ХочуТо. Как мы собираем, используем и защищаем ваши персональные данные.",
+    noindex: true,
+  });
   return (
     <Layout>
       <div className="max-w-3xl mx-auto px-4 py-12 md:py-16">

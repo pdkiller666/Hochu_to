@@ -1,5 +1,15 @@
 import { Layout } from "@/components/layout/Layout";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useLocation, useRoute } from "wouter";
 import { useCreateListing, useUpdateListing, useGetListingById, useGetCategories, useGetRegions } from "@workspace/api-client-react";
 import { useAuthState, getAuthHeaders } from "@/lib/auth";
@@ -1061,6 +1071,8 @@ export default function ListingForm() {
 }
 
 // ─── Stage 30A: AI Description Button ────────────────────────────────────────
+// Stage 33.0: заменили window.confirm на AlertDialog (нативный confirm блокирует
+// UI и выглядит нестандартно в браузерных окружениях).
 function AiDescriptionButton({
   title,
   category,
@@ -1076,23 +1088,10 @@ function AiDescriptionButton({
 }) {
   const { toast } = useToast();
   const [loading, setLoading] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
-  const generate = async () => {
+  const doGenerate = useCallback(async () => {
     const cleanTitle = title.trim();
-    if (!cleanTitle) {
-      toast({
-        title: "Сначала введите название",
-        description: "Нейросети нужно знать, для какой вещи писать описание.",
-        variant: "destructive",
-      });
-      return;
-    }
-    if (currentText.trim().length > 30) {
-      const ok = window.confirm(
-        "У вас уже есть описание. Заменить его сгенерированным?",
-      );
-      if (!ok) return;
-    }
     setLoading(true);
     try {
       const res = await fetch("/api/ai/generate-description", {
@@ -1131,27 +1130,69 @@ function AiDescriptionButton({
     } finally {
       setLoading(false);
     }
+  }, [title, category, provider, onText, toast]);
+
+  const handleClick = () => {
+    const cleanTitle = title.trim();
+    if (!cleanTitle) {
+      toast({
+        title: "Сначала введите название",
+        description: "Нейросети нужно знать, для какой вещи писать описание.",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (currentText.trim().length > 30) {
+      setConfirmOpen(true);
+      return;
+    }
+    doGenerate();
   };
 
   return (
-    <button
-      type="button"
-      onClick={generate}
-      disabled={loading}
-      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-gradient-to-r from-[#C65D3B] to-[#a04829] text-white hover:opacity-90 disabled:opacity-60 transition shadow-sm"
-      title="Сгенерировать продающее описание с помощью ИИ"
-    >
-      {loading ? (
-        <>
-          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-          Нейросеть пишет текст… 🪄
-        </>
-      ) : (
-        <>
-          <Sparkles className="w-3.5 h-3.5" />
-          Сгенерировать ИИ-описание
-        </>
-      )}
-    </button>
+    <>
+      <button
+        type="button"
+        onClick={handleClick}
+        disabled={loading}
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-gradient-to-r from-[#C65D3B] to-[#a04829] text-white hover:opacity-90 disabled:opacity-60 transition shadow-sm"
+        title="Сгенерировать продающее описание с помощью ИИ"
+      >
+        {loading ? (
+          <>
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            Нейросеть пишет текст… 🪄
+          </>
+        ) : (
+          <>
+            <Sparkles className="w-3.5 h-3.5" />
+            Сгенерировать ИИ-описание
+          </>
+        )}
+      </button>
+
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Заменить описание?</AlertDialogTitle>
+            <AlertDialogDescription>
+              У вас уже есть описание. Сгенерированный текст заменит его полностью. Это действие нельзя отменить.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Отмена</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-[#C65D3B] hover:bg-[#a04829]"
+              onClick={() => {
+                setConfirmOpen(false);
+                doGenerate();
+              }}
+            >
+              Заменить
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }

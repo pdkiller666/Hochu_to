@@ -1,8 +1,14 @@
 import { Layout } from "@/components/layout/Layout";
 import { Link } from "wouter";
 import { Heart, Globe, Recycle } from "lucide-react";
+import { useDocumentMeta } from "@/lib/use-document-meta";
 
 export default function About() {
+  useDocumentMeta({
+    title: "О нас",
+    description: "ХочуТо — платформа аренды вещей с гарантийным фондом. Мы делаем шеринг-экономику доступной и безопасной для каждого.",
+  });
+
   return (
     <Layout>
       <div className="max-w-5xl mx-auto px-4 py-16">
