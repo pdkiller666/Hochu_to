@@ -149,6 +149,15 @@ export const platformSettingsTable = pgTable("platform_settings", {
    */
   activeAiProvider: text("active_ai_provider").default("mock").notNull(),
 
+  // ── Stage 38: Telegram Bot Integration ───────────────────────────────────
+  /** API-токен Telegram-бота (хранится в БД для горячей замены через AdminPage) */
+  telegramBotToken: text("telegram_bot_token"),
+  /**
+   * Среда работы бота: 'prod' — рассылка всем пользователям,
+   * 'dev' — только superadmin (тестирование без спама).
+   */
+  telegramEnv: text("telegram_env").default("dev").notNull(),
+
   // ── Метаданные ─────────────────────────────────────────────────────────
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
   updatedBy: integer("updated_by"),

@@ -33,6 +33,19 @@ export const usersTable = pgTable("users", {
   verificationStatus: text("verification_status").default("unverified"),
   verificationProvider: text("verification_provider"),
   verificationData: jsonb("verification_data"),
+  // ── Stage 38 — Telegram Bot Integration ──────────────────────────────────
+  /** Telegram Chat ID (числовой, хранится как text для безопасности с bigint) */
+  telegramChatId: text("telegram_chat_id"),
+  /** 6-значный OTP для привязки аккаунта */
+  telegramOtp: text("telegram_otp"),
+  /** Когда истекает OTP (10 минут) */
+  telegramOtpExpiresAt: timestamp("telegram_otp_expires_at"),
+  /** Настройки уведомлений через Telegram {bookings, system, chats} */
+  telegramNotifications: jsonb("telegram_notifications").$type<{
+    bookings: boolean;
+    system: boolean;
+    chats: boolean;
+  }>(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

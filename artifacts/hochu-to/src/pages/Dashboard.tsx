@@ -16,7 +16,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import { useEffect, useState, useCallback, Fragment, type ReactNode } from "react";
 import {
-  Loader2, Plus, Package, Clock, CheckCircle2, XCircle,
+  Loader2, Plus, Package, Clock, CheckCircle2, XCircle, RefreshCw,
   Settings, Camera, ArrowDownCircle, ArrowUpCircle, PhoneCall, Phone,
   Trash2, Eye, EyeOff, ListFilter, LayoutGrid, ArrowUpDown,
   Globe, Send, User, CalendarDays, Star, ShoppingBag, BadgeCheck,
@@ -257,6 +257,11 @@ export default function Dashboard() {
     bio: "", telegram: "", website: "",
   });
   const [profileSaved, setProfileSaved] = useState(false);
+  // Stage 38 — Telegram OTP linking
+  const [tgLinked, setTgLinked] = useState(false);
+  const [tgOtp, setTgOtp] = useState<{ otp: string; expiresAt: string } | null>(null);
+  const [tgPrefs, setTgPrefs] = useState({ bookings: true, system: true, chats: true });
+  const [tgBusy, setTgBusy] = useState(false);
   // Stage 19g — Trust & Verification: модалка подачи заявки на бейдж «Проверенный владелец».
   const { toast } = useToast();
   const [verifModalOpen, setVerifModalOpen] = useState(false);
@@ -506,6 +511,58 @@ export default function Dashboard() {
       });
     }
   }, [user?.id]);
+
+  // Stage 38: load Telegram linking status
+  useEffect(() => {
+    if (!user || !token) return;
+    fetch("/api/telegram/status", { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(d => {
+        setTgLinked(d.linked ?? false);
+        if (d.preferences) setTgPrefs(d.preferences);
+      })
+      .catch(() => {});
+  }, [user?.id, token]);
+
+  const tgGenerateOtp = async () => {
+    if (!token) return;
+    setTgBusy(true);
+    try {
+      const r = await fetch("/api/telegram/generate-otp", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const d = await r.json();
+      setTgOtp({ otp: d.otp, expiresAt: d.expiresAt });
+    } catch {}
+    setTgBusy(false);
+  };
+
+  const tgUnlink = async () => {
+    if (!token) return;
+    setTgBusy(true);
+    try {
+      await fetch("/api/telegram/unlink", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setTgLinked(false);
+      setTgOtp(null);
+      toast({ title: "Telegram отвязан" });
+    } catch {}
+    setTgBusy(false);
+  };
+
+  const tgUpdatePref = async (key: "bookings" | "system" | "chats", val: boolean) => {
+    if (!token) return;
+    const next = { ...tgPrefs, [key]: val };
+    setTgPrefs(next);
+    fetch("/api/telegram/preferences", {
+      method: "PATCH",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ [key]: val }),
+    }).catch(() => setTgPrefs(tgPrefs));
+  };
 
   // Stage 20a — подгружаем открытую заявку на верификацию (для кнопки «Отозвать»).
   // Только для владельцев, у которых ещё нет бейджа.
@@ -2718,6 +2775,80 @@ export default function Dashboard() {
                       {profileSaved ? "✓ Сохранено!" : "Сохранить изменения"}
                     </button>
                   </form>
+                </div>
+
+                {/* ── Stage 38: Telegram account linking ── */}
+                <div className="bg-white border border-border rounded-2xl p-6 shadow-sm mt-4">
+                  <h3 className="text-base font-bold flex items-center gap-2 mb-1">
+                    <Send className="w-4 h-4 text-[#2AABEE]" /> Telegram-уведомления
+                  </h3>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Привяжите Telegram-аккаунт, чтобы получать уведомления о бронированиях и событиях прямо в мессенджере.
+                  </p>
+
+                  {tgLinked ? (
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-4 py-3">
+                        <CheckCircle2 className="w-4 h-4 text-green-600 flex-shrink-0" />
+                        <span className="text-sm font-semibold text-green-700">Telegram привязан</span>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="block text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2">Типы уведомлений</label>
+                        {([
+                          { key: "bookings" as const, label: "Бронирования", desc: "Новые заявки, статусы, напоминания" },
+                          { key: "system" as const, label: "Системные", desc: "Верификация, предупреждения, платежи" },
+                          { key: "chats" as const, label: "Совместные покупки", desc: "Обновления пулов и долей" },
+                        ]).map(({ key, label, desc }) => (
+                          <label key={key} className="flex items-center gap-3 p-3 rounded-xl border border-border hover:bg-muted/30 cursor-pointer transition-colors">
+                            <input
+                              type="checkbox"
+                              checked={tgPrefs[key]}
+                              onChange={e => tgUpdatePref(key, e.target.checked)}
+                              className="w-4 h-4 accent-primary rounded"
+                            />
+                            <div>
+                              <span className="text-sm font-semibold">{label}</span>
+                              <p className="text-xs text-muted-foreground">{desc}</p>
+                            </div>
+                          </label>
+                        ))}
+                      </div>
+
+                      <button type="button" onClick={tgUnlink} disabled={tgBusy}
+                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-border text-sm text-muted-foreground hover:bg-muted/50 transition-colors disabled:opacity-50">
+                        {tgBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <X className="w-4 h-4" />}
+                        Отвязать Telegram
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {tgOtp ? (
+                        <div className="space-y-3">
+                          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                            <p className="text-sm text-blue-700 font-semibold mb-1">Ваш код привязки:</p>
+                            <p className="text-3xl font-mono font-bold text-blue-800 tracking-[0.3em]">{tgOtp.otp}</p>
+                            <p className="text-xs text-blue-500 mt-2">Действителен 10 минут · истекает в {new Date(tgOtp.expiresAt).toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" })}</p>
+                          </div>
+                          <ol className="space-y-1.5 text-sm text-muted-foreground">
+                            <li className="flex items-start gap-2"><span className="font-bold text-foreground mt-0.5">1.</span> Откройте Telegram и найдите бота платформы</li>
+                            <li className="flex items-start gap-2"><span className="font-bold text-foreground mt-0.5">2.</span> Отправьте боту: <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-xs">/link {tgOtp.otp}</code></li>
+                            <li className="flex items-start gap-2"><span className="font-bold text-foreground mt-0.5">3.</span> Бот подтвердит привязку — перезагрузите страницу</li>
+                          </ol>
+                          <button type="button" onClick={tgGenerateOtp} disabled={tgBusy}
+                            className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
+                            <RefreshCw className="w-3.5 h-3.5" /> Обновить код
+                          </button>
+                        </div>
+                      ) : (
+                        <button type="button" onClick={tgGenerateOtp} disabled={tgBusy}
+                          className="btn-primary flex items-center gap-2 px-5 py-2.5">
+                          {tgBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                          Получить код привязки
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* ── Security card: email + password ── */}

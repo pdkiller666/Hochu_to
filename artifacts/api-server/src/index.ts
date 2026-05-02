@@ -5,6 +5,7 @@ import { startScheduler } from "./lib/scheduler";
 import { ensurePlatformSettings } from "./lib/platform-settings";
 import { backfillListingCounters } from "./lib/backfill-counters";
 import { initWebSocketServer } from "./lib/websocket";
+import { initTelegramBot } from "./lib/telegram";
 import { db, usersTable } from "@workspace/db";
 import { sql, eq } from "drizzle-orm";
 import bcrypt from "bcryptjs";
@@ -81,6 +82,12 @@ httpServer.listen(port, "0.0.0.0", async (err?: Error) => {
     logger.info({ settingsId: settings.id, paymentMode: settings.paymentMode }, "Platform settings ready");
   } catch (e) {
     logger.error({ err: e }, "Failed to initialize platform settings");
+  }
+  // Stage 38: init Telegram bot (non-fatal — no token = skip)
+  try {
+    await initTelegramBot();
+  } catch (e) {
+    logger.error({ err: e }, "Failed to initialize Telegram bot (non-fatal)");
   }
   try {
     await backfillListingCounters();

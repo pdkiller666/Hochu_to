@@ -15,6 +15,7 @@ import bcrypt from "bcryptjs";
 import { getPlatformSettings, updatePlatformSettings } from "../lib/platform-settings.js";
 import { seedTestListings } from "../lib/seed-test-listings.js";
 import { calculateAndUpdateTrustScore } from "../lib/trust-score.js";
+import { getBotStatus, hotSwapToken, broadcastToAll } from "../lib/telegram.js";
 
 /**
  * Кириллично-безопасный поиск: PostgreSQL с locale=C игнорирует регистр кириллицы в ILIKE.
@@ -1281,6 +1282,8 @@ router.put("/settings", requireAuth, requireRole("superadmin"), async (req: Auth
     "isCommercialMode",
     // ── Stage 30A: AI Gateway ───────────────────────────────────────────
     "activeAiProvider",
+    // ── Stage 38: Telegram Bot ──────────────────────────────────────────
+    "telegramBotToken", "telegramEnv",
   ] as const;
   const body = req.body ?? {};
   const patch: Record<string, any> = {};
@@ -1322,6 +1325,7 @@ router.put("/settings", requireAuth, requireRole("superadmin"), async (req: Auth
   ] as const;
   const NULLABLE_STR_FIELDS = [
     "yookassaShopId", "yookassaSecretKey", "sbpMerchantId", "cloudpaymentsPublicId",
+    "telegramBotToken",
   ] as const;
 
   for (const k of PERCENT_FIELDS) {
@@ -1425,10 +1429,24 @@ router.put("/settings", requireAuth, requireRole("superadmin"), async (req: Auth
     patch.shieldFeeMin = patch.riskCoverageMin;
   }
 
+  // Stage 38: telegramEnv — допустимы только два значения
+  if ("telegramEnv" in patch && !["prod", "dev"].includes(patch.telegramEnv)) {
+    return res.status(400).json({ error: "invalid_value", field: "telegramEnv", message: "Допустимо: prod | dev" });
+  }
+
+  const prevToken = (await getPlatformSettings()).telegramBotToken;
   const updated = await updatePlatformSettings(patch, req.userId);
   if (req.userId) {
     await audit(req.userId, "platform_settings", updated.id, "update", JSON.stringify(Object.keys(patch)));
   }
+
+  // Stage 38: горячая смена токена бота при изменении telegramBotToken
+  if ("telegramBotToken" in patch && patch.telegramBotToken !== prevToken) {
+    if (patch.telegramBotToken) {
+      hotSwapToken(patch.telegramBotToken as string, req.userId).catch(() => {});
+    }
+  }
+
   res.json(updated);
 });
 
@@ -1462,5 +1480,33 @@ router.put(
     res.json({ activeAiProvider: updated.activeAiProvider });
   },
 );
+
+// ─── Stage 38: Telegram Bot — статус бота и массовая рассылка ────────────────
+
+router.get("/telegram/status", requireAuth, requireRole("superadmin"), async (_req, res) => {
+  try {
+    const status = await getBotStatus();
+    const s = await getPlatformSettings();
+    res.json({ ...status, env: s.telegramEnv, hasToken: !!s.telegramBotToken });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message ?? "Unknown error" });
+  }
+});
+
+router.post("/telegram/broadcast", requireAuth, requireRole("superadmin"), async (req: AuthRequest, res) => {
+  const { text, link } = req.body ?? {};
+  if (!text || typeof text !== "string" || !text.trim()) {
+    return res.status(400).json({ error: "bad_request", message: "Поле text обязательно" });
+  }
+  if (link !== undefined && link !== null && typeof link !== "string") {
+    return res.status(400).json({ error: "bad_request", field: "link" });
+  }
+  const result = await broadcastToAll(text.trim(), link ?? undefined, req.userId);
+  if (req.userId) {
+    await audit(req.userId, "platform_settings", 0, "notification_broadcast_sent",
+      JSON.stringify({ sent: result.sent, failed: result.failed, preview: text.slice(0, 100) }));
+  }
+  res.json({ ok: true, ...result });
+});
 
 export default router;

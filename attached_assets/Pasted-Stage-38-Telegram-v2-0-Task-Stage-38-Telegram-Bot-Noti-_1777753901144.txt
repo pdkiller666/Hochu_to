@@ -1,0 +1,46 @@
+Stage 38: Единый центр уведомлений и Telegram-интеграция (v2.0)
+Task: Stage 38 — Telegram Bot & Notification Engine with Hot-Swap
+
+Context:
+Мы внедряем Telegram-бота как основной канал внешних уведомлений для проекта «Хочу_То». Система должна быть устойчивой, поддерживать динамическую смену токена и ролевую рассылку для персонала (superadmin, admin, moderator, support, arbiter).
+
+Action 1: Backend & Dynamic Initialization (lib/notifications.ts)
+Telegraf Setup: Использовать библиотеку telegraf.
+
+Dynamic Token: Брать токен из таблицы platform_settings. При запуске или смене токена вызывать bot.telegram.getMe(). Если токен невалиден — логировать ошибку в audit_events и уведомлять суперадмина в UI.
+
+Environment Isolation: Добавить поле telegram_env (prod/dev). В режиме dev отправлять уведомления только пользователям с ролью superadmin.
+
+Robustness: Добавить автоматическую обрезку сообщений до 4096 символов. Реализовать 3 попытки повторной отправки при сетевых ошибках.
+
+Action 2: User Linking & Management (Dashboard.tsx)
+Linking (Bind): Генерация 6-значного OTP-кода в настройках профиля. При получении кода ботом — привязка telegramId к аккаунту.
+
+Unlinking (Unbind): Добавить кнопку «Отвязать Telegram» в интерфейсе, которая очищает telegramId и telegramSettings в БД.
+
+Preferences: Чек-боксы для выбора типов уведомлений (Чаты, Статус сделок, Системные алерты).
+
+Action 3: Staff Routing & Superadmin Control (AdminPage.tsx)
+Role-Based Routing: Автоматическая рассылка алертов по ролям:
+
+Arbiter: Новые споры (Claims).
+
+Moderator: Жалобы и премодерация.
+
+Support: Новые тикеты поддержки.
+
+Superadmin Dashboard:
+
+Поле ввода API Token с мгновенной проверкой статуса (Online/Offline).
+
+Global Broadcast: Форма массовой рассылки с логгированием события в audit_events (тип notification_broadcast_sent).
+
+Action 4: Notification Dispatcher & Deep Links
+Dispatcher: Создать единый сервис sendNotification(userId, type, message, link).
+
+Format: Все сообщения должны содержать Deep Links (кнопки) на полную версию сайта (например, [https://hochu.to/admin/claims/123](https://hochu.to/admin/claims/123)).
+
+Logging: Каждая успешная отправка фиксируется в audit_events с превью сообщения для отладки.
+
+Commit:
+feat(notifications): implement robust Telegram integration with dynamic settings, staff routing, and audit logging

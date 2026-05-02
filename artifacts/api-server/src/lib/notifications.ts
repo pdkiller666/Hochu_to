@@ -1,6 +1,7 @@
 import { db, notificationsTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { broadcastToUser } from "./websocket.js";
+import { sendTelegramToUser } from "./telegram.js";
 
 // ─── Gender helpers (Stage 33.1) ─────────────────────────────────────────────
 //
@@ -100,6 +101,7 @@ export async function createNotification(params: {
   message?: string;
   bookingId?: number;
   listingTitle?: string;
+  link?: string;
 }) {
   const [notif] = await db.insert(notificationsTable).values({
     userId: params.userId,
@@ -114,6 +116,19 @@ export async function createNotification(params: {
   if (notif) {
     broadcastToUser(params.userId, "NEW_NOTIFICATION", notif);
   }
+
+  // Stage 38: also deliver via Telegram if user has linked account
+  const category: "bookings" | "system" | "chats" =
+    params.type.startsWith("booking_") || params.type.startsWith("reminder_") || params.type.startsWith("auto_") ? "bookings"
+    : params.type.startsWith("pool_") ? "chats"
+    : "system";
+
+  const tgText = params.message
+    ? `<b>${params.title}</b>\n${params.message}`
+    : `<b>${params.title}</b>`;
+
+  // Fire-and-forget: TG delivery failures are non-fatal
+  sendTelegramToUser(params.userId, category, tgText, params.link).catch(() => {});
 }
 
 export async function reminderAlreadySent(

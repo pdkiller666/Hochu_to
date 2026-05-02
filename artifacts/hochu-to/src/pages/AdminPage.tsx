@@ -4012,8 +4012,201 @@ function AiSettingsTab() {
   );
 }
 
+// ─── TelegramBotTab ────────────────────────────────────────────────────────────
+function TelegramBotTab() {
+  const { toast } = useToast();
+  const [status, setStatus] = useState<{ online: boolean; username?: string; error?: string; env?: string; hasToken?: boolean } | null>(null);
+  const [newToken, setNewToken] = useState("");
+  const [env, setEnv] = useState<"dev" | "prod">("dev");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [broadcastText, setBroadcastText] = useState("");
+  const [broadcastLink, setBroadcastLink] = useState("");
+  const [broadcasting, setBroadcasting] = useState(false);
+
+  const loadStatus = async () => {
+    try {
+      const r = await fetch(`${API}/api/admin/telegram/status`, { headers: getAuthHeaders() });
+      const d = await r.json();
+      setStatus(d);
+      if (d.env) setEnv(d.env === "prod" ? "prod" : "dev");
+    } catch {}
+  };
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch(`${API}/api/admin/settings`, { headers: getAuthHeaders() });
+        const d = await r.json();
+        setEnv(d.telegramEnv === "prod" ? "prod" : "dev");
+      } catch {}
+      await loadStatus();
+    })().finally(() => setLoading(false));
+  }, []);
+
+  const saveSettings = async () => {
+    setSaving(true);
+    try {
+      const body: Record<string, any> = { telegramEnv: env };
+      if (newToken.trim()) body.telegramBotToken = newToken.trim();
+      const r = await fetch(`${API}/api/admin/settings`, {
+        method: "PUT",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.message || d.error || "Ошибка сохранения");
+      setNewToken("");
+      toast({ title: "Сохранено", description: "Настройки Telegram-бота обновлены" });
+      setTimeout(loadStatus, 3000);
+    } catch (e: any) {
+      toast({ title: "Ошибка", description: e.message, variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const sendBroadcast = async () => {
+    if (!broadcastText.trim()) return;
+    setBroadcasting(true);
+    try {
+      const r = await fetch(`${API}/api/admin/telegram/broadcast`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ text: broadcastText.trim(), link: broadcastLink.trim() || undefined }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.message || d.error || "Ошибка");
+      toast({ title: "Рассылка отправлена", description: `Доставлено: ${d.sent}, ошибок: ${d.failed}` });
+      setBroadcastText(""); setBroadcastLink("");
+    } catch (e: any) {
+      toast({ title: "Ошибка рассылки", description: e.message, variant: "destructive" });
+    } finally {
+      setBroadcasting(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="w-6 h-6 animate-spin text-[#C65D3B]" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="rounded-xl border border-stone-200 bg-white p-6">
+        <div className="flex items-start gap-3 mb-5">
+          <div className="w-10 h-10 rounded-xl bg-[#2AABEE] flex items-center justify-center flex-shrink-0">
+            <Send className="w-5 h-5 text-white" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h2 className="text-xl font-bold text-stone-800">Telegram-бот (Stage 38)</h2>
+            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+              {status?.online ? (
+                <span className="inline-flex items-center gap-1.5 text-sm text-green-700 bg-green-50 px-2.5 py-1 rounded-full border border-green-200">
+                  <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                  Online · @{status.username}
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 text-sm text-stone-500 bg-stone-100 px-2.5 py-1 rounded-full border border-stone-200">
+                  <span className="w-2 h-2 bg-stone-400 rounded-full" />
+                  Offline{status?.error ? ` · ${status.error}` : status?.hasToken ? " · ошибка соединения" : " · нет токена"}
+                </span>
+              )}
+              <button onClick={loadStatus} className="p-1.5 rounded-md hover:bg-stone-100 text-stone-400 hover:text-stone-600 transition" title="Обновить статус">
+                <RefreshCw className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-semibold mb-1.5 text-stone-700">API-токен бота</label>
+            <input
+              type="password"
+              value={newToken}
+              onChange={e => setNewToken(e.target.value)}
+              placeholder={status?.hasToken ? "••••• (токен установлен, оставьте пустым чтобы не менять)" : "123456789:AAH...  получить у @BotFather"}
+              className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#2AABEE]/30"
+            />
+            <p className="text-xs text-stone-400 mt-1">Оставьте пустым, чтобы не менять текущий токен. Горячая замена — без перезапуска сервера.</p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-semibold mb-2 text-stone-700">Режим работы</label>
+            <div className="flex gap-2 flex-wrap">
+              {(["dev", "prod"] as const).map(e => (
+                <button key={e} type="button" onClick={() => setEnv(e)}
+                  className={`px-4 py-2 rounded-lg border text-sm font-medium transition ${
+                    env === e ? "bg-[#C65D3B] text-white border-[#C65D3B]" : "border-stone-200 text-stone-600 hover:bg-stone-50"
+                  }`}>
+                  {e === "dev" ? "🔧 Dev — только superadmin" : "🚀 Prod — все пользователи"}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-stone-400 mt-1.5">
+              В режиме <b>Dev</b> уведомления получает только superadmin — для безопасного тестирования без спама.
+            </p>
+          </div>
+
+          <button onClick={saveSettings} disabled={saving}
+            className="btn-primary px-5 py-2.5 text-sm flex items-center gap-2">
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            Сохранить настройки
+          </button>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-stone-200 bg-white p-6">
+        <h2 className="text-lg font-bold text-stone-800 mb-1">Массовая Telegram-рассылка</h2>
+        <p className="text-sm text-stone-500 mb-4">
+          Отправка всем пользователям с привязанным Telegram-аккаунтом. В режиме <b>Dev</b> — только superadmin'ам.
+          Каждое сообщение логируется в audit_events.
+        </p>
+        {!status?.online && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-700 text-sm rounded-lg p-3 mb-4">
+            ⚠️ Бот не подключён. Настройте токен выше.
+          </div>
+        )}
+        <div className="space-y-3">
+          <div>
+            <label className="block text-sm font-semibold mb-1.5 text-stone-700">Текст сообщения * (HTML)</label>
+            <textarea
+              value={broadcastText}
+              onChange={e => setBroadcastText(e.target.value)}
+              rows={4}
+              placeholder="Текст поддерживает HTML: &lt;b&gt;жирный&lt;/b&gt;, &lt;i&gt;курсив&lt;/i&gt;, &lt;a href='...'&gt;ссылка&lt;/a&gt;"
+              className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2AABEE]/30 resize-none"
+              maxLength={4096}
+            />
+            <p className="text-xs text-stone-400 mt-1 text-right">{broadcastText.length}/4096</p>
+          </div>
+          <div>
+            <label className="block text-sm font-semibold mb-1.5 text-stone-700">Ссылка-кнопка (необязательно)</label>
+            <input
+              type="url"
+              value={broadcastLink}
+              onChange={e => setBroadcastLink(e.target.value)}
+              placeholder="https://hochu.to/..."
+              className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2AABEE]/30"
+            />
+          </div>
+          <button onClick={sendBroadcast} disabled={broadcasting || !broadcastText.trim() || !status?.online}
+            className="w-full btn-primary py-2.5 text-sm flex items-center justify-center gap-2 disabled:opacity-50">
+            {broadcasting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Megaphone className="w-4 h-4" />}
+            Отправить рассылку
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main AdminPage ────────────────────────────────────────────────────────────
-type Tab = "overview" | "analytics" | "users" | "listings" | "bookings" | "support" | "reports" | "claims" | "audit" | "economy" | "payments" | "finance" | "payouts" | "ai";
+type Tab = "overview" | "analytics" | "users" | "listings" | "bookings" | "support" | "reports" | "claims" | "audit" | "economy" | "payments" | "finance" | "payouts" | "ai" | "telegram";
 
 const TABS: { id: Tab; label: string; icon: any; roles?: string[] }[] = [
   { id: "overview",  label: "Обзор",            icon: LayoutDashboard },
@@ -4030,6 +4223,7 @@ const TABS: { id: Tab; label: string; icon: any; roles?: string[] }[] = [
   { id: "claims",    label: "Заявки фонда",      icon: Shield,      roles: ["superadmin", "admin", "arbiter"] },
   { id: "audit",     label: "Аудит",             icon: ScrollText,  roles: ["superadmin"] },
   { id: "ai",        label: "Настройки ИИ",      icon: Sparkles,    roles: ["superadmin"] },
+  { id: "telegram",  label: "Telegram-бот",       icon: Send,        roles: ["superadmin"] },
 ];
 
 export default function AdminPage() {
@@ -4099,6 +4293,7 @@ export default function AdminPage() {
         {tab === "finance" && <FinanceTab />}
         {tab === "payouts" && <PayoutsTab />}
         {tab === "ai" && <AiSettingsTab />}
+        {tab === "telegram" && <TelegramBotTab />}
       </div>
 
       <BroadcastModal open={broadcastOpen} onClose={() => setBroadcastOpen(false)} />
