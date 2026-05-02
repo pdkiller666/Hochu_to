@@ -144,12 +144,13 @@ async function startBot(token: string): Promise<void> {
 
 // ── Public API ─────────────────────────────────────────────────────────────────
 
-/** Инициализация при старте сервера — читает токен из platform_settings. */
+/** Инициализация при старте сервера — читает токен из platform_settings, fallback на env. */
 export async function initTelegramBot(): Promise<void> {
   try {
     const s = await getPlatformSettings();
-    if (!s.telegramBotToken) { logger.info("[tg] no token configured"); return; }
-    await startBot(s.telegramBotToken);
+    const token = s.telegramBotToken ?? process.env["TELEGRAM_BOT_TOKEN"] ?? null;
+    if (!token) { logger.info("[tg] no token configured"); return; }
+    await startBot(token);
   } catch (err) {
     logger.error({ err }, "[tg] init failed (non-fatal)");
   }
