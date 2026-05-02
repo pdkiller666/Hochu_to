@@ -1215,7 +1215,7 @@ V7–V8 — публичный показ Trust Score — делается по�
 4. **Фронтовый детект 409 через `ApiError.status`** в `artifacts/hochu-to/src/pages/Dashboard.tsx` (`handleStatusChange`) — раньше парсилось `e.message.includes('digital_act_required')`, что ломалось при i18n; теперь `e instanceof ApiError && e.status === 409 && e.body?.code === 'digital_act_required'`.
 
 **Подготовка тестовой среды (важно для будущих регрессий):**
-- Снапшот `scripts/db-snapshots/dev-data.sql` несовместим с текущей схемой (boolean vs timestamp на колонках users) — `setup-new-replit.sh` падает на чистом окружении. **TODO:** обновить снапшот через `pg_dump`.
+- ~~Снапшот `scripts/db-snapshots/dev-data.sql` несовместим с текущей схемой~~ — **✅ обновлён (Stage 33.1.5, 02.05.2026)**: `pg_dump --column-inserts --data-only` c расширенным списком таблиц (добавлены pools, pool_shares, share_offers, digital_acts, payments, payout_methods, payout_requests). 379 строк.
 - Рабочий путь сейчас: руками создать `admin@hochu.to / Admin123!` (через `/api/auth/register` + `UPDATE users SET role='admin'`), затем `POST /api/admin/seed` (85 регионов + 10 категорий + 6 тестовых пользователей + 14 листингов) + `POST /api/admin/seed-test-listings` (50 объявлений).
 - **Тестовые юзеры (все пароль `Test1234!`):**
   - Owners: `alexey@example.com`, `maria@example.com`, `dmitry@example.com`
@@ -2742,6 +2742,34 @@ function genderPronounGen(name: string): string     // "него" / "неё"
 ### Коммит
 ```
 refactor(ui/logic): GPS multi-pins, gender-aware notifications, bullets cache (Stage 33.1)
+```
+
+---
+
+## Журнал — Stage 33.1.5 (Safe Technical Debt Polish, 02.05.2026)
+
+**Что сделано:**
+
+**1. Обновлён снапшот `scripts/db-snapshots/dev-data.sql`**
+- Выполнен `pg_dump --data-only --column-inserts --no-owner --no-privileges` с расширенным списком таблиц.
+- Добавлены новые таблицы: `pools`, `pool_shares`, `share_offers`, `digital_acts`, `payments`, `payout_methods`, `payout_requests`.
+- Результат: 379 строк (был несовместим с текущей схемой). `setup-new-replit.sh` теперь работает корректно на чистом окружении.
+
+**2. Рефакторинг `BuyoutBlock` и `SellerOfferActions` в `PoolDetail.tsx`**
+- Все 3 вызова нативного `window.confirm()` заменены на `AlertDialog` из `@radix-ui/react-alert-dialog` (тот же компонент, что используется в `ListingForm.tsx` c Stage 33.0).
+- `SellerOfferActions`: добавлено состояние `cancelDialog: "reserved" | "listed" | null`, два отдельных AlertDialog для «Отменить оффер» и «Снять с продажи».
+- `BuyoutBlock`: добавлено состояние `cancelBuyoutOpen: boolean`, AlertDialog для «Отменить запрос на выкуп».
+- Нативный `confirm()` в iframe (Replit, embedded) всегда тихо возвращал `false` — баг был незаметен в production, но ломал UX.
+
+**Файлы:**
+- `scripts/db-snapshots/dev-data.sql` (обновлён)
+- `artifacts/hochu-to/src/pages/PoolDetail.tsx` (AlertDialog × 3)
+- `replit.md` (Stage 28 followup частично закрыт)
+- `docs/AGENT_INSTRUCTIONS.md` (TODO снапшота закрыт)
+
+### Коммит
+```
+chore(db): refresh dev-data.sql snapshot; refactor(ui): replace native confirm in buyout block
 ```
 
 ---
