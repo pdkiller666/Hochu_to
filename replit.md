@@ -549,7 +549,7 @@ DB поле `boosted_until` (timestamp). Сортировка `?sort=new` уже
 - **Подписки владельцев** (Pro / Бизнес) — спроектированы, не реализованы.
 - **СБП/QR-потоки для бронирований** — `paymentMode` есть в `platform_settings`, чекаут-флоу с загрузкой чека и ручным подтверждением админом не собран (бета-режим обходит платежи целиком, см. Stage 21b/21a).
 - **Stage 27 followup** — WebSocket/SSE вместо polling для notifications/audit-trail; унификация `bookings`/`claims` через `audit_events`; гендерное склонение в нотификациях.
-- **Stage 28 followup** — замена нативного `confirm()` на `AlertDialog` в `BuyoutBlock`; явная кнопка «Отказаться» у participant'а с уведомлением инициатору; авто-cancel зависших buyout-запросов через cron.
+- **Stage 28 followup** — ~~замена нативного `confirm()` на `AlertDialog` в `BuyoutBlock`~~ (**✅ Stage 33.1.5**); явная кнопка «Отказаться» у participant'а с уведомлением инициатору; авто-cancel зависших buyout-запросов через cron.
 - **Stage 29 followup** — V7 (ежесуточный cron-пересчёт TrustScore через `lib/scheduler.ts`); V8 (публичный показ score на карточках/в каталоге — отложен до калибровки на 100+ сделках и 50+ владельцах).
 - **Stage 30B followup** — кеш инфографик по `(photoHash, bulletsHash)`, embedded Montserrat/Inter в SVG, шаблоны 1200×630 / 1080×1920, опц. watermark «Хочу_То».
 
