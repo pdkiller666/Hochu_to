@@ -1,6 +1,6 @@
 # Workspace — Хочу_То Rental Marketplace
 
-## Overview
+## Overview 
 
 Full-stack rental marketplace "Хочу_То" (I Want That) — a platform for renting items and joint purchases in Russia. Built as a pnpm monorepo with React+Vite frontend and Express API backend.
 
