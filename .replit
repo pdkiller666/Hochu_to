@@ -73,7 +73,3 @@ GITHUB_TOKEN = "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"
 [[ports]]
 localPort = 5000
 externalPort = 80
-
-[[ports]]
-localPort = 8080
-externalPort = 8080

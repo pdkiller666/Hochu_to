@@ -24,6 +24,7 @@
     "node-cron": "^4.2.1",
     "pino": "^9",
     "pino-http": "^10",
+    "sharp": "^0.34.5",
     "zod": "catalog:"
   },
   "devDependencies": {
