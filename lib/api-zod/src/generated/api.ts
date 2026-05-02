@@ -18,9 +18,9 @@ export const HealthCheckResponse = zod.object({
  * @summary Register a new user
  */
 export const RegisterUserBody = zod.object({
-  name: zod.string(),
-  email: zod.string(),
-  password: zod.string(),
+  name: zod.string().min(2, "Имя минимум 2 символа"),
+  email: zod.string().email("Некорректный email"),
+  password: zod.string().min(8, "Пароль минимум 8 символов"),
   role: zod.enum(["renter", "owner"]),
   phone: zod.string().optional(),
   regionId: zod.number().optional(),

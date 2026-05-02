@@ -585,12 +585,12 @@ router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
     return;
   }
 
-  if (existing.ownerId !== req.userId) {
+  if (existing.ownerId !== req.userId && req.userRole !== "admin") {
     res.status(403).json({ error: "forbidden", message: "Нет доступа" });
     return;
   }
 
-  const { title, description, pricePerDay, categoryId, regionId, city, lat, lng, meetingAddress, photos, itemCategory, ownerProtectionEnabled: ownerProt, deposit, isAvailable } = req.body;
+  const { title, description, pricePerDay, categoryId, regionId, city, lat, lng, meetingAddress, photos, itemCategory, ownerProtectionEnabled: ownerProt, deposit, isAvailable, status } = req.body;
 
   // Логика залога:
   //   • Защищённая сделка (Premium): залог рассчитывается из настроек фонда → сбрасываем ручной в null.
@@ -649,6 +649,7 @@ router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
     ...(ownerProt !== undefined && { ownerProtectionEnabled: ownerProt }),
     ...(depositUpdate !== undefined && { deposit: depositUpdate }),
     ...(isAvailable !== undefined && { isAvailable }),
+    ...(status !== undefined && req.userRole === "admin" && { status }),
   }).where(eq(listingsTable.id, id));
 
   const updated = await getListingWithDetails(id);
