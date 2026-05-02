@@ -1,0 +1,53 @@
+Task: Stage 33 - AI Arbitration (Vision MVP - Robust Architecture)
+
+Context:
+We are implementing a multimodal AI assistant to evaluate compensation claims using photos from Digital Acts.
+🚨 CRITICAL SAFETY RULE: DO NOT modify generateGemini or bulletsGemini functions, nor the GEMINI_MODEL constant. Existing text logic MUST remain strictly isolated.
+
+Action 1: Database & Migrations (schema.ts & Drizzle)
+
+Add a new column to the claims table: aiVerdict: jsonb('ai_verdict').
+
+Run pnpm db:push to apply the change.
+
+Action 2: Backend AI Service (artifacts/api-server/src/lib/ai-service.ts)
+
+Create an isolated function: arbitrateWithGeminiVision(claimId: number).
+
+Data fetching explicitly: Get digital_acts where type='check_in' and type='check_out' matching the claim's booking_id. If it's a pool claim, use type='pool_handover'. If missing or < 2 photos, return { confidence: "low", error: "Not enough photos" }.
+
+Convert images to base64 inlineData (image/jpeg or image/png).
+
+Model & Timeout: Use gemini-1.5-flash for vision. Wrap the fetch call in a 15-second timeout (using AbortController) to prevent hanging requests.
+
+Prompt constraint: Instruct the AI to act as an impartial judge and output STRICT JSON:
+{ "faultEstimatePercent": number, "confidence": "low"|"medium"|"high", "verdictDraft": "string", "evidenceCitations": ["string"] }. Do NOT ask the AI to calculate the exact monetary amount.
+
+Fallback: Wrap in try/catch. On API failure or timeout, return { confidence: "low", error: "AI service unavailable or timed out" }.
+
+Action 3: Backend Endpoint (artifacts/api-server/src/routes/claims.ts)
+
+Create POST /api/claims/:id/ai-verdict (wrapped in requireAdmin).
+
+Caching: Check if claim.aiVerdict exists in DB. If yes, return it immediately.
+
+If no, call arbitrateWithGeminiVision. Calculate suggestedAmountRub = requestedAmount * (faultEstimatePercent / 100) inside the route using TypeScript. Add this amount to the final JSON.
+
+Update the claims table to save this JSON into the ai_verdict column.
+
+Audit: Log the action to audit_events (eventType: 'ai_verdict_requested').
+
+Action 4: Admin UI (artifacts/hochu-to/src/pages/AdminPage.tsx)
+
+In Claims detail view, add block: "🤖 AI-помощник".
+
+Show "Запросить ИИ-анализ" button (with spinner). If verdict already exists in DB, display it on load.
+
+If confidence is "medium" or "high", display verdictDraft, evidenceCitations, and the TS-calculated suggestedAmountRub.
+
+UX improvement: Add a button "Применить рекомендуемую сумму". Clicking it should pre-fill the approved_amount input field in the claim form, but NOT auto-submit.
+
+If confidence is "low", show a beige block (bg-[#F2EEE3] or bg-stone-50): "ИИ не смог уверенно распознать фото, требуется ручной осмотр".
+
+Commit:
+feat(ai): implement robust Stage 33 AI Arbitration with caching, audit, and UX

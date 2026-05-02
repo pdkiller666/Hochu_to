@@ -1706,9 +1706,15 @@ function ClaimsTab() {
 
   const [filter, setFilter] = useState<"active" | "all" | "pending" | "approved" | "paid" | "rejected">("active");
   const [approveModal, setApproveModal] = useState<any | null>(null);
+  const [approvePrefill, setApprovePrefill] = useState<string | null>(null);
   const [paidModal, setPaidModal] = useState<any | null>(null);
   const [rejectModal, setRejectModal] = useState<any | null>(null);
   const [showAnalytics, setShowAnalytics] = useState(false);
+
+  const handleOpenApprove = (claim: any, prefill?: string) => {
+    setApprovePrefill(prefill ?? null);
+    setApproveModal(claim);
+  };
 
   const filtered = (data ?? []).filter((c: any) => {
     if (filter === "all") return true;
@@ -1842,10 +1848,15 @@ function ClaimsTab() {
                   </div>
                 )}
 
+                <ClaimAiVerdictBlock
+                  claim={claim}
+                  onPrefillAmount={(amount) => handleOpenApprove(claim, amount)}
+                />
+
                 <div className="flex gap-2 flex-wrap">
                   {(claim.status === "pending" || claim.status === "admin_review") && (
                     <>
-                      <button onClick={() => setApproveModal(claim)}
+                      <button onClick={() => handleOpenApprove(claim)}
                         className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white text-xs font-medium rounded-lg">
                         ✓ Одобрить и назначить выплату
                       </button>
@@ -1875,7 +1886,13 @@ function ClaimsTab() {
       )}
 
       {approveModal && (
-        <ClaimApproveModal claim={approveModal} fundBalance={fund?.availableForClaims ?? 0} onClose={() => setApproveModal(null)} onSuccess={() => { setApproveModal(null); onSuccess(); }} />
+        <ClaimApproveModal
+          claim={approveModal}
+          fundBalance={fund?.availableForClaims ?? 0}
+          prefillAmount={approvePrefill}
+          onClose={() => { setApproveModal(null); setApprovePrefill(null); }}
+          onSuccess={() => { setApproveModal(null); setApprovePrefill(null); onSuccess(); }}
+        />
       )}
       {paidModal && (
         <ClaimMarkPaidModal claim={paidModal} onClose={() => setPaidModal(null)} onSuccess={() => { setPaidModal(null); onSuccess(); }} />
@@ -1889,12 +1906,125 @@ function ClaimsTab() {
 
 // ─── Claim modals ────────────────────────────────────────────────────────────
 
-function ClaimApproveModal({ claim, fundBalance, onClose, onSuccess }: { claim: any; fundBalance: number; onClose: () => void; onSuccess: () => void }) {
+// ─── Stage 33 — AI-Арбитражор блок ──────────────────────────────────────────
+function ClaimAiVerdictBlock({ claim, onPrefillAmount }: { claim: any; onPrefillAmount: (amount: string) => void }) {
+  const API = import.meta.env.VITE_API_URL ?? "";
+  const [verdict, setVerdict] = useState<any | null>(claim.aiVerdict ?? null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const requestVerdict = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const token = localStorage.getItem("token");
+      const r = await fetch(`${API}/api/claims/${claim.id}/ai-verdict`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.message || "Ошибка");
+      setVerdict(j.verdict);
+    } catch (e: any) {
+      setError(e.message || "Ошибка запроса");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const isLowConf = !verdict || verdict.confidence === "low" || verdict.error;
+  const hasResult = !!verdict;
+
+  return (
+    <div className="border border-stone-200 rounded-xl p-3 space-y-2 bg-stone-50">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-bold text-stone-700">🤖 AI-помощник</span>
+        {hasResult && verdict.analyzedAt && (
+          <span className="text-[10px] text-stone-400">
+            {new Date(verdict.analyzedAt).toLocaleString("ru", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+            {verdict.cached && " · кэш"}
+          </span>
+        )}
+      </div>
+
+      {!hasResult && !loading && (
+        <button
+          onClick={requestVerdict}
+          className="px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white text-xs font-medium rounded-lg"
+        >
+          Запросить ИИ-анализ
+        </button>
+      )}
+
+      {loading && (
+        <div className="flex items-center gap-2 text-xs text-stone-500">
+          <svg className="animate-spin h-3 w-3 text-violet-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+          </svg>
+          Анализируем фото…
+        </div>
+      )}
+
+      {error && (
+        <div className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg p-2">{error}</div>
+      )}
+
+      {hasResult && isLowConf && (
+        <div className="bg-[#F2EEE3] border border-stone-300 rounded-lg p-2 text-xs text-stone-700">
+          ⚠️ ИИ не смог уверенно распознать фото{verdict.error ? `: ${verdict.error}` : ", требуется ручной осмотр"}.
+          {!loading && (
+            <button onClick={requestVerdict} className="ml-2 underline text-violet-700">Повторить</button>
+          )}
+        </div>
+      )}
+
+      {hasResult && !isLowConf && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${verdict.confidence === "high" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
+              {verdict.confidence === "high" ? "Высокая уверенность" : "Средняя уверенность"}
+            </span>
+            <span className="text-xs text-stone-600">Вина арендатора: <strong>{verdict.faultEstimatePercent}%</strong></span>
+          </div>
+
+          {verdict.verdictDraft && (
+            <p className="text-xs text-stone-700 italic">«{verdict.verdictDraft}»</p>
+          )}
+
+          {Array.isArray(verdict.evidenceCitations) && verdict.evidenceCitations.length > 0 && (
+            <ul className="text-[11px] text-stone-500 space-y-0.5 list-disc list-inside">
+              {verdict.evidenceCitations.map((c: string, i: number) => <li key={i}>{c}</li>)}
+            </ul>
+          )}
+
+          {verdict.suggestedAmountRub != null && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs text-stone-600">
+                Рекомендуемая сумма: <strong className="text-violet-700">{Number(verdict.suggestedAmountRub).toLocaleString("ru")} ₽</strong>
+              </span>
+              {(claim.status === "pending" || claim.status === "admin_review") && (
+                <button
+                  onClick={() => onPrefillAmount(String(verdict.suggestedAmountRub))}
+                  className="px-2 py-1 bg-violet-100 hover:bg-violet-200 text-violet-800 text-[11px] font-medium rounded-lg border border-violet-300"
+                >
+                  Применить рекомендуемую сумму
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ClaimApproveModal({ claim, fundBalance, onClose, onSuccess, prefillAmount }: { claim: any; fundBalance: number; onClose: () => void; onSuccess: () => void; prefillAmount?: string | null }) {
   const API = import.meta.env.VITE_API_URL ?? "";
   const [payoutToUserId, setPayoutToUserId] = useState<number | null>(null);
   const [methods, setMethods] = useState<any[]>([]);
   const [methodId, setMethodId] = useState<number | null>(null);
-  const [amount, setAmount] = useState<string>(claim.requestedAmount ?? "");
+  const [amount, setAmount] = useState<string>(prefillAmount ?? claim.requestedAmount ?? "");
   const [adminNote, setAdminNote] = useState<string>(claim.adminNote ?? "");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);

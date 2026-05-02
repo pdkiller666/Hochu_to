@@ -30,8 +30,13 @@
  *                         Stage 30H-fix2 парсит ОБА поля с fallback,
  *                         см. подробности в generateAmvera/bulletsAmvera.
  */
+import fs from "fs/promises";
+import path from "path";
 import { logger } from "./logger.js";
 import { getPlatformSettings } from "./platform-settings.js";
+import { UPLOADS_DIR } from "./uploadsDir.js";
+import { db, claimsTable, bookingsTable, digitalActsTable } from "@workspace/db";
+import { eq, and } from "drizzle-orm";
 
 const MOCK_DELAY_MS = 1500;
 const OPENAI_TIMEOUT_MS = 20_000;
@@ -430,6 +435,165 @@ export async function generateListingDescription(
       fallback: true,
       fallbackReason: reason,
     };
+  }
+}
+
+// ─── Stage 33 — AI Арбитражор (Vision Analysis) ──────────────────────────────
+//
+// ИЗОЛИРОВАНО от текстовых функций. НЕ использует GEMINI_MODEL, generateGemini,
+// bulletsGemini. Отдельная константа, отдельный таймаут, отдельный промпт.
+//
+// ⚠️  Используем "gemini-flash-latest" — единственный рабочий алиас на v1beta.
+//     "gemini-1.5-flash" мёртв (Stage 30G journal). НЕ менять.
+
+const GEMINI_VISION_MODEL = "gemini-flash-latest";
+const GEMINI_VISION_TIMEOUT_MS = 15_000;
+
+const VISION_ARBITRATION_PROMPT =
+  "You are an impartial rental damage arbitrator. " +
+  "The photos show the item BEFORE the rental (check-in) and AFTER (check-out). " +
+  "Analyze visible damage differences and assign fault to the renter. " +
+  "Output ONLY valid JSON with no markdown wrapping, no explanation outside the JSON:\n" +
+  '{"faultEstimatePercent":<0-100>,"confidence":"low|medium|high",' +
+  '"verdictDraft":"<1-3 neutral Russian sentences>",' +
+  '"evidenceCitations":["<observation 1>","<observation 2>"]}' +
+  "\nDo NOT calculate monetary amounts. Be objective and concise.";
+
+export interface AiVerdictResult {
+  faultEstimatePercent: number;
+  confidence: "low" | "medium" | "high";
+  verdictDraft: string;
+  evidenceCitations: string[];
+  error?: string;
+}
+
+/**
+ * Stage 33 — запросить AI-анализ фото из Цифровых Актов для заявки.
+ * Читает digital_acts (check_in + check_out) из БД, загружает фото с диска,
+ * конвертирует в base64, отправляет в Gemini Vision.
+ *
+ * КРИТИЧНО: не трогает GEMINI_MODEL, generateGemini, bulletsGemini.
+ */
+export async function arbitrateWithGeminiVision(claimId: number): Promise<AiVerdictResult> {
+  const apiKey = process.env.GEMINI_API_KEY?.trim();
+  if (!apiKey) {
+    return { faultEstimatePercent: 0, confidence: "low", verdictDraft: "", evidenceCitations: [], error: "GEMINI_API_KEY не задан" };
+  }
+
+  try {
+    // 1. Получаем заявку
+    const [claim] = await db.select().from(claimsTable).where(eq(claimsTable.id, claimId)).limit(1);
+    if (!claim) {
+      return { faultEstimatePercent: 0, confidence: "low", verdictDraft: "", evidenceCitations: [], error: "Заявка не найдена" };
+    }
+
+    // 2. Получаем бронь для поиска актов
+    const [booking] = await db.select().from(bookingsTable).where(eq(bookingsTable.id, claim.bookingId)).limit(1);
+
+    // 3. Получаем Цифровые Акты
+    let acts: { type: string; photos: string[] }[] = [];
+    if (booking) {
+      const rows = await db.select({ type: digitalActsTable.type, photos: digitalActsTable.photos })
+        .from(digitalActsTable)
+        .where(and(
+          eq(digitalActsTable.bookingId, booking.id),
+        ));
+      acts = rows.filter((r) => ["check_in", "check_out"].includes(r.type));
+    }
+
+    // Если пул-заявка: ищем pool_handover акты
+    if (acts.length === 0 && !booking) {
+      acts = [];
+    }
+
+    // Собираем фото: до 2 из check_in + до 2 из check_out (итого ≤ 4)
+    const checkIn = acts.find((a) => a.type === "check_in");
+    const checkOut = acts.find((a) => a.type === "check_out") ?? acts.find((a) => a.type === "pool_handover");
+
+    if (!checkIn && !checkOut) {
+      return { faultEstimatePercent: 0, confidence: "low", verdictDraft: "", evidenceCitations: [], error: "Нет фото Цифровых Актов для анализа" };
+    }
+
+    const photoUrls: string[] = [
+      ...((checkIn?.photos ?? []).slice(0, 2)),
+      ...((checkOut?.photos ?? []).slice(0, 2)),
+    ];
+
+    if (photoUrls.length < 2) {
+      return { faultEstimatePercent: 0, confidence: "low", verdictDraft: "", evidenceCitations: [], error: "Недостаточно фото (нужно минимум 2)" };
+    }
+
+    // 4. Читаем файлы с диска и конвертируем в base64
+    const photoParts: { inlineData: { mimeType: string; data: string } }[] = [];
+    for (const photoUrl of photoUrls) {
+      try {
+        const filename = path.basename(photoUrl);
+        const filePath = path.join(UPLOADS_DIR, filename);
+        const buffer = await fs.readFile(filePath);
+        const mimeType = filename.toLowerCase().endsWith(".png") ? "image/png" : "image/jpeg";
+        photoParts.push({ inlineData: { mimeType, data: buffer.toString("base64") } });
+      } catch (readErr: any) {
+        logger.warn({ photoUrl, err: readErr?.message }, "ai-arbitrator: failed to read photo, skipping");
+      }
+    }
+
+    if (photoParts.length < 2) {
+      return { faultEstimatePercent: 0, confidence: "low", verdictDraft: "", evidenceCitations: [], error: "Не удалось прочитать фото с диска" };
+    }
+
+    // 5. Вызов Gemini Vision с таймаутом 15 сек
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), GEMINI_VISION_TIMEOUT_MS);
+
+    let raw: string;
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_VISION_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{
+              parts: [
+                ...photoParts,
+                { text: VISION_ARBITRATION_PROMPT },
+              ],
+            }],
+            generationConfig: { temperature: 0.2, maxOutputTokens: 1024 },
+          }),
+          signal: ctrl.signal,
+        },
+      );
+
+      if (!res.ok) {
+        const txt = await res.text().catch(() => "");
+        throw new Error(`Gemini Vision HTTP ${res.status}: ${txt.slice(0, 200)}`);
+      }
+
+      const data: any = await res.json();
+      raw = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+      if (!raw.trim()) throw new Error("Gemini Vision: пустой ответ");
+    } finally {
+      clearTimeout(timer);
+    }
+
+    // 6. Парсим JSON из ответа (убираем возможные markdown-обёртки)
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error("Gemini Vision: JSON не найден в ответе");
+    const verdict = JSON.parse(jsonMatch[0]) as AiVerdictResult;
+
+    // Базовая валидация
+    if (typeof verdict.faultEstimatePercent !== "number") verdict.faultEstimatePercent = 0;
+    if (!["low", "medium", "high"].includes(verdict.confidence)) verdict.confidence = "low";
+    if (!Array.isArray(verdict.evidenceCitations)) verdict.evidenceCitations = [];
+
+    logger.info({ claimId, confidence: verdict.confidence, fault: verdict.faultEstimatePercent }, "ai-arbitrator: verdict generated");
+    return verdict;
+
+  } catch (err: any) {
+    const message = err?.message || String(err);
+    logger.error({ claimId, err: message }, "ai-arbitrator: failed");
+    return { faultEstimatePercent: 0, confidence: "low", verdictDraft: "", evidenceCitations: [], error: `Сервис недоступен или таймаут: ${message.slice(0, 120)}` };
   }
 }
 

@@ -6,11 +6,13 @@ import {
   usersTable,
   payoutMethodsTable,
   listingsTable,
+  auditEventsTable,
 } from "@workspace/db";
 import { eq, desc, and, inArray, sql, gte } from "drizzle-orm";
 import { requireAuth, requireAdmin, AuthRequest } from "../middleware/auth.js";
 import { createNotification } from "../lib/notifications.js";
 import { getPlatformSettings } from "../lib/platform-settings.js";
+import { arbitrateWithGeminiVision } from "../lib/ai-service.js";
 
 const router = Router();
 
@@ -788,6 +790,64 @@ router.post("/:id/reject", requireAuth, requireAdmin, async (req: AuthRequest, r
   }
 
   res.json(updated);
+});
+
+// ─── POST /claims/:id/ai-verdict — AI-анализ заявки (только admin) ──────────
+router.post("/:id/ai-verdict", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+  const claimId = parseInt(req.params.id as string, 10);
+  if (!Number.isFinite(claimId)) {
+    res.status(400).json({ error: "invalid_id" });
+    return;
+  }
+
+  // 1. Получаем заявку
+  const [claim] = await db.select().from(claimsTable).where(eq(claimsTable.id, claimId)).limit(1);
+  if (!claim) {
+    res.status(404).json({ error: "not_found" });
+    return;
+  }
+
+  // 2. Кэш — если вердикт уже есть в БД, возвращаем сразу
+  if (claim.aiVerdict) {
+    res.json({ cached: true, verdict: claim.aiVerdict });
+    return;
+  }
+
+  // 3. Запускаем AI-анализ
+  const verdictRaw = await arbitrateWithGeminiVision(claimId);
+
+  // 4. Вычисляем рекомендуемую сумму в TypeScript (не доверяем AI считать деньги)
+  const requestedAmount = claim.requestedAmount ? parseFloat(String(claim.requestedAmount)) : 0;
+  const suggestedAmountRub = requestedAmount > 0
+    ? Math.round(requestedAmount * (verdictRaw.faultEstimatePercent / 100))
+    : null;
+
+  const verdictToSave: Record<string, unknown> = {
+    ...verdictRaw,
+    suggestedAmountRub,
+    analyzedAt: new Date().toISOString(),
+  };
+
+  // 5. Сохраняем в БД
+  await db.update(claimsTable)
+    .set({ aiVerdict: verdictToSave, updatedAt: new Date() })
+    .where(eq(claimsTable.id, claimId));
+
+  // 6. Аудит-лог
+  void db.insert(auditEventsTable).values({
+    entityType: "claim",
+    entityId: claimId,
+    actorId: req.userId!,
+    eventType: "ai_verdict_requested",
+    metadata: {
+      confidence: verdictRaw.confidence,
+      faultEstimatePercent: verdictRaw.faultEstimatePercent,
+      suggestedAmountRub,
+      hasError: !!verdictRaw.error,
+    },
+  }).catch((e: unknown) => console.error("[claims] audit insert failed:", e));
+
+  res.json({ cached: false, verdict: verdictToSave });
 });
 
 export default router;

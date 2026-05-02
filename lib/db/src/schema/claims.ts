@@ -30,6 +30,10 @@ export const claimsTable = pgTable("claims", {
   paidAt: timestamp("paid_at"),
   /** Причина отклонения (для status=rejected) */
   rejectionReason: text("rejection_reason"),
+  /** Stage 33 — AI-вердикт арбитражора (Gemini Vision).
+   *  { faultEstimatePercent, confidence, verdictDraft, evidenceCitations, suggestedAmountRub, error? }
+   *  null = анализ ещё не запускался. */
+  aiVerdict: jsonb("ai_verdict").$type<Record<string, unknown> | null>(),
   resolvedAt: timestamp("resolved_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
