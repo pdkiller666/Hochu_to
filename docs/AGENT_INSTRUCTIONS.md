@@ -4,6 +4,59 @@
 
 ---
 
+## 0. БЫСТРЫЙ СТАРТ ДЛЯ НОВОГО АГЕНТА (02.05.2026)
+
+> Если ты агент, который только что принял проект — прочитай этот блок первым.
+
+### Где мы сейчас
+- **Последний закрытый этап: Stage 38** — Telegram Bot & Notification Engine ✅
+- **Тестовые аккаунты**: `admin@hochu.to / AdminTest99!` (superadmin, id=1) · `tenant_test@test.ru / Test1234!` (renter, id=10)
+- **Бот**: `@Helper251223_bot` — онлайн, токен в секрете `TELEGRAM_BOT_TOKEN`
+- **API**: порт 8080 · **Фронт**: порт 5000 (workflow `Start application`)
+
+### Что НЕЛЬЗЯ ломать (критические инварианты)
+| Инвариант | Где |
+|-----------|-----|
+| Gemini хедер авторизации: **НЕ** `Authorization`, а `X-Auth-Token: Bearer …` | `lib/ai-service.ts` |
+| Gemini model: `gemini-flash-latest` (не `gemini-1.5-flash` — 404) | `lib/ai-service.ts` |
+| Amvera messages field: `text` (не `content`) | `lib/ai-service.ts` |
+| `.trim()` на всех API-ключах (хвостовой `\n` → загадочный 401) | `lib/ai-service.ts` |
+| `sharp` в `dependencies` (не `devDependencies`) — иначе prod-сборка падает | `artifacts/api-server/package.json` |
+| `seedDefaultAdmin` делает роль `superadmin` (не `admin`) — идемпотентно | `index.ts` |
+| Hot-swap telegram токена: **await** + DB rollback при 401 | `lib/telegram.ts:hotSwapToken` |
+| Broadcast валидирует роль через `isValidBroadcastRole()` → 400 при невалидной | `routes/admin.ts` |
+| Буллеты инфографики ≤32 символа (`BULLET_MAX_CHARS=16`) | `lib/image-service.ts` |
+| Webhook ЮKassa: HMAC-SHA256 обязателен в production | `routes/webhooks.ts` |
+
+### Архитектура одним взглядом
+```
+pnpm monorepo
+├── lib/db/                  Drizzle ORM + schema (30+ таблиц)
+├── artifacts/api-server/    Express 5 API (:8080)
+│   ├── src/lib/             ai-service, telegram, notifications, scheduler, yookassa, image-service
+│   ├── src/middleware/      auth, requireRole (RBAC 8 ролей)
+│   └── src/routes/          28 роутов (auth, listings, bookings, pools, telegram, admin, ...)
+├── artifacts/hochu-to/      React+Vite фронт (:5000)
+│   └── src/pages/           17 страниц (Home, Dashboard, AdminPage, PoolDetail, ...)
+└── scripts/                 github-push.sh, setup-new-replit.sh, db-snapshots/
+```
+
+### Правила работы
+1. **Язык с пользователем**: только русский
+2. **После каждой итерации**: `bash scripts/github-push.sh "Stage N: описание"` (выполняет пользователь в Shell)
+3. **Перед каждым пушем**: обновить оба файла — `replit.md` (карта проекта) и `docs/AGENT_INSTRUCTIONS.md` (журнал + инвентаризация)
+4. **Не трогать** артефакт-воркфлоу (`artifacts/*`) — они неудаляемы, платформа управляет ими
+5. **Git-команды заблокированы из агента** — git status/log/push выполняет пользователь в Shell
+6. **Новые NOT NULL поля в схеме** — всегда с `DEFAULT` или nullable, иначе `drizzle push` упадёт на проде
+
+### Следующие кандидаты Stage 39+
+- Stage 21b: контакты через ЮKassa (real-branching в `contacts.ts`)
+- Stage 21c: холд брони через ЮKassa (capture при `completed`)
+- Подписки владельцев (Pro/Бизнес): таблица + роуты + UI
+- Joint Purchases: полная коллективная механика (паи, эскроу, закрытие)
+
+---
+
 ## 1. О проекте
 
 **«Хочу_То»** — российский маркетплейс аренды вещей и совместных покупок.
@@ -171,6 +224,7 @@ node artifacts/api-server/dist/index.mjs             # запуск сервер
 | `GEMINI_API_KEY` | Google Gemini — основной AI-провайдер (опционально, без ключа работает mock) | Google AI Studio: https://aistudio.google.com/apikey |
 | `AMVERA_API_TOKEN` | Amvera DeepSeek-V3 — второй AI-провайдер (опционально) | Панель управления Amvera |
 | `DEEPSEEK_API_KEY` | Прямой DeepSeek API — резерв после Amvera (Stage 33.0, опционально) | `sk-bbf4cc431aa4488895da859c9516492e` |
+| `TELEGRAM_BOT_TOKEN` | Telegraf bot-токен (Stage 38) — если NULL в `platform_settings`, бот берёт отсюда | BotFather в Telegram. Текущий бот: `@Helper251223_bot` |
 
 `DATABASE_URL`, `PGHOST`, `PGPASSWORD` и т.п. **Replit задаёт автоматически** при наличии модуля `postgresql-16`.
 
@@ -277,6 +331,12 @@ Dockerfile          # Multi-stage Docker сборка
 | POST | `/reports` | Жалоба |
 | PUT | `/bookings/:id/status` | Смена статуса бронирования |
 | POST | `/contacts/unlock` | Купить доступ к контактам владельца Free-объявления |
+| POST | `/telegram/generate-otp` | Генерировать 6-значный OTP для привязки к боту (TTL 10 мин) |
+| GET | `/telegram/status` | `{linked, hasOtp, otpExpiresAt, preferences}` |
+| POST | `/telegram/unlink` | Отвязать Telegram (идемпотентно) |
+| PATCH | `/telegram/preferences` | `{bookings?, system?, chats?: boolean}` |
+| GET | `/admin/telegram/status` | Статус бота: `{online, username, env, hasToken}` (superadmin) |
+| POST | `/admin/telegram/broadcast` | Рассылка `{text, link?, role?}` всем или по роли (superadmin) |
 
 ### Авторизация:
 ```javascript
@@ -418,7 +478,41 @@ GITHUB_TOKEN=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 bash scripts/github-push.s
 
 ---
 
-## 11. Дорожная карта (актуально на 27.04.2026 — Stage 28 закрыт, Stage 24 заморожен до открытия ИП)
+## 11. Дорожная карта (актуально на 02.05.2026 — Stage 38 закрыт, Stage 24 заморожен до открытия ИП)
+
+### Сводка стадий 29–38 (02.05.2026)
+
+| Stage | Дата | Название | Статус |
+|-------|------|----------|--------|
+| 29 | 29.04 | Trust Score Engine V6 | ✅ 13 сигналов, decay 180 дней, score_components JSONB |
+| 30D-G | 28.04 | AI Provider Hardening | ✅ Gemini primary, Amvera/DeepSeek fallback, LLaMA stub |
+| 30H | 29.04 | Amvera pivot llama → DeepSeek-V3 | ✅ Endpoint + response shape fix |
+| 30J | 29.04 | Gemini model name regression fix | ✅ `gemini-flash-latest` alias |
+| 32 | 29.04 | Documentation & Roadmap Sync | ✅ AGENT_INSTRUCTIONS update |
+| 32-debug | 29.04 | Smoke-pass + Cookie Fix | ✅ auth cookie samesite |
+| 32.1 | 02.05 | Trust Score V8 — публичный рейтинг | ✅ `GET /api/users/:id/trust-score` public |
+| 33.0 | 30.04 | AI Redundancy + UI Polish | ✅ 3rd provider DeepSeek direct; AI retry/fallback |
+| 33.1 | 30.04 | UI & Logic Polish — GPS, Gender, Cache | ✅ GPS авто-регион, кэш TrustScore 60с |
+| 33.1.5 | 02.05 | Safe Technical Debt Polish | ✅ типы, eslint, cleanup |
+| Prod-Fix-1 | 02.05 | sharp в prod-зависимостях | ✅ sharp → dependencies (не devDependencies) |
+| 33.1 AI | 02.05 | AI Arbitration Hardening | ✅ Vision analysis → Gemini stable alias |
+| 34 | 02.05 | Real-time WebSockets | ✅ ws chat + notifications, `/ws` endpoint |
+| 35 | 02.05 | Mobile Responsiveness Polish | ✅ breakpoints, touch targets, burger меню |
+| 35b | 02.05 | Soft Delete Account | ✅ `DELETE /api/users/me`, анонимизация, 30с confirm |
+| 36 | 02.05 | RBAC — Role-Based Access Control | ✅ 8 ролей, `requireRole()` middleware, staff pages |
+| 37 | 02.05 | Staff Profiles & UI Polish | ✅ staff UI, role badges, ownerRole в listings |
+| 37.1 | 02.05 | Platform Owner → superadmin by default | ✅ seedDefaultAdmin идемпотентно повышает до superadmin |
+| 38 | 02.05 | Telegram Bot & Notification Engine | ✅ `@Helper251223_bot`, OTP, prefs, hot-swap, broadcast |
+
+**Следующие кандидаты для Stage 39+:**
+- Stage 21b — контакты через ЮKassa (при `commercial=true`)
+- Stage 21c — холд брони через ЮKassa (capture при завершении)
+- Подписки владельцев (Pro/Бизнес) — таблица + роуты + UI
+- Joint Purchases — полноценная коллективная механика (паи, эскроу, закрытие)
+- WebSocket fallback / SSE для pool Timeline
+- Авто-cancel buyout-запросов после N дней без активности
+
+---
 
 ### Stage 28 (27.04.2026) — Co-Sharing Full Buyout: полный выкуп пула одним совладельцем
 
@@ -743,63 +837,141 @@ GITHUB_TOKEN=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 bash scripts/github-push.s
 
 ---
 
-## 11a. Инвентаризация проекта (24.04.2026)
+## 11a. Инвентаризация проекта (02.05.2026 — актуально после Stage 38)
 
-> Состояние реальной кодовой базы (а не «по доке»). Источники: 24 модуля API (~6850 строк), 15 страниц фронта, 26 таблиц БД, `platform_settings` (40+ полей).
+> Состояние реальной кодовой базы. Источники: 30+ модулей API (~12 000 строк), 17 страниц фронта, 30+ таблиц БД, `platform_settings` (50+ полей).
 
-### ✅ Что РЕАЛЬНО работает (подтверждено в коде)
-- **Auth**: register/login/refresh/logout/me, JWT, bcrypt, сессии в БД (`auth_sessions`).
-- **Каталог + сортировки**: 5 веток (`default/new/price_asc/price_desc/protected_first/rating/popular`), `?quality=true` для «Новинок» (`array_length(photos)≥1` + `char_length(description)≥50`), promo-префикс во всех ветках (Stage 19a).
-- **Объявления (CRUD)**: 4 категории, до 10 фото, `listingNumber` БТ-YYYY-NNNNNN, авто-модерация при аномальной цене.
-- **Бронирования**: pending→confirmed→active→return_pending→completed, отмены/перенос (`reschedule`), нумерация `ХТ-YYYY-NNNNNN`, аудит (`booking_events`), атомарный счётчик с защитой от race conditions.
-- **Чат по броне**: `booking_messages` + unread-counts.
-- **Двусторонние отзывы**: listing-review + renter-review с привязкой к завершённой броне, ответ от рецензируемой стороны, `recomputeListingRating()` после insert.
-- **Избранное** (`favorites`) с денорм-счётчиком.
-- **Финансовая модель Dual Shield**: множители категорий, Shield Fee, риск-резерв, ownerPayout — все ставки в `platform_settings` (кэш 60с).
-- **Payout Requests** (Stage 17a): реквизиты карты/СБП, очередь заявок владельцев, ручной `mark-paid` админом.
-- **Compensation Payouts / Claims** (Stage 17b): claims с реквизитами, поток approve→mark-paid→reject, лимиты анти-фрода фонда.
-- **Аналитика фонда** (Stage 17c): `GET /api/claims/analytics`, LineChart баланса, топ-получатели, флаги паттернов.
-- **Платное продвижение** (Stage 18 + 19a/19f): VIP/Срочно/Топ + журнал `listing_promotions`, продление поверх активного, бейджи в каталоге и на детальной, кнопка «Продвигать» в Dashboard и сайдбаре `/listings/:id`.
-- **Денормализация счётчиков** (Stage 19e): `bookingCount/reviewCount/avgRating/favoritesCount` + idempotent backfill, убраны N+1 sub-queries.
-- **Защищённые просмотры** (Stage 19c): `listing_views` UNIQUE по часу-бакету, hit-score `bookingCount × 5 + reviewCount × 2 + favoritesCount + views_30d` для `sort=popular`.
-- **Контакты (платная разблокировка телефона)**: `contact_balances/unlocks/purchases`, 3 тарифа (49/299/699 ₽), модалка `ContactPurchaseModal`. **Оплата — заглушка** (моментально начисляет баланс).
-- **Уведомления + Scheduler** (`node-cron`, `lib/scheduler.ts`): 6 правил напоминаний (confirm_pending / handover_today / handover_overdue / return_today / return_overdue / return_confirm), производительный (5 SQL за прогон).
-- **Админка (10+ вкладок)**: Обзор, Аналитика, Пользователи, Объявления, Бронирования, Поддержка, Жалобы, Аудит, Экономика, Платежи, Заявки Shield. Сидер `POST /admin/seed-test-listings` (150 объявлений, идемпотентно).
-- **Поддержка** (`support_tickets/messages`), **Жалобы** (`reports`), **GeoIP** для авто-региона.
-- **Деплой**: GitHub → Amvera webhook (Docker).
+### Карта модулей API (`artifacts/api-server/src/`)
 
-### 🟡 Заявлено как фича, но реализовано поверхностно
+| Файл | Что делает |
+|------|-----------|
+| `index.ts` | Bootstrap: DB connect, seedDefaultAdmin (→superadmin), initTelegramBot, scheduler, WebSocket, static |
+| `lib/db.ts` | Drizzle + pg pool, `DATABASE_URL` |
+| `lib/platform-settings.ts` | Singleton-кэш 60с, `publicSettings()`, `adminSettings()` |
+| `lib/notifications.ts` | `createNotification()` + fire-and-forget Telegram dispatch |
+| `lib/scheduler.ts` | node-cron каждый час, 6 правил напоминаний по бронированиям |
+| `lib/ai-service.ts` | Gemini → DeepSeek-V3 (Amvera) → DeepSeek (direct) → mock fallback |
+| `lib/image-service.ts` | Инфографика 1080×1080 через sharp + SVG, буллеты ≤32 символа |
+| `lib/yookassa.ts` | REST-клиент ЮKassa (createPayment, capture, cancel, HMAC-SHA256 webhook) |
+| `lib/telegram.ts` | Telegraf bot: startBot, handleOtp, sendTelegramToUser, broadcastToAll, hotSwapToken |
+| `lib/audit-events.ts` | `recordAuditEvent()` — универсальный аудит (пулы, любые сущности) |
+| `middleware/auth.ts` | `requireAuth()`, `requireRole(...roles)`, JWT decode/verify |
+| `routes/auth.ts` | register, login, logout, refresh, me |
+| `routes/listings.ts` | CRUD объявлений, фото, AI-генерация, инфографика, бейджи |
+| `routes/bookings.ts` | Полный статус-машина брони, payout-расчёт, wear_and_tear++ при completed |
+| `routes/reviews.ts` | Двусторонние отзывы + ответы, recomputeListingRating |
+| `routes/notifications.ts` | GET/PATCH read/read-all |
+| `routes/favorites.ts` | Toggle + денорм-счётчик |
+| `routes/contacts.ts` | Покупка доступа к телефону (3 тарифа), bypass в beta-режиме |
+| `routes/promotions.ts` | VIP/Срочно/Boost, ЮKassa branching, продление, журнал |
+| `routes/claims.ts` | Заявки гарантийного фонда + аналитика |
+| `routes/payouts.ts` | Payout requests владельцев, mark-paid |
+| `routes/support.ts` | support_tickets + messages |
+| `routes/reports.ts` | Жалобы |
+| `routes/pools.ts` | Co-Sharing: создание пулов, доли, вторичный рынок, buyout (Stages 23-28) |
+| `routes/digital_acts.ts` | Цифровые акты передачи (pool_handover, обычный) |
+| `routes/telegram.ts` | OTP, status, unlink, preferences (Stage 38) |
+| `routes/admin.ts` | Все admin-эндпоинты: users, listings, settings, stats, audit, economy, telegram |
+| `routes/webhooks.ts` | ЮKassa вебхук с FOR UPDATE anti-replay |
+| `routes/trust-score.ts` | `GET /api/users/:id/trust-score` публичный V8 (13 сигналов) |
 
-**Совместные покупки** — *доска объявлений без коллективной механики*:
-- Таблица `joint_purchases` есть; **API только GET+POST** (создать без авторизации); UI `pages/JointPurchases.tsx` — `handleParticipate()` показывает toast «Скоро!».
-- НЕТ: участия, инкремента `collectedAmount`, модерации, оплаты пая, эскроу до сбора, закрытия/возврата при недосборе, админки.
-- Настройка `joint_purchase_fee_percent=3` в БД **никогда не применяется в коде**.
-- Реальное наполнение БД: 1 тестовая запись от 23.04.2026.
+### Карта страниц фронта (`artifacts/hochu-to/src/pages/`)
 
-**Платежи** — *Stage 21a реализована, 21b/c — в работе*:
-- ✅ **ЮKassa Core (Stage 21a)**: REST-клиент `lib/yookassa.ts` (createPayment с capture:true/false, getPayment, capturePayment, cancelPayment, HMAC-SHA256 webhook signature). Master-флаг `is_commercial_mode` в `platform_settings`. Таблица `payments` (id, user_id, amount_rub, status, yookassa_payment_id UNIQUE, target_type, target_id, provider, idempotency_key, metadata, paid_at). Webhook `POST /api/webhooks/yookassa` с FOR UPDATE anti-replay. Branching mock/real в `promotions.ts` — при OFF мгновенный мок (0₽, succeeded), при ON реальный платёж + redirect, активация только в webhook.
-- ✅ **Soft-обнуление при OFF**: `bookings.ts` зануляет serviceFee/taxFee/fund; `contacts.ts` мгновенный bypass `beta_free`; UI продолжает показывать опции защиты, но «0 ₽».
-- ❌ **Stage 21b — контакты через ЮKassa**: при `commercial=true` `contacts.ts` всё ещё bypass'ит. Нужно ввести real-branching с записью в `payments(target_type='contact_pack')` и активацией баланса в webhook.
-- ❌ **Stage 21c — холд брони через ЮKassa**: `bookings.ts` пока не вызывает `createPayment({ capture: false })`. Холд защищённой брони на время аренды + capture при завершении / cancel при отмене.
-- ❌ **СБП / CloudPayments**: настройки есть в `platform_settings`, но фактической интеграции нет (CloudPayments — вообще не в roadmap).
-- `payment_mode='self_employed'` (default) влияет только на тексты UI.
+| Страница | URL | Что показывает |
+|----------|-----|----------------|
+| `Home.tsx` | `/` | Каталог + 4 маркетинговые карусели + GeoIP авто-регион |
+| `ListingDetail.tsx` | `/listings/:id` | Галерея, бейджи, бронирование, отзывы, чат, AI-инфографика |
+| `CreateListing.tsx` | `/listings/create` | Форма + AI-описание + авто-расчёт maxProtectionLimit |
+| `EditListing.tsx` | `/listings/:id/edit` | Редактирование |
+| `Dashboard.tsx` | `/dashboard` | Бронирования, мои объявления, профиль, уведомления, Telegram-привязка |
+| `AdminPage.tsx` | `/admin` | 11+ табов: Overview, Users, Listings, Bookings, Support, Reports, Audit, Economy, Payments, Shield Claims, Telegram |
+| `PoolDetail.tsx` | `/pools/:id` | Пул Co-Sharing: доли, рынок, buyout, Timeline, handover |
+| `JointPurchases.tsx` | `/joint-purchases` | Доска заявок (частично, без полной механики) |
+| `Support.tsx` | `/support` | Мои тикеты + форма создания |
+| `StaffDirectory.tsx` | `/staff` | Список персонала (roles: moderator/admin/support/arbiter/staff/superadmin) |
+| `TrustScorePage.tsx` | `/users/:id/trust` | Публичный Trust Score V8 + компоненты |
+| `Auth.tsx` | `/auth` | Login / Register |
+| `NotFound.tsx` | `*` | 404 |
 
-**Подписки владельцев (Pro / Бизнес)** — *цены лежат, реализации нет*:
-- В `platform_settings`: `subscription_pro_monthly=499`, `subscription_business_monthly=1990`, `subscription_business_commission_percent=5`.
-- НЕТ таблицы `subscriptions/owner_subscriptions`, нет роутов `/api/subscriptions`, нет UI оформления, нет логики применения пониженной комиссии.
+### ✅ Что РЕАЛЬНО работает (Stage 38)
 
-**Trust Score / KYC / верификация** — *0 строк*. Бейдж «Проверенный владелец» в `getListingBadges` **не реализован** (нет поля `is_verified` в `users`, нет ветки в badge-функции, нет API). Дизайн — в разделе 11d.
+**Ядро платформы:**
+- Auth: register/login/refresh/logout/me, JWT, bcrypt, `auth_sessions` в БД
+- RBAC (Stage 36): 8 ролей (`renter/owner/moderator/admin/superadmin/support/arbiter/staff`), middleware `requireRole()`, staff-страницы с badges
+- Каталог + сортировки: 6 веток + `?quality=true`, promo-префикс, GeoIP авто-регион
+- Объявления CRUD: 4 категории, до 10 фото, `listingNumber БТ-YYYY-NNNNNN`, авто-модерация аномальных цен
+- Бронирования: полный статус-машина pending→completed, reschedule, нумерация `ХТ-YYYY-NNNNNN`, аудит `booking_events`, race-condition защита
+- Real-time WebSockets (Stage 34): `/ws` endpoint, live-чат по броне + push-уведомления без polling
+- Двусторонние отзывы + ответы, `recomputeListingRating()`
+- Избранное с денорм-счётчиком
 
-### 🔴 Бэклог — точно не начато
-- Партнёрские договоры с юрлицами (бейдж «Партнёр платформы», 5% комиссии).
-- `minPremiumShareInResults=60` (настройка есть) — буфер Premium в пагинации не реализован.
-- `showFormatBadges` — фронтового переключателя нет.
-- Индексы для аналитики на проде (см. 11. Дорожная карта).
+**Финансы:**
+- Dual Shield финансовая модель: множители категорий, Shield Fee, риск-резерв, ownerPayout (все ставки в `platform_settings`, кэш 60с)
+- Payout Requests (Stage 17a): реквизиты карты/СБП, очередь, `mark-paid` админом
+- Compensation Claims (Stage 17b): лимиты анти-фрода, аналитика фонда (LineChart, топ-получатели)
+- Платное продвижение (Stage 18+19): VIP/Срочно/Boost, журнал `listing_promotions`, ЮKassa branching при `commercial=true`
+- Контакты — платная разблокировка телефона (3 тарифа), bypass в beta-режиме
 
-### Самые критичные пробелы (приоритезация для запуска)
-1. **ЮKassa** — без неё все платные фичи (промо, контакты, Premium-брони) работают «на доверии». Блокер реальной монетизации.
-2. **Совместные покупки** — нужен полноценный дизайн (паи + эскроу + закрытие/возврат), либо честно убрать со страницы пометку «Скоро» и не путать пользователя.
-3. **Подписки** — *сначала надо ответить на вопрос: нужны ли вообще* (см. ниже раздел 11b).
+**AI & Контент:**
+- AI-генерация описаний: Gemini → DeepSeek-V3 (Amvera) → DeepSeek (direct) → smart-mock. `actualProvider` + `fallback` в ответе
+- AI-инфографика 1080×1080 (sharp + SVG), буллеты ≤32 символа
+- AI-Арбитражор (Vision analysis) для разрешения споров
+
+**Уведомления:**
+- In-app + Scheduler (6 правил cron каждый час)
+- **Telegram (Stage 38):** `@Helper251223_bot`, OTP-привязка (TTL 10 мин), preferences (bookings/system/chats), hot-swap токена с автооткатом, broadcast по роли, dev/prod режим
+- `createNotification()` fire-and-forget → Telegram dispatch
+
+**Co-Sharing (Stages 23a–28):**
+- Пулы (`pools`), доли (`pool_shares`), статус-машина `funding→purchasing→active→liquidated`
+- Вторичный рынок долей (`share_offers`): TOCTOU-защита, TTL 30 мин, атомарный merge
+- Амортизация (`wear_and_tear_meter`, `depreciationPerRentalPercent`)
+- Цифровые акты передачи (`digital_acts`, pool_handover)
+- Buyout (Stage 28): полный выкуп пула, атомарный confirm, ликвидация
+- Аудит (`audit_events`) + уведомления (5 типов buyout_*)
+
+**Trust Score V8 (Stage 32.1):**
+- 13 сигналов, decay 180 дней, `score_components JSONB`
+- Публичный `GET /api/users/:id/trust-score`
+
+**Мобильность (Stage 35):**
+- Адаптивная вёрстка: breakpoints, touch targets, burger-меню
+
+**Soft delete (Stage 35b):**
+- `DELETE /api/users/me` → анонимизация, `isBanned=true`, `banReason='account_deleted'`
+
+**Админка (11+ табов):**
+- Overview+Analytics, Users, Listings, Bookings, Support, Reports, Audit, Economy, Payments, Shield Claims, **Telegram** (статус бота, env, broadcast)
+
+### 🟡 Частично реализовано
+
+**Платежи ЮKassa:**
+- ✅ Stage 21a Core: `lib/yookassa.ts`, `payments` таблица, webhook HMAC, mock branching для промо
+- ❌ Stage 21b: `contacts.ts` при `commercial=true` всё ещё bypass'ит — нужен real-branching
+- ❌ Stage 21c: `bookings.ts` не вызывает `createPayment({ capture: false })` — холд брони не реализован
+
+**Совместные покупки (старый раздел, не Co-Sharing):**
+- `joint_purchases` таблица есть; API GET+POST без auth; UI показывает `toast("Скоро!")`
+- `joint_purchase_fee_percent=3` в settings — никогда не применяется в коде
+
+**Подписки владельцев:**
+- Цены в `platform_settings` (`subscription_pro_monthly=499`, etc.) — таблицы, роутов, UI нет
+
+### 🔴 Бэклог — не начато
+- Stage 21b/21c — ЮKassa для контактов и холда брони
+- Подписки владельцев (Pro/Бизнес): таблица + роуты + UI
+- Joint Purchases — полная коллективная механика (паи, эскроу, закрытие/возврат)
+- Партнёрские договоры юрлиц (бейдж «Партнёр платформы»)
+- `minPremiumShareInResults=60` — буфер Premium в пагинации
+- `showFormatBadges` — фронтовый переключатель
+- Production analytics indexes: `bookings(status, protection_enabled)`, `claims(status, paid_at)`
+- Авто-cancel buyout-запросов после N дней без активности (cron)
+- WebSocket/SSE для pool Timeline (сейчас polling 30с)
+
+### Самые критичные пробелы для запуска
+1. **ЮKassa 21b/21c** — без реального холда и контактных платежей коммерческий режим не работает
+2. **Joint Purchases** — убрать «Скоро!» или реализовать коллективную механику
+3. **Подписки** — ответить на вопрос «нужны ли вообще» (анализ в разделе 11b)
 
 ---
 
