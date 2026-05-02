@@ -3173,3 +3173,35 @@ feat(rbac): implement role-based access control, secure finance routes, and hide
 ```bash
 feat(users): implement staff badges for public profiles and refine navigation buttons UI
 ```
+
+## Журнал — Stage 37.1 (Platform Owner → superadmin by default, 02.05.2026)
+
+### Проблема
+`admin@hochu.to` создавался/обновлялся с `role: "admin"`, что лишало его доступа к эндпоинтам `requireRole("superadmin")` (settings, audit-log, finance, payouts, economy, AI-настройки) и соответствующим табам в AdminPage.
+
+### Исправления
+
+**`artifacts/api-server/src/index.ts` — `seedDefaultAdmin()`**
+- Создание нового пользователя: `role: "admin"` → `role: "superadmin"`, `name: "Администратор"` → `"Владелец платформы"`.
+- Проверка существующего: `if (existingUser.role !== "admin")` → `if (existingUser.role !== "superadmin")`. Теперь при каждом перезапуске, если роль меньше superadmin — повышаем автоматически.
+- При старте сервера в логах появляется: `Platform owner promoted to superadmin. email: "admin@hochu.to" prevRole: "admin"`.
+
+**`artifacts/hochu-to/src/pages/Dashboard.tsx` — AdminAccountPanel**
+- `activeTab === "profile" && user.role === "admin"` → `(user.role === "admin" || user.role === "superadmin")`.
+- Обратная ветка `user.role !== "admin"` → `user.role !== "admin" && user.role !== "superadmin"`.
+- Баннер в AdminAccountPanel: динамический текст `user.role === "superadmin" ? "Владелец платформы" : "Администратор платформы"`.
+
+### Тест после исправлений
+- `POST /api/auth/login` → `role: superadmin` ✅
+- `GET /api/admin/settings` → 200 ✅ (было 403 для admin)
+- `GET /api/admin/audit-log` → 200 ✅
+- `GET /api/admin/stats` → 200 ✅
+- AdminPage: все табы (`finance`, `payouts`, `economy`, `payments`, `audit`, `ai`) видны ✅
+
+### Ключевые заметки
+- `seedDefaultAdmin` идемпотентна: при каждом перезапуске сервера проверяет роль и повышает если нужно.
+- Наличие `ADMIN_EMAIL` env-переменной позволяет задать другой email владельца платформы.
+
+```bash
+fix(auth): promote platform owner admin@hochu.to to superadmin on every server start
+```

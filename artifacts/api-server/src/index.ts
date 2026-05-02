@@ -26,19 +26,19 @@ if (Number.isNaN(port) || port <= 0) {
 async function seedDefaultAdmin() {
   try {
     const defaultEmail = process.env["ADMIN_EMAIL"] ?? "admin@hochu.to";
-    
+
     const existingUser = await db.query.usersTable.findFirst({
       where: eq(usersTable.email, defaultEmail),
     });
-    
+
     if (existingUser) {
-      if (existingUser.role !== "admin") {
+      if (existingUser.role !== "superadmin") {
         await db.update(usersTable)
-          .set({ role: "admin" })
+          .set({ role: "superadmin" })
           .where(eq(usersTable.email, defaultEmail));
-        logger.info({ email: defaultEmail }, "Existing user promoted to admin.");
+        logger.info({ email: defaultEmail, prevRole: existingUser.role }, "Platform owner promoted to superadmin.");
       } else {
-        logger.info({ email: defaultEmail }, "Default admin already exists, skipping seed.");
+        logger.info({ email: defaultEmail }, "Platform owner (superadmin) already exists, skipping seed.");
       }
       return;
     }
@@ -47,13 +47,13 @@ async function seedDefaultAdmin() {
     const passwordHash = await bcrypt.hash(defaultPassword, 10);
 
     await db.insert(usersTable).values({
-      name: "Администратор",
+      name: "Владелец платформы",
       email: defaultEmail,
       passwordHash,
-      role: "admin",
+      role: "superadmin",
     }).onConflictDoNothing({ target: usersTable.email });
 
-    logger.info({ email: defaultEmail }, "Default admin created. Change password after first login.");
+    logger.info({ email: defaultEmail }, "Platform owner (superadmin) created. Change password after first login.");
   } catch (err) {
     logger.warn({ err }, "Non-fatal error during seedDefaultAdmin. Server will continue to start.");
   }

@@ -2351,7 +2351,7 @@ export default function Dashboard() {
             )}
 
             {/* ── PROFILE / SETTINGS — ADMIN VARIANT ── */}
-            {activeTab === "profile" && user.role === "admin" && (
+            {activeTab === "profile" && (user.role === "admin" || user.role === "superadmin") && (
               <AdminAccountPanel
                 user={user}
                 avatarPreview={avatarPreview}
@@ -2366,8 +2366,8 @@ export default function Dashboard() {
               />
             )}
 
-            {/* ── PROFILE / SETTINGS — RENTER/OWNER ── */}
-            {activeTab === "profile" && user.role !== "admin" && (
+            {/* ── PROFILE / SETTINGS — RENTER/OWNER/STAFF ── */}
+            {activeTab === "profile" && user.role !== "admin" && user.role !== "superadmin" && (
               <div className="max-w-2xl w-full">
                 <h2 className="text-xl font-bold flex items-center gap-2 mb-5">
                   <Settings className="w-5 h-5 text-primary" /> Настройки профиля
@@ -4589,7 +4589,7 @@ function AdminAccountPanel({
 
           <div className="flex-1 text-center sm:text-left">
             <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#C65D3B] text-white text-[11px] font-bold uppercase tracking-wider mb-2">
-              <Shield className="w-3 h-3" /> Администратор платформы
+              <Shield className="w-3 h-3" /> {user.role === "superadmin" ? "Владелец платформы" : "Администратор платформы"}
             </div>
             <h2 className="text-2xl font-bold text-stone-900">{user.name}</h2>
             <p className="text-sm text-stone-600 mt-0.5">{user.email}</p>
