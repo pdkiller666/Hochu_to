@@ -150,14 +150,14 @@ function StatCard({ icon: Icon, label, value, sub, color, alert }: {
   icon: any; label: string; value: number | string; sub?: string; color: string; alert?: boolean;
 }) {
   return (
-    <div className={`bg-white rounded-xl border p-5 flex items-center gap-4 ${alert ? "border-red-200 bg-red-50/50" : "border-stone-200"}`}>
-      <div className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 ${color}`}>
-        <Icon className="w-6 h-6" />
+    <div className={`bg-white rounded-xl border p-3 sm:p-5 flex items-center gap-2 sm:gap-4 ${alert ? "border-red-200 bg-red-50/50" : "border-stone-200"}`}>
+      <div className={`w-9 h-9 sm:w-12 sm:h-12 rounded-lg sm:rounded-xl flex items-center justify-center flex-shrink-0 ${color}`}>
+        <Icon className="w-4 h-4 sm:w-6 sm:h-6" />
       </div>
-      <div className="min-w-0">
-        <div className="text-2xl font-bold text-stone-800 truncate">{value}</div>
-        <div className="text-sm text-stone-500">{label}</div>
-        {sub && <div className="text-xs text-stone-400">{sub}</div>}
+      <div className="min-w-0 flex-1">
+        <div className="text-xl sm:text-2xl font-bold text-stone-800 truncate">{value}</div>
+        <div className="text-xs sm:text-sm text-stone-500 leading-tight">{label}</div>
+        {sub && <div className="text-[10px] sm:text-xs text-stone-400 leading-tight mt-0.5 truncate">{sub}</div>}
       </div>
     </div>
   );
@@ -430,7 +430,7 @@ function UserDetailPanel({ userId, onClose, onChanged }: {
           </div>
 
           {/* Stats row */}
-          <div className="grid grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[
               { l: "Объявлений", v: Number(data.stats?.listing_count ?? 0) },
               { l: "Бронирований", v: Number(data.stats?.booking_count ?? 0) },
@@ -2597,42 +2597,42 @@ function FinanceTab() {
 
       {/* KPI grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-gradient-to-br from-emerald-50 to-green-50 border border-emerald-200 rounded-xl p-5">
-          <div className="flex items-center gap-2 text-xs text-emerald-700 mb-1">
-            <Banknote className="w-3.5 h-3.5" /> Выручка платформы
+        <div className="bg-gradient-to-br from-emerald-50 to-green-50 border border-emerald-200 rounded-xl p-3 sm:p-5 min-w-0 overflow-hidden">
+          <div className="flex items-center gap-1.5 text-xs text-emerald-700 mb-1">
+            <Banknote className="w-3.5 h-3.5 shrink-0" /> Выручка платформы
           </div>
-          <p className="text-2xl font-bold text-emerald-800">{formatPrice(data.revenue.total)}</p>
-          <p className="text-[11px] text-emerald-700/80 mt-1">сервис {formatPrice(data.revenue.service)} · налог {formatPrice(data.revenue.tax)} · контакты {formatPrice(data.revenue.contacts)}</p>
+          <p className="text-xl sm:text-2xl font-bold text-emerald-800 truncate">{formatPrice(data.revenue.total)}</p>
+          <p className="text-[10px] sm:text-[11px] text-emerald-700/80 mt-1 leading-snug">сервис {formatPrice(data.revenue.service)}<br className="sm:hidden" /> · налог {formatPrice(data.revenue.tax)}<br className="sm:hidden" /> · контакты {formatPrice(data.revenue.contacts)}</p>
         </div>
-        <div className="bg-gradient-to-br from-blue-50 to-sky-50 border border-blue-200 rounded-xl p-5">
-          <div className="flex items-center gap-2 text-xs text-blue-700 mb-1">
-            <PiggyBank className="w-3.5 h-3.5" /> Гарантийный фонд
+        <div className="bg-gradient-to-br from-blue-50 to-sky-50 border border-blue-200 rounded-xl p-3 sm:p-5 min-w-0 overflow-hidden">
+          <div className="flex items-center gap-1.5 text-xs text-blue-700 mb-1">
+            <PiggyBank className="w-3.5 h-3.5 shrink-0" /> Гарантийный фонд
           </div>
-          <p className="text-2xl font-bold text-blue-800">{formatPrice(data.fund.balance)}</p>
-          <p className="text-[11px] text-blue-700/80 mt-1">взносы {formatPrice(data.fund.in)} − выплаты {formatPrice(data.fund.out)}</p>
+          <p className="text-xl sm:text-2xl font-bold text-blue-800 truncate">{formatPrice(data.fund.balance)}</p>
+          <p className="text-[10px] sm:text-[11px] text-blue-700/80 mt-1 leading-snug">взносы {formatPrice(data.fund.in)}<br className="sm:hidden" /> − выплаты {formatPrice(data.fund.out)}</p>
         </div>
-        <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-xl p-5">
-          <div className="flex items-center gap-2 text-xs text-amber-700 mb-1">
-            <Clock className="w-3.5 h-3.5" /> К выплате владельцам
+        <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 rounded-xl p-3 sm:p-5 min-w-0 overflow-hidden">
+          <div className="flex items-center gap-1.5 text-xs text-amber-700 mb-1">
+            <Clock className="w-3.5 h-3.5 shrink-0" /> К выплате владельцам
           </div>
-          <p className="text-2xl font-bold text-amber-800">{formatPrice(data.payouts.pending)}</p>
-          <p className="text-[11px] text-amber-700/80 mt-1">по подтверждённым сделкам</p>
+          <p className="text-xl sm:text-2xl font-bold text-amber-800 truncate">{formatPrice(data.payouts.pending)}</p>
+          <p className="text-[10px] sm:text-[11px] text-amber-700/80 mt-1 leading-snug">по подтверждённым сделкам</p>
         </div>
-        <div className="bg-gradient-to-br from-violet-50 to-purple-50 border border-violet-200 rounded-xl p-5">
-          <div className="flex items-center gap-2 text-xs text-violet-700 mb-1">
-            <CheckCircle className="w-3.5 h-3.5" /> Выплачено владельцам
+        <div className="bg-gradient-to-br from-violet-50 to-purple-50 border border-violet-200 rounded-xl p-3 sm:p-5 min-w-0 overflow-hidden">
+          <div className="flex items-center gap-1.5 text-xs text-violet-700 mb-1">
+            <CheckCircle className="w-3.5 h-3.5 shrink-0" /> Выплачено владельцам
           </div>
-          <p className="text-2xl font-bold text-violet-800">{formatPrice(data.payouts.settled)}</p>
-          <p className="text-[11px] text-violet-700/80 mt-1">по завершённым сделкам</p>
+          <p className="text-xl sm:text-2xl font-bold text-violet-800 truncate">{formatPrice(data.payouts.settled)}</p>
+          <p className="text-[10px] sm:text-[11px] text-violet-700/80 mt-1 leading-snug">по завершённым сделкам</p>
         </div>
       </div>
 
       {/* Counts */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
-        <div className="bg-white border border-stone-200 rounded-lg p-3"><span className="text-stone-500">Защищённых сделок: </span><b>{data.counts.premiumBookings}</b></div>
-        <div className="bg-white border border-stone-200 rounded-lg p-3"><span className="text-stone-500">Прямых (контакты): </span><b>{data.counts.directBookings}</b></div>
-        <div className="bg-white border border-stone-200 rounded-lg p-3"><span className="text-stone-500">Пополнений баланса: </span><b>{data.counts.topups}</b></div>
-        <div className="bg-white border border-stone-200 rounded-lg p-3"><span className="text-stone-500">Выплат из фонда: </span><b>{data.counts.paidClaims}</b></div>
+        <div className="bg-white border border-stone-200 rounded-lg p-3 min-w-0 overflow-hidden"><div className="text-stone-500 text-xs leading-tight">Защищённых сделок</div><b className="text-stone-800 text-base">{data.counts.premiumBookings}</b></div>
+        <div className="bg-white border border-stone-200 rounded-lg p-3 min-w-0 overflow-hidden"><div className="text-stone-500 text-xs leading-tight">Прямых (контакты)</div><b className="text-stone-800 text-base">{data.counts.directBookings}</b></div>
+        <div className="bg-white border border-stone-200 rounded-lg p-3 min-w-0 overflow-hidden"><div className="text-stone-500 text-xs leading-tight">Пополнений баланса</div><b className="text-stone-800 text-base">{data.counts.topups}</b></div>
+        <div className="bg-white border border-stone-200 rounded-lg p-3 min-w-0 overflow-hidden"><div className="text-stone-500 text-xs leading-tight">Выплат из фонда</div><b className="text-stone-800 text-base">{data.counts.paidClaims}</b></div>
       </div>
 
       {/* Recent transactions */}

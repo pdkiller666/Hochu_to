@@ -600,6 +600,7 @@ DB поле `boosted_until` (timestamp). Сортировка `?sort=new` уже
 
 ### ✅ Закрытые этапы (последние)
 
+- **Stage 35 — Mobile Responsiveness Polish** (**✅ 02.05.2026**) — полный аудит мобильной вёрстки. Каталог: `grid-cols-1 sm:…`; ListingCard: `flex-wrap` price+button; AdminPage StatCard responsive; Home hero `text-3xl sm:text-5xl md:…`; ListingDetail sidebar price `text-3xl sm:text-4xl`; PoolDetail amounts responsive.
 - **Stage 34 — Real-time WebSockets** (**✅ 02.05.2026**) — `lib/websocket.ts` (WS-сервер, auth timeout 5s, ping/pong 30s, `broadcastToUser`), фронт `use-websocket.ts` (WsProvider, auto-reconnect 4s, `isConnected`). Polling удалён из `Header.tsx` и `Dashboard.tsx`. Индикатор 🟢/🟡 в заголовке чата.
 - **Stage 33.0 — AI-Арбитражор (Vision Analysis)** (**✅ 30.04.2026**) — `POST /api/claims/:id/ai-verdict`, Gemini Vision, human-in-the-loop, audit trail в `audit_events`.
 - **Stage 33.1 — AI Arbitration Hardening** (**✅ 02.05.2026**) — `GEMINI_VISION_MODEL` через env (дефолт `gemini-flash-latest`), AbortController 15 сек, `ai_verdict_failed`/`ai_verdict_exception` audit-логи.

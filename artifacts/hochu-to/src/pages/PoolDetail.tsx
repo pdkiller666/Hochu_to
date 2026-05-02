@@ -169,7 +169,7 @@ export default function PoolDetailPage() {
           <div className="space-y-3 mb-6">
             <div className="flex justify-between items-baseline">
               <div>
-                <div className="text-3xl font-extrabold text-primary">
+                <div className="text-2xl sm:text-3xl font-extrabold text-primary">
                   {formatPrice(pool.collectedAmountRub)}
                 </div>
                 <div className="text-xs text-muted-foreground">собрано</div>
@@ -1162,7 +1162,7 @@ function BuyOfferModal({
 
         <div className="rounded-xl bg-primary/5 border border-primary/20 p-4 mb-4">
           <div className="text-xs font-bold text-primary mb-1">Сумма перевода</div>
-          <div className="text-3xl font-extrabold text-foreground leading-none">
+          <div className="text-2xl sm:text-3xl font-extrabold text-foreground leading-none">
             {formatPrice(offer.priceRub)}
           </div>
         </div>

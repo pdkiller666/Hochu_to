@@ -347,7 +347,7 @@ export default function ListingDetail() {
                 )}
               </div>
               <div className="flex items-start justify-between gap-3">
-                <h1 className="text-3xl font-bold">{listing.title}</h1>
+                <h1 className="text-2xl sm:text-3xl font-bold">{listing.title}</h1>
                 <button
                   onClick={handleFavoriteClick}
                   className={`shrink-0 mt-1 w-10 h-10 rounded-full flex items-center justify-center transition-all border ${
@@ -641,10 +641,10 @@ export default function ListingDetail() {
 
           {/* Sidebar: Booking Widget */}
           <div className="lg:col-span-1">
-            <div className="sticky top-28 glass-panel p-6 rounded-3xl">
+            <div className="lg:sticky lg:top-28 glass-panel p-4 sm:p-6 rounded-3xl">
               <div className="mb-6 pb-6 border-b border-border">
                 <div className="flex items-end gap-2 mb-2">
-                  <span className="text-4xl font-display font-black text-primary">{formatPrice(listing.pricePerDay)}</span>
+                  <span className="text-3xl sm:text-4xl font-display font-black text-primary">{formatPrice(listing.pricePerDay)}</span>
                   <span className="text-muted-foreground pb-1">/ сутки</span>
                 </div>
                 {isOwnerRole && currentUser?.id === (listing as any).ownerId && (() => {

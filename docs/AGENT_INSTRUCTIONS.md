@@ -3025,3 +3025,32 @@ const GEMINI_VISION_MODEL = process.env.GEMINI_VISION_MODEL || "gemini-flash-lat
 ```bash
 fix(ai): restore stable alias gemini-flash-latest for vision fallback to prevent 404 errors
 ```
+
+---
+
+## Журнал — Stage 35 (Mobile Responsiveness Polish, 02.05.2026)
+
+**Контекст.** Полный аудит мобильной вёрстки (375px) по всем страницам. Исправлены переполнения и непропорциональные элементы на смартфонах.
+
+### Изменённые файлы
+
+| Файл | Правки |
+|------|--------|
+| `Catalog.tsx` | Grid `grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4` (два места: строки 535, 545); gap `gap-4 sm:gap-6` |
+| `ListingCard.tsx` | Блок цена+кнопка → `flex flex-wrap items-end justify-between gap-1.5`; кнопка `ml-auto` (wraps right-aligned) |
+| `AdminPage.tsx` | `StatCard`: `p-3 sm:p-5`, иконка `w-9 h-9 sm:w-12 sm:h-12`, цифра `text-xl sm:text-2xl`; строка пользователей → `grid-cols-2 sm:grid-cols-4`; Finance KPI: `p-3 sm:p-5`, `min-w-0 overflow-hidden`, длинные лейблы с `<br className="sm:hidden" />` |
+| `OwnerProfile.tsx` | Статы карточки: `p-3 sm:p-4`, `text-xl sm:text-2xl`, `text-[10px] sm:text-xs` |
+| `Home.tsx` | Hero h1: `text-3xl sm:text-5xl md:text-6xl lg:text-7xl`; subtitle: `text-base sm:text-xl`; категории h2: `text-2xl sm:text-3xl`; How it works h2: `text-2xl md:text-4xl`; CTA h2: `text-2xl sm:text-4xl md:text-5xl` |
+| `ListingDetail.tsx` | Цена в сайдбаре: `text-3xl sm:text-4xl`; сайдбар: `p-4 sm:p-6`, `lg:sticky lg:top-28`; мобильный заголовок `text-2xl sm:text-3xl` (уже был) |
+| `PoolDetail.tsx` | Собранная сумма: `text-2xl sm:text-3xl`; сумма оффера: `text-2xl sm:text-3xl` |
+
+### Принципы (для следующего агента)
+
+- Все таблицы в `AdminPage.tsx` обёрнуты `overflow-x-auto` — горизонтальный скролл на мобильном.
+- Заголовки `hidden lg:block` — десктоп-only, мобильные дублируют с `lg:hidden`.
+- Breakpoints Tailwind: `sm`=640px, `md`=768px, `lg`=1024px, `xl`=1280px. Кастомного `xs` нет.
+- Эмодзи-иконки (`text-4xl`) в Cards — декоративные, не текст — overflow не создают.
+
+```bash
+fix(mobile): Stage 35 – responsive typography, grid cols and padding across Catalog, Cards, Admin, Home, ListingDetail, PoolDetail
+```

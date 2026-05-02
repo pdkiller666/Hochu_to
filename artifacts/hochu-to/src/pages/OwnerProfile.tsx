@@ -154,38 +154,38 @@ export default function OwnerProfile() {
             </div>
 
             {/* Stats row */}
-            <div className="grid grid-cols-3 gap-3 mb-5">
+            <div className={`grid gap-3 mb-5 ${user.role === "owner" ? "grid-cols-3" : "grid-cols-2"}`}>
               {user.role === "owner" && (
-                <div className="rounded-2xl bg-muted/60 p-4 text-center">
+                <div className="rounded-2xl bg-muted/60 p-3 sm:p-4 text-center">
                   <div className="flex justify-center mb-1">
-                    <Package className="w-5 h-5 text-primary" />
+                    <Package className="w-4 h-4 sm:w-5 sm:h-5 text-primary" />
                   </div>
-                  <div className="text-2xl font-bold font-display">{user.totalListings}</div>
-                  <div className="text-xs text-muted-foreground mt-0.5">объявлений</div>
+                  <div className="text-xl sm:text-2xl font-bold font-display">{user.totalListings}</div>
+                  <div className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">объявлений</div>
                 </div>
               )}
-              <div className="rounded-2xl bg-muted/60 p-4 text-center">
+              <div className="rounded-2xl bg-muted/60 p-3 sm:p-4 text-center">
                 <div className="flex justify-center mb-1">
-                  <ShoppingBag className="w-5 h-5 text-primary" />
+                  <ShoppingBag className="w-4 h-4 sm:w-5 sm:h-5 text-primary" />
                 </div>
-                <div className="text-2xl font-bold font-display">{user.completedDeals ?? 0}</div>
-                <div className="text-xs text-muted-foreground mt-0.5">сделок</div>
+                <div className="text-xl sm:text-2xl font-bold font-display">{user.completedDeals ?? 0}</div>
+                <div className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">сделок</div>
               </div>
               {user.rating && user.rating > 0 ? (
-                <div className="rounded-2xl bg-muted/60 p-4 text-center">
+                <div className="rounded-2xl bg-muted/60 p-3 sm:p-4 text-center">
                   <div className="flex justify-center mb-1">
-                    <Star className="w-5 h-5 text-amber-500 fill-amber-400" />
+                    <Star className="w-4 h-4 sm:w-5 sm:h-5 text-amber-500 fill-amber-400" />
                   </div>
-                  <div className="text-2xl font-bold font-display">{user.rating.toFixed(1)}</div>
-                  <div className="text-xs text-muted-foreground mt-0.5">рейтинг</div>
+                  <div className="text-xl sm:text-2xl font-bold font-display">{user.rating.toFixed(1)}</div>
+                  <div className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">рейтинг</div>
                 </div>
               ) : (
-                <div className="rounded-2xl bg-muted/60 p-4 text-center">
+                <div className="rounded-2xl bg-muted/60 p-3 sm:p-4 text-center">
                   <div className="flex justify-center mb-1">
-                    <Star className="w-5 h-5 text-muted-foreground" />
+                    <Star className="w-4 h-4 sm:w-5 sm:h-5 text-muted-foreground" />
                   </div>
-                  <div className="text-2xl font-bold font-display text-muted-foreground">—</div>
-                  <div className="text-xs text-muted-foreground mt-0.5">рейтинг</div>
+                  <div className="text-xl sm:text-2xl font-bold font-display text-muted-foreground">—</div>
+                  <div className="text-[10px] sm:text-xs text-muted-foreground mt-0.5">рейтинг</div>
                 </div>
               )}
             </div>

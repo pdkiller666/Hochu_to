@@ -42,7 +42,7 @@ export default function Home() {
             <motion.h1 
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="text-5xl md:text-6xl lg:text-7xl font-extrabold mb-6"
+              className="text-3xl sm:text-5xl md:text-6xl lg:text-7xl font-extrabold mb-6"
             >
               Зачем покупать, <br/>
               <span className="text-primary relative inline-block">
@@ -57,7 +57,7 @@ export default function Home() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.1 }}
-              className="text-xl text-muted-foreground mb-10 leading-relaxed"
+              className="text-base sm:text-xl text-muted-foreground mb-8 sm:mb-10 leading-relaxed"
             >
               Крупнейший маркетплейс аренды вещей от людей к людям. Инструменты, туристическое снаряжение, техника — найдите всё, что нужно, прямо сейчас.
             </motion.p>
@@ -132,7 +132,7 @@ export default function Home() {
       <section className="py-20 bg-card">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-12">
-            <h2 className="text-3xl font-bold mb-4">Популярные категории</h2>
+            <h2 className="text-2xl sm:text-3xl font-bold mb-4">Популярные категории</h2>
             <p className="text-muted-foreground">От стройки до праздников — у нас есть всё</p>
           </div>
 
@@ -143,12 +143,12 @@ export default function Home() {
                 <Link 
                   key={cat.slug} 
                   href={`/catalog?category=${cat.slug}`}
-                  className="group flex flex-col items-center p-6 rounded-2xl bg-white border border-border/50 hover:shadow-xl hover:-translate-y-1 hover:border-primary/30 transition-all duration-300 text-center"
+                  className="group flex flex-col items-center p-3 sm:p-6 rounded-2xl bg-white border border-border/50 hover:shadow-xl hover:-translate-y-1 hover:border-primary/30 transition-all duration-300 text-center"
                 >
-                  <div className={cn("w-16 h-16 rounded-2xl flex items-center justify-center mb-4 transition-transform group-hover:scale-110", cat.color)}>
-                    <Icon className="w-8 h-8" />
+                  <div className={cn("w-12 h-12 sm:w-16 sm:h-16 rounded-2xl flex items-center justify-center mb-2 sm:mb-4 transition-transform group-hover:scale-110", cat.color)}>
+                    <Icon className="w-6 h-6 sm:w-8 sm:h-8" />
                   </div>
-                  <h3 className="font-bold text-sm">{cat.name}</h3>
+                  <h3 className="font-bold text-xs sm:text-sm">{cat.name}</h3>
                 </Link>
               );
             })}
@@ -166,7 +166,7 @@ export default function Home() {
       <section className="py-24 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-4xl font-bold mb-4">Как работает Хочу_То?</h2>
+            <h2 className="text-2xl md:text-4xl font-bold mb-4">Как работает Хочу_То?</h2>
             <p className="text-muted-foreground text-lg">Всё очень просто и безопасно</p>
           </div>
 
@@ -206,8 +206,8 @@ export default function Home() {
         <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] opacity-10 z-0 mix-blend-overlay"></div>
         
         <div className="max-w-4xl mx-auto px-4 relative z-10 text-center text-white">
-          <h2 className="text-4xl md:text-5xl font-bold mb-6">У вас есть вещи, которые пылятся без дела?</h2>
-          <p className="text-xl text-white/80 mb-10">
+          <h2 className="text-2xl sm:text-4xl md:text-5xl font-bold mb-6">У вас есть вещи, которые пылятся без дела?</h2>
+          <p className="text-base sm:text-xl text-white/80 mb-8 sm:mb-10">
             Сдавайте их в аренду и получайте пассивный доход! Наша система взаимопомощи и гарантийный фонд защитят ваши интересы.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">

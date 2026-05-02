@@ -179,7 +179,7 @@ export function ListingCard({ listing }: ListingCardProps) {
             return (
               <>
                 {/* Base price — реальный минимум за 1 сутки с учётом фонда */}
-                <div className="flex items-end justify-between gap-2">
+                <div className="flex flex-wrap items-end justify-between gap-1.5">
                   <div className="relative min-w-0">
                     <div
                       className="font-display font-bold text-base sm:text-xl text-primary cursor-default flex items-baseline gap-1 flex-wrap"
@@ -214,7 +214,7 @@ export function ListingCard({ listing }: ListingCardProps) {
                   </div>
                   <Link
                     href={`/listings/${listing.id}`}
-                    className="btn-primary py-1.5 sm:py-2 px-3 sm:px-4 rounded-xl text-xs sm:text-sm whitespace-nowrap shrink-0"
+                    className="btn-primary py-1.5 sm:py-2 px-3 sm:px-4 rounded-xl text-xs sm:text-sm whitespace-nowrap shrink-0 ml-auto"
                   >
                     Подробнее
                   </Link>
