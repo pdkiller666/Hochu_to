@@ -155,6 +155,7 @@ router.get("/", requireAuth, async (req: AuthRequest, res) => {
     rentAmount: row.booking.rentAmount ? parseFloat(row.booking.rentAmount as unknown as string) : undefined,
     ownerPayout: row.booking.ownerPayout != null ? parseFloat(row.booking.ownerPayout as unknown as string) : undefined,
     protectionEnabled: row.booking.protectionEnabled ?? true,
+    renterProtectionEnabled: row.booking.renterProtectionEnabled ?? false,
     listingDeposit: row.listingDeposit ? parseFloat(row.listingDeposit as unknown as string) : undefined,
     listingMeetingAddress: showContacts(row.booking.status) ? (row.listingMeetingAddress ?? undefined) : undefined,
     status: row.booking.status,
