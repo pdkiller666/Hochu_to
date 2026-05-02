@@ -481,7 +481,7 @@ export function Header() {
                 <Link
                   href="/dashboard"
                   className="flex items-center gap-2 px-2 2xl:px-4 py-1.5 2xl:py-2 rounded-xl bg-white border border-border hover:border-primary transition-all group flex-shrink-0 min-w-0"
-                  title={`${user.name} — ${user.role === "admin" ? "Администратор" : user.role === "owner" ? "Владелец" : "Арендатор"}`}
+                  title={`${user.name} — ${{superadmin:"Суперадмин",admin:"Администратор",moderator:"Модератор",support:"Поддержка",arbiter:"Арбитр",owner:"Владелец",renter:"Арендатор",user:"Пользователь"}[user.role] ?? user.role}`}
                 >
                   <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold flex-shrink-0 text-sm">
                     {user.name.charAt(0).toUpperCase()}
@@ -489,11 +489,11 @@ export function Header() {
                   <div className="hidden 2xl:flex flex-col min-w-0">
                     <span className="text-sm font-bold leading-none group-hover:text-primary transition-colors truncate max-w-[120px]">{user.name}</span>
                     <span className="text-xs text-muted-foreground leading-none mt-1">
-                      {user.role === "admin" ? "Администратор" : user.role === "owner" ? "Владелец" : "Арендатор"}
+                      {{superadmin:"Суперадмин",admin:"Администратор",moderator:"Модератор",support:"Поддержка",arbiter:"Арбитр",owner:"Владелец",renter:"Арендатор",user:"Пользователь"}[user.role] ?? user.role}
                     </span>
                   </div>
                 </Link>
-                {user.role === "admin" && (
+                {["superadmin", "admin", "moderator", "support", "arbiter"].includes(user.role) && (
                   <Link
                     href="/admin"
                     title="Админ-панель"

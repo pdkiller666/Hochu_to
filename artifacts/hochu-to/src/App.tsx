@@ -1,4 +1,4 @@
-import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
+import { Switch, Route, Redirect, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   setAuthTokenGetter,
@@ -21,7 +21,6 @@ import Auth from "@/pages/Auth";
 import Dashboard from "@/pages/Dashboard";
 import ListingForm from "@/pages/ListingForm";
 import OwnerProfile from "@/pages/OwnerProfile";
-import JointPurchases from "@/pages/JointPurchases";
 import Pools from "@/pages/Pools";
 import PoolCreate from "@/pages/PoolCreate";
 import PoolDetailPage from "@/pages/PoolDetail";
@@ -69,7 +68,7 @@ function Router() {
       <Route path="/dashboard/listings/new" component={ListingForm} />
       <Route path="/dashboard/listings/:id/edit" component={ListingForm} />
 
-      <Route path="/joint-purchases" component={JointPurchases} />
+      <Route path="/joint-purchases"><Redirect to="/pools" /></Route>
       <Route path="/pools" component={Pools} />
       <Route path="/pools/create" component={PoolCreate} />
       <Route path="/pools/:id" component={PoolDetailPage} />
