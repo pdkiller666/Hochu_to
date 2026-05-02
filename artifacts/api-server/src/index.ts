@@ -25,20 +25,28 @@ async function seedDefaultAdmin() {
   try {
     const defaultEmail = process.env["ADMIN_EMAIL"] ?? "admin@hochu.to";
     
-    // 1. Ищем строго по email, так как именно он должен быть уникальным
-    const existingAdmin = await db.query.usersTable.findFirst({
+    // 1. Ищем пользователя именно по email, так как он должен быть уникальным
+    const existingUser = await db.query.usersTable.findFirst({
       where: eq(usersTable.email, defaultEmail),
     });
     
-    if (existingAdmin) {
-      logger.info({ email: defaultEmail }, "Default admin already exists, skipping seed.");
+    if (existingUser) {
+      // 2. Если пользователь уже существует, но он не админ — выдаем ему права админа
+      if (existingUser.role !== "admin") {
+        await db.update(usersTable)
+          .set({ role: "admin" })
+          .where(eq(usersTable.email, defaultEmail));
+        logger.info({ email: defaultEmail }, "Existing user promoted to admin.");
+      } else {
+        logger.info({ email: defaultEmail }, "Default admin already exists, skipping seed.");
+      }
       return;
     }
 
     const defaultPassword = process.env["ADMIN_PASSWORD"] ?? "Admin123!";
     const passwordHash = await bcrypt.hash(defaultPassword, 10);
 
-    // 2. Броня базы данных: если кто-то успел вставить email, ничего не делаем
+    // 3. Защита на уровне БД: onConflictDoNothing
     await db.insert(usersTable).values({
       name: "Администратор",
       email: defaultEmail,
@@ -48,7 +56,7 @@ async function seedDefaultAdmin() {
 
     logger.info({ email: defaultEmail }, "Default admin created. Change password after first login.");
   } catch (err) {
-    // 3. Броня сервера: никогда не роняем приложение из-за сидирования
+    // 4. Защита от падения: сервер продолжит работу даже при сбое БД в этой функции
     logger.warn({ err }, "Non-fatal error during seedDefaultAdmin. Server will continue to start.");
   }
 }
@@ -78,36 +86,17 @@ app.listen(port, "0.0.0.0", async (err) => {
   }
 
   logger.info({ port }, "Server listening");
-  
   await seedDefaultAdmin();
-  
   try {
     const settings = await ensurePlatformSettings();
-    logger.info({ settingsId: settings.id, paymentMode: settings.paymentMode }, "Platform settings initialized.");
-
-    // Запуск шедулера (cron-задачи)
-    startScheduler();
-    logger.info("Scheduler started successfully.");
-
-    // Stage 25b: Одноразовый пересчет счетчиков
-    await backfillListingCounters();
-    logger.info("Counters backfilled successfully.");
-  } catch (setupErr) {
-    logger.error({ err: setupErr }, "Error during application setup");
+    logger.info({ settingsId: settings.id, paymentMode: settings.paymentMode }, "Platform settings ready");
+  } catch (e) {
+    logger.error({ err: e }, "Failed to initialize platform settings");
   }
-});
-
-// Очередь graceful shutdown
-const gracefulShutdown = async (signal: string) => {
-  logger.info(`Received ${signal}. Shutting down gracefully...`);
   try {
-    // Если используешь pool Drizzle с Pg, можно добавить закрытие пула
-    process.exit(0);
-  } catch (err) {
-    logger.error({ err }, "Error during graceful shutdown");
-    process.exit(1);
+    await backfillListingCounters();
+  } catch (e) {
+    logger.error({ err: e }, "Failed to backfill listing counters");
   }
-};
-
-process.on("SIGINT", () => gracefulShutdown("SIGINT"));
-process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+  startScheduler();
+});
