@@ -309,6 +309,15 @@ Indexed on `booking_id`, `booking_number`, `actor_id`, `created_at` for fast loo
 
 Located at `artifacts/api-server/src/lib/scheduler.ts`. Runs every hour via `node-cron`. Started in `index.ts` on server boot (also runs once immediately on startup).
 
+**Расписание (Stage 32 полировка, 02.05.2026):**
+- **Каждый час:** reminders + auto-transitions + buyout-cancel + promo-cleanup
+- **Ежедневно в 03:00:** trust-score-recalc
+
+**Новые cron-функции (Stage 32):**
+- `runBuyoutAutoCancel` — отменяет `buyout_requests` в статусе `pending`/`awaiting_payment`, созданные более 24ч назад; шлёт `buyout_request_cancelled` инициатору и участникам.
+- `runPromoCleanup` — очищает истёкшие промо-флаги (`isFeatured`, `isUrgent`, `boostedUntil`) в таблице `listingsTable`.
+- `runDailyTrustScoreRecalc` — ежесуточный пересчёт `trust_score` через `recalcTrustScoreForUsers` для всех незабаненных пользователей.
+
 **8 reminder rules tied to booking dates:**
 1. `pending` + created_at > 24h → `reminder_confirm_pending` to **owner** (+ 48h to **renter**)
 2a. `confirmed` + startDate = tomorrow + нет check_in акта → `reminder_checkin_soon` to **both** (Stage 22b-followup, 24ч-предупреждение «оформите Цифровой акт»)
@@ -332,6 +341,24 @@ Located at `artifacts/api-server/src/lib/scheduler.ts`. Runs every hour via `nod
 - **Git push**: после каждой успешной итерации работы ОБЯЗАТЕЛЬНО выполнять `bash scripts/github-push.sh "описание"` — проект должен быть актуален на GitHub для деплоя через Amvera
 - Если `git add/commit` блокируется Replit (index.lock), скрипт всё равно пушит последний checkpoint-коммит
 - Деплой: GitHub `main` → Amvera webhook → Docker build
+
+## SEO-хук (`useDocumentMeta`)
+
+Создан в `artifacts/hochu-to/src/lib/use-document-meta.ts`. Устанавливает `document.title`, `<meta name="description">` и полный набор OG/Twitter-тегов для каждой страницы. Автоматически сбрасывает title при размонтировании.
+
+**Применён к страницам (Stage 32 полировка, 02.05.2026):**
+| Страница | title | noindex |
+|---|---|---|
+| Home | "Аренда вещей рядом с вами" | — |
+| Catalog | "Каталог аренды" | — |
+| ListingDetail | динамически = `listing.title` + город + цена + первое фото как og:image | — |
+| About | "О нас" | — |
+| Contacts | "Контакты" | — |
+| How-to-rent | "Как арендовать вещь" | — |
+| How-to-list | "Как сдать вещь в аренду" | — |
+| Guarantee-fund | "Гарантийный фонд" | — |
+| Privacy | "Политика конфиденциальности" | ✅ |
+| Terms | "Пользовательское соглашение" | ✅ |
 
 ### ⚠️ КРИТИЧНО: Ветки Amvera
 
