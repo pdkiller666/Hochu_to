@@ -26,34 +26,23 @@ if (Number.isNaN(port) || port <= 0) {
 async function seedDefaultAdmin() {
   try {
     const defaultEmail = process.env["ADMIN_EMAIL"] ?? "admin@hochu.to";
-
-    const existingUser = await db.query.usersTable.findFirst({
-      where: eq(usersTable.email, defaultEmail),
-    });
-
-    if (existingUser) {
-      if (existingUser.role !== "superadmin") {
-        await db.update(usersTable)
-          .set({ role: "superadmin" })
-          .where(eq(usersTable.email, defaultEmail));
-        logger.info({ email: defaultEmail, prevRole: existingUser.role }, "Platform owner promoted to superadmin.");
-      } else {
-        logger.info({ email: defaultEmail }, "Platform owner (superadmin) already exists, skipping seed.");
-      }
-      return;
-    }
-
     const defaultPassword = process.env["ADMIN_PASSWORD"] ?? "Admin123!";
     const passwordHash = await bcrypt.hash(defaultPassword, 10);
 
-    await db.insert(usersTable).values({
+    // Atomic upsert: INSERT … ON CONFLICT (email) DO UPDATE SET role = 'superadmin'
+    // Guarantees the platform owner always has superadmin on every server restart.
+    const [row] = await db.insert(usersTable).values({
       name: "Владелец платформы",
       email: defaultEmail,
       passwordHash,
       role: "superadmin",
-    }).onConflictDoNothing({ target: usersTable.email });
+    }).onConflictDoUpdate({
+      target: usersTable.email,
+      set: { role: sql`'superadmin'` },
+    }).returning({ id: usersTable.id, role: usersTable.role });
 
-    logger.info({ email: defaultEmail }, "Platform owner (superadmin) created. Change password after first login.");
+    logger.info({ email: defaultEmail, id: row?.id, role: row?.role },
+      "Platform owner ensured as superadmin.");
   } catch (err) {
     logger.warn({ err }, "Non-fatal error during seedDefaultAdmin. Server will continue to start.");
   }
