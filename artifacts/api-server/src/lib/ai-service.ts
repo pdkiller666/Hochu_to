@@ -446,7 +446,7 @@ export async function generateListingDescription(
 // Модель берётся из env GEMINI_VISION_MODEL; дефолт — "gemini-1.5-flash".
 // Алиас "*-latest" также поддерживается через переменную окружения.
 
-const GEMINI_VISION_MODEL = process.env.GEMINI_VISION_MODEL || "gemini-1.5-flash";
+const GEMINI_VISION_MODEL = process.env.GEMINI_VISION_MODEL || "gemini-flash-latest";
 const GEMINI_VISION_TIMEOUT_MS = 15_000;
 
 const VISION_ARBITRATION_PROMPT =
