@@ -4,10 +4,11 @@
  */
 import { Router } from "express";
 import {
-  db, bookingsTable, bookingEventsTable, listingsTable, usersTable,
+  db, bookingsTable, auditEventsTable, listingsTable, usersTable,
   notificationsTable, supportTicketsTable, supportMessagesTable,
   reviewsTable, regionsTable, categoriesTable,
 } from "@workspace/db";
+import { recordAuditEvent } from "../lib/audit-events.js";
 import { eq, desc, or, sql, and, lt, gte } from "drizzle-orm";
 import { requireAuth, requireAdmin, AuthRequest } from "../middleware/auth.js";
 import bcrypt from "bcryptjs";
@@ -769,12 +770,15 @@ router.get("/bookings/:number", requireAuth, requireAdmin, async (req: AuthReque
   if (!row) { res.status(404).json({ error: "not_found" }); return; }
 
   const events = await db.select({
-    event: bookingEventsTable, actorName: sql<string>`actor.name`, actorEmail: sql<string>`actor.email`,
+    event: auditEventsTable, actorName: sql<string>`actor.name`, actorEmail: sql<string>`actor.email`,
   })
-    .from(bookingEventsTable)
-    .leftJoin(sql`${usersTable} AS actor`, sql`actor.id = ${bookingEventsTable.actorId}`)
-    .where(eq(bookingEventsTable.bookingId, row.booking.id))
-    .orderBy(bookingEventsTable.createdAt);
+    .from(auditEventsTable)
+    .leftJoin(sql`${usersTable} AS actor`, sql`actor.id = ${auditEventsTable.actorId}`)
+    .where(and(
+      eq(auditEventsTable.entityType, "booking"),
+      eq(auditEventsTable.entityId, row.booking.id),
+    ))
+    .orderBy(auditEventsTable.createdAt);
 
   res.json({
     booking: {
@@ -787,12 +791,15 @@ router.get("/bookings/:number", requireAuth, requireAdmin, async (req: AuthReque
       totalPrice: parseFloat(row.booking.totalPrice as unknown as string),
       status: row.booking.status, message: row.booking.message, createdAt: row.booking.createdAt.toISOString(),
     },
-    auditTrail: events.map(e => ({
-      id: e.event.id, actorId: e.event.actorId, actorName: e.actorName ?? "система", actorEmail: e.actorEmail ?? null,
-      actorRole: e.event.actorRole, eventType: e.event.eventType,
-      fromStatus: e.event.fromStatus, toStatus: e.event.toStatus,
-      comment: e.event.comment, createdAt: e.event.createdAt.toISOString(),
-    })),
+    auditTrail: events.map(e => {
+      const meta = (e.event.metadata ?? {}) as Record<string, unknown>;
+      return {
+        id: e.event.id, actorId: e.event.actorId, actorName: e.actorName ?? "система", actorEmail: e.actorEmail ?? null,
+        actorRole: (meta.actorRole as string) ?? null, eventType: e.event.eventType,
+        fromStatus: (meta.fromStatus as string) ?? null, toStatus: (meta.toStatus as string) ?? null,
+        comment: (meta.comment as string) ?? null, createdAt: e.event.createdAt.toISOString(),
+      };
+    }),
   });
 });
 
@@ -812,11 +819,18 @@ router.post("/bookings/:id/override", requireAuth, requireAdmin, async (req: Aut
   const prevStatus = booking.status;
   await db.update(bookingsTable).set({ status: newStatus as any }).where(eq(bookingsTable.id, id));
 
-  await db.insert(bookingEventsTable).values({
-    bookingId: id, bookingNumber: booking.bookingNumber ?? String(id),
-    actorId: req.userId!, actorRole: "admin", eventType: "admin_override",
-    fromStatus: prevStatus, toStatus: newStatus as any,
-    comment: comment?.trim() || `Статус изменён администратором: ${prevStatus} → ${newStatus}`,
+  await recordAuditEvent({
+    entityType: "booking",
+    entityId: id,
+    actorId: req.userId!,
+    eventType: "admin_override",
+    metadata: {
+      bookingNumber: booking.bookingNumber ?? String(id),
+      actorRole: "admin",
+      fromStatus: prevStatus,
+      toStatus: newStatus,
+      comment: comment?.trim() || `Статус изменён администратором: ${prevStatus} → ${newStatus}`,
+    },
   });
 
   // Notify both parties
@@ -842,9 +856,16 @@ router.post("/bookings/:number/comment", requireAuth, requireAdmin, async (req: 
     .from(bookingsTable).where(eq(bookingsTable.bookingNumber, number)).limit(1);
   if (!booking) { res.status(404).json({ error: "not_found" }); return; }
 
-  await db.insert(bookingEventsTable).values({
-    bookingId: booking.id, bookingNumber: booking.bookingNumber ?? number,
-    actorId: req.userId!, actorRole: "admin", eventType: "manager_note", comment: comment.trim(),
+  await recordAuditEvent({
+    entityType: "booking",
+    entityId: booking.id,
+    actorId: req.userId!,
+    eventType: "manager_note",
+    metadata: {
+      bookingNumber: booking.bookingNumber ?? number,
+      actorRole: "admin",
+      comment: comment.trim(),
+    },
   });
   res.json({ ok: true });
 });
