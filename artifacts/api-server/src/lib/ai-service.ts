@@ -443,8 +443,9 @@ export async function generateListingDescription(
 // ИЗОЛИРОВАНО от текстовых функций. НЕ использует GEMINI_MODEL, generateGemini,
 // bulletsGemini. Отдельная константа, отдельный таймаут, отдельный промпт.
 //
-// Модель берётся из env GEMINI_VISION_MODEL; дефолт — "gemini-1.5-flash".
-// Алиас "*-latest" также поддерживается через переменную окружения.
+// Модель берётся из env GEMINI_VISION_MODEL; дефолт — "gemini-flash-latest".
+// ⚠️ НЕ менять дефолт на "gemini-1.5-flash" — этот алиас даёт 404 на v1beta endpoint
+// (Stage 30G journal). Алиас "*-latest" — единственный стабильный вариант.
 
 const GEMINI_VISION_MODEL = process.env.GEMINI_VISION_MODEL || "gemini-flash-latest";
 const GEMINI_VISION_TIMEOUT_MS = 15_000;
