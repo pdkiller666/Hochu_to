@@ -2742,3 +2742,67 @@ refactor(ui/logic): GPS multi-pins, gender-aware notifications, bullets cache (S
 **До старта Stage 33:** провести design discovery с CTO по 5 пунктам выше, зафиксировать ответы в этом разделе как «решённые вопросы» (по аналогии с § 11d → «Решённые вопросы»), затем уже идти в код. Без этого риск переделок высокий.
 
 **Зависимости:** не блокируется ничем. Можно начинать сразу после согласования. Не зависит от Stage 24 (открытие ИП) — AI-помощник не трогает деньги, он только рекомендует.
+
+---
+
+## Журнал — Prod-Fix-1 (sharp в prod-зависимостях, 02.05.2026)
+
+**Контекст.** После деплоя Stage 30B (AI-инфографика через sharp) на Amvera эндпоинт `POST /api/ai/generate-infographic` возвращал `ERR_MODULE_NOT_FOUND: Cannot find package 'sharp'`. В dev-среде Replit всё работало — пакет был в lockfile. Проблема была скрыта: `sharp` установился при `pnpm install` (dev), но в Dockerfile в production-stage выполняется `pnpm install --no-frozen-lockfile --prod`, который устанавливает только `dependencies`, не `devDependencies`. Поскольку `sharp` не был явно указан в `dependencies` секции `artifacts/api-server/package.json` — prod-контейнер его не получал.
+
+### Что исправлено
+
+**1. `artifacts/api-server/package.json`:**
+- `"sharp": "^0.34.5"` добавлен в секцию `dependencies` (ранее отсутствовал полностью — был только в корневом lockfile как транзитивная зависимость).
+
+**2. `pnpm-workspace.yaml`:**
+- `sharp` добавлен в список `onlyBuiltDependencies`:
+  ```yaml
+  onlyBuiltDependencies:
+    - "@swc/core"
+    - esbuild
+    - msw
+    - sharp        # ← добавлен
+    - unrs-resolver
+  ```
+  Без этого нативные бинарники sharp не собираются при `pnpm install` (pnpm 10+ требует явного разрешения build scripts).
+
+**3. `pnpm install --filter @workspace/api-server`** выполнен — sharp собрался:
+```
+.../sharp@0.34.5/node_modules/sharp install: Done
+```
+
+### Деплой
+
+- Изменения запушены на GitHub: коммит `dffed76`.
+- Пользователь выполнил в Shell:
+  ```bash
+  git remote set-url amvera https://pdkiller666:4_5AznCgvidfr5x@git.msk0.amvera.ru/pdkiller666/hocuto
+  git push amvera main
+  ```
+- Amvera подтвердил: `remote: Detected changes in main branch`, `* [new branch] main -> main`.
+- Пересборка Docker-образа запущена автоматически.
+
+### Диагностика (признаки проблемы)
+
+- В логах API-сервера при старте: `Error: Cannot find package 'sharp' imported from ...`
+- Эндпоинт `/api/ai/generate-infographic` возвращает 500.
+- В dev-среде (`pnpm install` без `--prod`) всё работает — пакет есть в lockfile.
+
+### Что НЕ тронуто
+
+- `artifacts/api-server/build.mjs` — `sharp` уже был в массиве `external` (правильно: sharp не должен бандлиться esbuild'ом, он должен присутствовать в `node_modules` рантайма).
+- `Dockerfile` — команда `pnpm install --no-frozen-lockfile --prod` остаётся, теперь она корректно подхватывает sharp из `dependencies`.
+
+### Правило «не регрессировать»
+
+- **Любой нативный npm-пакет** (с бинарниками) должен быть явно прописан в `dependencies` И в `onlyBuiltDependencies` в `pnpm-workspace.yaml`. Иначе prod-контейнер его не получит / не скомпилирует.
+- При добавлении нового пакета проверять: нужен ли он в prod (не только в dev)? Если да — в `dependencies`, а не в `devDependencies`.
+
+### Amvera push команды (сохранить)
+
+```bash
+# Добавить/обновить remote (пароль вшит в URL):
+git remote set-url amvera https://pdkiller666:4_5AznCgvidfr5x@git.msk0.amvera.ru/pdkiller666/hocuto
+# Запушить:
+git push amvera main
+```

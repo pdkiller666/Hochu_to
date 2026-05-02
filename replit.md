@@ -331,7 +331,16 @@ Located at `artifacts/api-server/src/lib/scheduler.ts`. Runs every hour via `nod
 - **Язык общения**: всегда отвечать на русском
 - **Git push**: после каждой успешной итерации работы ОБЯЗАТЕЛЬНО выполнять `bash scripts/github-push.sh "описание"` — проект должен быть актуален на GitHub для деплоя через Amvera
 - Если `git add/commit` блокируется Replit (index.lock), скрипт всё равно пушит последний checkpoint-коммит
-- Деплой: GitHub webhook → Amvera (Docker)
+- Деплой: GitHub → Amvera (Docker через прямой git push)
+- **Amvera git push** (выполняется пользователем в Shell — агент не может делать git push):
+  ```bash
+  # Установить remote (один раз):
+  git remote set-url amvera https://pdkiller666:4_5AznCgvidfr5x@git.msk0.amvera.ru/pdkiller666/hocuto
+  # Запушить:
+  git push amvera main
+  ```
+  Amvera автоматически пересобирает Docker-образ при получении пуша в main.
+- **GitHub push** (2 способа): `bash scripts/github-push.sh "сообщение"` ИЛИ `GITHUB_TOKEN=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 git push origin main`
 - **Документация — синхронно с пушем**: на каждой итерации обновлять оба файла:
   - `docs/AGENT_INSTRUCTIONS.md` — добавлять блок «Журнал — Stage X» (что сделано, какие схемы/эндпоинты/UI, какие миграции, что проверено).
   - `replit.md` — обновлять разделы `API Routes`, `Database Schema`, `Project Checklist` (✅ / 🟡 / 🔴) так, чтобы карта проекта всегда отражала реальность.
@@ -496,7 +505,8 @@ DB поле `boosted_until` (timestamp). Сортировка `?sort=new` уже
 - **Совместные закупки** (заявки + страница)
 - **GeoIP** для авто-выбора региона
 - **Health endpoint + Vite proxy** для dev
-- **Деплой**: GitHub → Amvera webhook (Docker), пуш через `bash scripts/github-push.sh`
+- **Деплой**: GitHub → Amvera (прямой git push), пуш через `bash scripts/github-push.sh` + `git push amvera main`
+- **Prod-Fix-1 (02.05.2026) — sharp в prod-зависимостях**: `sharp` добавлен в `artifacts/api-server/package.json` `dependencies` (ранее был только в lockfile → при `pnpm install --prod` в Dockerfile не устанавливался → `ERR_MODULE_NOT_FOUND` на эндпоинте `/api/ai/generate-infographic`). `sharp` добавлен в `onlyBuiltDependencies` в `pnpm-workspace.yaml` (нативные бинарники собираются при install). Задеплоено на Amvera 02.05.2026.
 - **Stage 17a — Payout Requests**: реквизиты карты/СБП, очередь заявок владельцев на вывод, ручной mark-paid с проставлением `payoutSettledAt` на бронях.
 - **Stage 17b-core — Compensation Payouts**: claims расширены реквизитами получателя, админский поток approve→mark-paid→reject, кнопка «Подать претензию» на завершённой Premium-броне в Dashboard.
 - **Stage 17b-limits — Анти-фрод фонда**: настройки `fundReserveRatioPct/maxClaimAmountSingleRub/maxClaimsPerUserMonth/maxClaimAmountPerListingPct`, проверки на POST/approve/mark-paid, расширенные KPI-карточки (Поступило/Выплачено/Баланс/Резерв/К выплате).
