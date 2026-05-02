@@ -18,13 +18,14 @@ import {
   bookingsTable,
   listingsTable,
   notificationsTable,
-  bookingEventsTable,
+  auditEventsTable,
   digitalActsTable,
   buyoutRequestsTable,
   buyoutParticipantsTable,
   poolsTable,
   usersTable,
 } from "@workspace/db";
+import { recordAuditEvent } from "./audit-events.js";
 import { inArray, and, eq, lt, isNotNull } from "drizzle-orm";
 import type { NotifType } from "./notifications";
 import { createNotification } from "./notifications.js";
@@ -380,17 +381,18 @@ async function runAutoTransitions(): Promise<AutoTransitionResult> {
   if (candidates.returnPending.length > 0) {
     const rpIds = candidates.returnPending.map((b) => b.id);
 
-    // Source 1: booking_events
+    // Source 1: audit_events (entityType='booking', metadata.toStatus='return_pending')
     const events = await db
       .select({
-        bookingId: bookingEventsTable.bookingId,
-        createdAt: bookingEventsTable.createdAt,
+        bookingId: auditEventsTable.entityId,
+        createdAt: auditEventsTable.createdAt,
       })
-      .from(bookingEventsTable)
+      .from(auditEventsTable)
       .where(
         and(
-          inArray(bookingEventsTable.bookingId, rpIds),
-          eq(bookingEventsTable.toStatus, "return_pending"),
+          eq(auditEventsTable.entityType, "booking"),
+          inArray(auditEventsTable.entityId, rpIds),
+          sql`(${auditEventsTable.metadata}->>'toStatus') = 'return_pending'`,
         ),
       );
 
@@ -559,9 +561,25 @@ async function runAutoTransitions(): Promise<AutoTransitionResult> {
     );
   }
 
-  // Batch insert events and notifications
+  // Batch insert events to audit_events and notifications
   if (newEvents.length > 0) {
-    await db.insert(bookingEventsTable).values(newEvents);
+    await Promise.all(
+      newEvents.map((e) =>
+        recordAuditEvent({
+          entityType: "booking",
+          entityId: e.bookingId,
+          actorId: null,
+          eventType: e.eventType,
+          metadata: {
+            bookingNumber: e.bookingNumber,
+            actorRole: e.actorRole,
+            fromStatus: e.fromStatus,
+            toStatus: e.toStatus,
+            comment: e.comment,
+          },
+        }),
+      ),
+    );
   }
   if (newNotifs.length > 0) {
     await db.insert(notificationsTable).values(newNotifs);
