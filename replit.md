@@ -1333,10 +1333,10 @@ bash scripts/github-push.sh "fix(ai): restore working gemini-flash-latest model 
 
 ### Технический бэклог (можно делать сейчас)
 
-- **Stage 27 followup** — WebSocket/SSE вместо polling, унификация audit-trail bookings/claims через `audit_events`, гендерное склонение в нотификациях.
+- **Stage 27 followup** — WebSocket/SSE вместо polling, гендерное склонение в нотификациях. ~~Унификация audit-trail bookings через `audit_events`~~ — закрыто **Stage 32-B** (02.05.2026): `recordEvent()` в bookings.ts → `recordAuditEvent(entityType="booking")`; admin.ts audit trail читает из `auditEventsTable`; scheduler auto-transitions → audit_events. `booking_events` сохранена как read-only (легаси данные).
 - **Stage 28 followup** — `AlertDialog` вместо нативного `confirm()` в `BuyoutBlock`, кнопка «Отказаться» у participant выкупа, авто-cancel зависших buyout через cron.
 - **Stage 29 followup** — V7 (ежесуточный cron-пересчёт TrustScore), V8 (публичный UI score после калибровки на 100+ сделок и 50+ владельцах).
-- **Stage 30B followup** — кеш инфографик по `(photoHash, bulletsHash)`, embedded Montserrat/Inter в SVG, шаблоны 1200×630 / 1080×1920.
+- ~~**Stage 30B followup**~~ — закрыто **Stage 32-B** (02.05.2026): disk-кэш инфографик 24ч по SHA-256(photo+bullets) в `/tmp/infographic-cache/`; Montserrat-Bold + Inter-Regular base64-embedded в SVG через `@font-face`; шаблон 1200×630 (`buildHorizontalImage`) + endpoint параметр `?format=horizontal`.
 - **Stage 30L (опц.)** — кеш AI-генераций по `(title, category, provider)`. Экономия токенов на UX «не понравилось — давай ещё раз», особенно актуально на платных провайдерах.
 
 ### Закрыто (вычеркнуто из roadmap)
