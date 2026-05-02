@@ -166,11 +166,11 @@ export async function releaseFunds(params: {
       userId: renterId,
       amount: toRelease.toFixed(2),
       platformCommission: "0",
-      type: "refund",
+      type: "release",
       status: "completed",
       referenceId: bookingId,
       referenceType: "booking",
-      description: `Возврат по брони #${bookingId}`,
+      description: `Разморозка (отмена брони #${bookingId})`,
     });
   });
 
