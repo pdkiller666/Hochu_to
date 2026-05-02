@@ -3022,8 +3022,9 @@ function PayoutsTab() {
   const load = async () => {
     setLoading(true);
     try {
+      const token = localStorage.getItem("token");
       const url = statusFilter === "all" ? "/api/admin/payouts" : `/api/admin/payouts?status=${statusFilter}`;
-      const r = await fetch(url, { credentials: "include" });
+      const r = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
       if (!r.ok) throw new Error(String(r.status));
       const j = await r.json();
       setRows(j.requests || []);
@@ -3041,7 +3042,8 @@ function PayoutsTab() {
     if (!confirm(`Одобрить заявку #${row.id} на ${row.amountRub} ₽?`)) return;
     setBusyId(row.id);
     try {
-      const r = await fetch(`/api/admin/payouts/${row.id}/approve`, { method: "POST", credentials: "include" });
+      const token = localStorage.getItem("token");
+      const r = await fetch(`/api/admin/payouts/${row.id}/approve`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
       if (!r.ok) throw new Error(await r.text());
       await load();
     } catch (e: any) {
@@ -3215,10 +3217,10 @@ function MarkPaidModal({ row, onClose, onDone }: { row: AdminPayoutRow; onClose:
     setErr(null);
     setSaving(true);
     try {
+      const token = localStorage.getItem("token");
       const r = await fetch(`/api/admin/payouts/${row.id}/mark-paid`, {
         method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ paymentRef, adminNote: adminNote || undefined }),
       });
       if (!r.ok) {
@@ -3279,10 +3281,10 @@ function RejectPayoutModal({ row, onClose, onDone }: { row: AdminPayoutRow; onCl
     setErr(null);
     setSaving(true);
     try {
+      const token = localStorage.getItem("token");
       const r = await fetch(`/api/admin/payouts/${row.id}/reject`, {
         method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ rejectionReason: reason }),
       });
       if (!r.ok) {
