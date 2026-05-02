@@ -14,6 +14,7 @@ import {
   User,
   MessageSquare,
   Award,
+  ShieldCheck,
 } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { ru } from "date-fns/locale";
@@ -27,6 +28,14 @@ function getAvatarSrc(url?: string) {
   if (!url) return null;
   return url.startsWith("http") ? url : `${API_BASE}${url}`;
 }
+
+// Stage 32.1 — цветовая шкала Trust Score
+const getTrustScoreColor = (score: number | null | undefined) => {
+  if (score === null || score === undefined) return "text-stone-400";
+  if (score >= 90) return "text-emerald-600";
+  if (score >= 70) return "text-stone-500";
+  return "text-amber-600";
+};
 
 export default function OwnerProfile() {
   const [, params] = useRoute("/users/:id");
@@ -190,6 +199,22 @@ export default function OwnerProfile() {
                 </div>
               </div>
             )}
+
+            {/* Stage 32.1 — виджет надёжности пользователя */}
+            <div className="bg-[#F2EEE3] rounded-xl p-4 border border-stone-200 mb-4">
+              <div className="flex items-center gap-2 mb-2">
+                <ShieldCheck className={`w-5 h-5 ${getTrustScoreColor((user as any).trustScore)}`} />
+                <h3 className="font-semibold text-stone-800">Надёжность пользователя</h3>
+              </div>
+              <div className="flex items-baseline gap-2">
+                <span className="text-2xl font-bold text-stone-900">
+                  {(user as any).trustScore !== null && (user as any).trustScore !== undefined ? `${(user as any).trustScore}%` : "Ещё нет оценок"}
+                </span>
+              </div>
+              <div className="text-sm text-stone-600 mt-1">
+                Завершённых сделок: {(user as any).completedDealsCount || (user as any).completedDeals || 0}
+              </div>
+            </div>
 
             {/* Contacts hidden notice */}
             <div className="flex items-start gap-2 text-sm text-muted-foreground bg-muted/40 rounded-xl px-4 py-3">

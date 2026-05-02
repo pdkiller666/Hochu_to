@@ -2865,6 +2865,34 @@ chore(db): refresh dev-data.sql snapshot; refactor(ui): replace native confirm i
 # Основной путь — push в GitHub (webhook Amvera тригерится автоматически):
 git push https://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@github.com/pdkiller666/Hochu_to.git main
 
+## Журнал — Stage 32.1 (Trust Score V8 — публичный рейтинг, 02.05.2026)
+
+**Контекст.** `trust_score` и `completed_deals_count` уже рассчитывались в фоне (Stage 29), но не показывались пользователям. Stage 32.1 выводит их на карточку объявления и публичный профиль.
+
+### Что сделано
+
+**Action 1 — Бэкенд `users.ts`:**
+- `GET /users/:id` уже возвращал `trustScore` и `completedDeals` (Stage 29).
+- Добавлен алиас `completedDealsCount` для единообразия с DB-полем.
+
+**Action 2 — Бэкенд `listings.ts`:**
+- В три SELECT-блока (список, getById, fallback регионы) добавлено поле `ownerCompletedDealsCount: usersTable.completedDealsCount`.
+- В fallback-блок (3-й SELECT) добавлен `ownerTrustScore: usersTable.trustScore` (ранее отсутствовал).
+
+**Action 3 — Фронтенд `ListingDetail.tsx`:**
+- Добавлена функция `getTrustScoreColor(score)` (≥90 emerald, ≥70 stone, иначе amber).
+- Под именем владельца добавлена строка: `ShieldCheck` + «Доверие: X%» + «Сделок: Y».
+
+**Action 4 — Фронтенд `OwnerProfile.tsx`:**
+- Добавлена та же функция `getTrustScoreColor`.
+- Добавлен виджет «Надёжность пользователя» (`bg-[#F2EEE3]`) с процентом и числом сделок — над блоком «Контакты скрыты».
+
+```bash
+feat(trust): Stage 32.1 – implement public trust score on listings and profiles
+```
+
+---
+
 # Emergency: прямой push в Amvera (если webhook не сработал):
 git push https://pdkiller666:4_5AznCgvidfr5x@git.msk0.amvera.ru/pdkiller666/hocuto main:master
 

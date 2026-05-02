@@ -990,6 +990,22 @@ Frontend (`/pools`, `/pools/create`, `/pools/:id`):
 - Явная кнопка «Отказаться» у participant'а с уведомлением инициатору (сейчас отказ = молчаливый игнор + `cancel` инициатора).
 - Гендерное склонение в нотификациях.
 
+## Stage 32.1 — Trust Score V8: публичный рейтинг (02.05.2026)
+
+`trust_score` и `completed_deals_count` уже рассчитывались в фоне (Stage 29), но не отображались пользователям. Stage 32.1 выводит их публично.
+
+**Бэкенд:**
+- `GET /users/:id` — добавлен алиас `completedDealsCount` (рядом с `completedDeals`).
+- `GET /listings`, `/listings/:id`, fallback-регионы — добавлено `ownerCompletedDealsCount: usersTable.completedDealsCount`; в fallback-блок добавлен `ownerTrustScore` (ранее отсутствовал).
+
+**Фронтенд:**
+- `ListingDetail.tsx` — функция `getTrustScoreColor()` (≥90 emerald, ≥70 stone, иначе amber) + строка «Доверие: X% • Сделок: Y» под именем владельца.
+- `OwnerProfile.tsx` — та же функция + виджет «Надёжность пользователя» (`bg-[#F2EEE3]`) с процентом и числом завершённых сделок над блоком «Контакты скрыты».
+
+**Безопасность:** алгоритм `lib/trust-score.ts` не тронут; новых endpoint-ов не добавлено.
+
+---
+
 ## Stage 29 — Trust Score Engine V6 (реализован в коде, ретро-журнал Stage 32, 29.04.2026)
 
 Реализация V6 «Trust Score helper» из раздела `docs/AGENT_INSTRUCTIONS.md § 11d`. До Stage 32 «Documentation Sync» функционал жил в коде без отдельной записи в журнал — этот пробел закрыт ретроспективно.

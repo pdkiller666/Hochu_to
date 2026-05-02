@@ -71,6 +71,14 @@ function BadgeRow({ badges }: { badges: ListingBadge[] }) {
   );
 }
 
+// Stage 32.1 — цветовая шкала Trust Score
+const getTrustScoreColor = (score: number | null | undefined) => {
+  if (score === null || score === undefined) return "text-stone-400";
+  if (score >= 90) return "text-emerald-600";
+  if (score >= 70) return "text-stone-500";
+  return "text-amber-600";
+};
+
 export default function ListingDetail() {
   const [, params] = useRoute("/listings/:id");
   const id = Number(params?.id);
@@ -530,9 +538,13 @@ export default function ListingDetail() {
                     {/* Stage 29 — Trust Score владельца */}
                     <TrustBadge score={(listing as any).ownerTrustScore} size="sm" />
                   </div>
-                  <p className="text-sm text-muted-foreground flex items-center gap-1 mt-1">
-                    <Shield className="w-3.5 h-3.5 text-green-500" /> Подтвержденный профиль
-                  </p>
+                  {/* Stage 32.1 — публичный Trust Score с цветом и счётчиком сделок */}
+                  <div className="flex items-center gap-1 text-sm text-stone-600 mt-1">
+                    <ShieldCheck className={`w-4 h-4 ${getTrustScoreColor((listing as any).ownerTrustScore)}`} />
+                    <span>Доверие: {(listing as any).ownerTrustScore !== null && (listing as any).ownerTrustScore !== undefined ? `${(listing as any).ownerTrustScore}%` : "Нет данных"}</span>
+                    <span className="mx-1">•</span>
+                    <span>Сделок: {(listing as any).ownerCompletedDealsCount || 0}</span>
+                  </div>
                 </div>
                 <div className="text-muted-foreground group-hover:text-primary transition-colors">
                   <ChevronLeft className="w-5 h-5 rotate-180" />

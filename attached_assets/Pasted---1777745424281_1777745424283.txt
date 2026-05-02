@@ -1,0 +1,77 @@
+Отличная командная работа. Мы взяли железобетонную архитектуру от коллеги и наложили на неё правильный UX и дизайн-систему проекта. 
+
+Вот итоговый, отшлифованный промпт **(Stage 32.1 – Trust Score V8)**. Он полностью готов к тому, чтобы ты скопировал его и отправил агенту, как только мы закончим отладку ИИ-Арбитража.
+
+***
+
+> **Task: Stage 32.1 – Trust Score V8 (Публичный рейтинг)**
+>
+> **Context:**
+> Мы уже давно рассчитываем `trust_score` (0–100) и `completed_deals_count` в таблице `users` (в фоне). Сейчас эти поля не показываются пользователям. Нужно вывести их на карточку объявления и в публичный профиль, чтобы повысить доверие к платформе.
+> 
+> 🚨 **CRITICAL SAFETY RULE:**
+> - **НЕ менять** алгоритм расчёта `trust_score` (он в `lib/trust-score.ts`).
+> - **НЕ добавлять** новые эндпоинты. Расширяем только существующие ответы API.
+>
+> **Action 1: Бэкенд – расширить ответ `/users/:id`**
+> - Открой `artifacts/api-server/src/routes/users.ts`.
+> - Проверь, что публичный эндпоинт `GET /users/:id` возвращает поля `trustScore` и `completedDealsCount`.
+> - Если их нет – добавь в SELECT и в JSON ответа.
+> - *Правило приватности:* НЕ выводить `phone`, `email`, `is_verified` (оставить их только для владельца/админа), но рейтинг сделать публичным.
+>
+> **Action 2: Фронтенд – карточка объявления (`ListingDetail.tsx`)**
+> - Открой `artifacts/hochu-to/src/pages/ListingDetail.tsx`.
+> - В блоке информации о владельце (рядом с аватаром) добавь значок `ShieldCheckIcon` из `lucide-react` и процент доверия.
+> - **Условное форматирование цвета (ОБЯЗАТЕЛЬНО добавить функцию):**
+> ```tsx
+> const getTrustScoreColor = (score: number | null) => {
+>   if (score === null) return "text-stone-400";
+>   if (score >= 90) return "text-emerald-600";
+>   if (score >= 70) return "text-stone-500";
+>   return "text-amber-600";
+> };
+> 
+```
+> - **Разметка (добавить под именем):**
+> ```tsx
+> <div className="flex items-center gap-1 text-sm text-stone-600 mt-1">
+>   <ShieldCheckIcon className={`w-4 h-4 ${getTrustScoreColor(listing.owner.trustScore)}`} />
+>   <span>Доверие: {listing.owner.trustScore !== null ? `${listing.owner.trustScore}%` : 'Нет данных'}</span>
+>   <span className="mx-1">•</span>
+>   <span>Сделок: {listing.owner.completedDealsCount || 0}</span>
+> </div>
+> ```
+>
+> **Action 3: Фронтенд – публичный профиль (`UserProfile.tsx`)**
+> - Открой `artifacts/hochu-to/src/pages/UserProfile.tsx`.
+> - Добавь виджет с рейтингом (разместить под аватаром/именем, над списком объявлений). Используй ту же функцию `getTrustScoreColor`.
+> - **Разметка виджета (с нашим фирменным фоном bg-[#F2EEE3]):**
+> ```tsx
+> <div className="bg-[#F2EEE3] rounded-xl p-4 border border-stone-200">
+>   <div className="flex items-center gap-2 mb-2">
+>     <ShieldCheckIcon className={`w-5 h-5 ${getTrustScoreColor(user.trustScore)}`} />
+>     <h3 className="font-semibold text-stone-800">Надёжность пользователя</h3>
+>   </div>
+>   <div className="flex items-baseline gap-2">
+>     <span className="text-2xl font-bold text-stone-900">
+>       {user.trustScore !== null ? `${user.trustScore}%` : 'Ещё нет оценок'}
+>     </span>
+>   </div>
+>   <div className="text-sm text-stone-600 mt-1">
+>     Завершённых сделок: {user.completedDealsCount || 0}
+>   </div>
+> </div>
+> ```
+>
+> **Action 4: Документация и финальная проверка**
+> - Обнови `docs/AGENT_INSTRUCTIONS.md` – запиши Stage 32.1 как выполненный.
+> - Обнови `replit.md`.
+> - Запусти `pnpm typecheck` перед коммитом.
+>
+> **Commit:**
+> `feat(trust): Stage 32.1 – implement public trust score on listings and profiles`
+
+***
+
+Сохрани этот текст под рукой. Ждем ответа от агента по отладке ИИ (добавлению таймаутов и логирования ошибок), и как только он отчитается — можно будет сразу бросать его на этот интерфейс доверия!
+```

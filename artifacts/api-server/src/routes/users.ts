@@ -88,6 +88,7 @@ router.get("/:id", async (req, res) => {
     totalListings: listingsCount?.count ?? 0,
     totalBookings: bookingsCount?.count ?? 0,
     completedDeals: completedBookings?.count ?? 0,
+    completedDealsCount: completedBookings?.count ?? 0,
     rating: Math.round(combinedRating * 10) / 10,
     reviewCount: totalReviews,
     ownerRating: Math.round(ownerRating * 10) / 10,
