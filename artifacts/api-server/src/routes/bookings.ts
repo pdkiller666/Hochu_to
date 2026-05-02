@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, bookingsTable, listingsTable, usersTable, bookingEventsTable, bookingMessagesTable, digitalActsTable, poolSharesTable, poolsTable } from "@workspace/db";
+import { db, bookingsTable, listingsTable, usersTable, bookingMessagesTable, digitalActsTable, poolSharesTable, poolsTable } from "@workspace/db";
 import { eq, or, and, sql, ne, asc, desc, inArray } from "drizzle-orm";
 import { requireAuth, AuthRequest } from "../middleware/auth.js";
 import { CreateBookingBody } from "@workspace/api-zod";
@@ -49,15 +49,18 @@ async function recordEvent(params: {
   toStatus?: string;
   comment?: string;
 }) {
-  await db.insert(bookingEventsTable).values({
-    bookingId: params.bookingId,
-    bookingNumber: params.bookingNumber,
+  await recordAuditEvent({
+    entityType: "booking",
+    entityId: params.bookingId,
     actorId: params.actorId ?? null,
-    actorRole: params.actorRole ?? null,
     eventType: params.eventType,
-    fromStatus: params.fromStatus ?? null,
-    toStatus: params.toStatus ?? null,
-    comment: params.comment ?? null,
+    metadata: {
+      bookingNumber: params.bookingNumber,
+      actorRole: params.actorRole ?? null,
+      fromStatus: params.fromStatus ?? null,
+      toStatus: params.toStatus ?? null,
+      comment: params.comment ?? null,
+    },
   });
 }
 
