@@ -16,7 +16,7 @@ import {
 import { requireAuth, type AuthRequest } from "../middleware/auth.js";
 import { logger } from "../lib/logger.js";
 import { recordAuditEvent } from "../lib/audit-events.js";
-import { createNotification } from "../lib/notifications.js";
+import { createNotification, genderedWord } from "../lib/notifications.js";
 
 const router = Router();
 
@@ -647,12 +647,14 @@ router.post("/pools/:poolId/handovers", requireAuth, async (req: AuthRequest, re
         .from(usersTable)
         .where(eq(usersTable.id, req.userId!))
         .limit(1);
-      const who = (sender?.name ?? "").trim() || `Пользователь #${req.userId}`;
+      const senderName = (sender?.name ?? "").trim();
+      const who = senderName || `Пользователь #${req.userId}`;
+      const handoverVerb = genderedWord(senderName, "оформил", "оформила");
       await createNotification({
         userId: result.toUserId,
         type: "pool_custodian_received",
         title: `Вещь передана вам — «${result.poolTitle}»`,
-        message: `${who} оформил Цифровой акт передачи. Теперь вы — Хранитель этой вещи.`,
+        message: `${who} ${handoverVerb} Цифровой акт передачи. Теперь вы — Хранитель этой вещи.`,
         listingTitle: result.poolTitle,
       });
     } catch (err) {
