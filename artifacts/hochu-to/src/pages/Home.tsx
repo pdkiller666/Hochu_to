@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { useGetCategories } from "@workspace/api-client-react";
 import { cn } from "@/lib/utils";
 import { ListingCarouselSection } from "@/components/ui/ListingCarouselSection";
+import { useDocumentMeta } from "@/lib/use-document-meta";
 
 const POPULAR_CATEGORIES = [
   { name: "Стройка и ремонт", icon: Hammer, slug: "construction", color: "bg-orange-100 text-orange-600" },
@@ -17,6 +18,11 @@ const POPULAR_CATEGORIES = [
 
 export default function Home() {
   const { data: categories } = useGetCategories();
+
+  useDocumentMeta({
+    title: "Аренда вещей рядом с вами",
+    description: "ХочуТо — платформа аренды вещей с гарантийным фондом. Инструменты, техника, туристическое снаряжение — арендуйте безопасно и выгодно.",
+  });
 
   return (
     <Layout>
