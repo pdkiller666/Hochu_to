@@ -9,7 +9,7 @@
 > Если ты агент, который только что принял проект — прочитай этот блок первым.
 
 ### Где мы сейчас
-- **Последний закрытый этап: Stage 38** — Telegram Bot & Notification Engine ✅
+- **Последний закрытый этап: Stage 39** — Fintech Core & Escrow Engine ✅
 - **Тестовые аккаунты**: `admin@hochu.to / AdminTest99!` (superadmin, id=1) · `tenant_test@test.ru / Test1234!` (renter, id=10)
 - **Бот**: `@Helper251223_bot` — онлайн, токен в секрете `TELEGRAM_BOT_TOKEN`
 - **API**: порт 8080 · **Фронт**: порт 5000 (workflow `Start application`)
@@ -49,9 +49,14 @@ pnpm monorepo
 5. **Git-команды заблокированы из агента** — git status/log/push выполняет пользователь в Shell
 6. **Новые NOT NULL поля в схеме** — всегда с `DEFAULT` или nullable, иначе `drizzle push` упадёт на проде
 
-### Следующие кандидаты Stage 39+
+### Последние закрытые этапы
+- **Stage 38-UE — Universal SMS Adapter** (**✅ 02.05.2026**) — горячесменный SMS-провайдер (MTS Exolve / SMSC / Stream Telecom), circuit breaker (Telegram 60s → SMS fallback), OTP верификация телефона. Таб «Интеграции» в AdminPage. Секция «Верификация телефона» в Dashboard.
+- **Stage 39 — Fintech Core & Escrow Engine** (**✅ 02.05.2026**) — атомарные кошельки с SELECT FOR UPDATE, escrow hold/release/payout, комиссия Math.ceil. Таб «Кошелёк» в Dashboard. WalletStatsCard в AdminPage → Выплаты. API `/wallet/*`.
+
+### Следующие кандидаты Stage 40+
 - Stage 21b: контакты через ЮKassa (real-branching в `contacts.ts`)
 - Stage 21c: холд брони через ЮKassa (capture при `completed`)
+- Stage 39+: OTP-верификация владельца при confirmed→active (escrow start verify)
 - Подписки владельцев (Pro/Бизнес): таблица + роуты + UI
 - Joint Purchases: полная коллективная механика (паи, эскроу, закрытие)
 
@@ -3465,4 +3470,62 @@ fix(auth): promote platform owner admin@hochu.to to superadmin on every server s
 
 ```bash
 feat(stage38): Telegram bot integration — OTP linking, hot-swap, broadcast, notification dispatch (37/37 tests)
+```
+
+---
+
+## Stage 39 — Fintech Core & Escrow Engine (02.05.2026) ✅
+
+### Цель
+Атомарный кошелёк-движок с эскроу-циклом (hold/release/payout), комиссией платформы, горячим переключением провайдера оплаты, и fintech-UI за флагом `isCommercialMode`.
+
+### DB-схема (lib/db/src/schema)
+| Таблица | Поля | Примечание |
+|---------|------|------------|
+| `wallets` | `userId, availableBalance (int4, kopek), frozenBalance, currency` | уникальный по userId, DEFAULT 0 |
+| `wallet_transactions` | `userId, amount, platformCommission, type, status, referenceId, referenceType, description, metadata` | type: hold\|release\|payout\|topup; status: pending\|completed\|failed |
+| `platform_settings` | +`paymentProvider text DEFAULT 'mock'` | mock\|yookassa |
+
+### Escrow-сервис (artifacts/api-server/src/lib/escrow.ts)
+- **`getOrCreateWallet(userId, tx?)`** — upsert кошелька, возвращает запись
+- **`calcCommission(amount, rate)`** — `Math.ceil(amount × rate × 100) / 100` (округление в пользу платформы, до копейки)
+- **`holdFunds(bookingId, renterId, amount, commissionRate, tx?)`** — SELECT FOR UPDATE + mock-топап + freeze баланса
+- **`releaseFunds(bookingId, userId, tx?)`** — разморозка при отмене/отклонении
+- **`payoutOwner(bookingId, ownerId, renterId, totalAmount, commissionRate, tx?)`** — split: owner ← net, platform ← commission
+
+### API Routes (GET/POST /api/wallet/*)
+| Метод | Путь | Auth | Guard |
+|-------|------|------|-------|
+| GET | `/wallet/balance` | user | isCommercialMode |
+| GET | `/wallet/history` | user | isCommercialMode |
+| GET | `/wallet/admin/users/:id/balance` | superadmin | — |
+| GET | `/wallet/admin/payouts` | superadmin | — |
+| GET | `/wallet/admin/stats` | superadmin | — |
+
+`requireAuth` + `requireRole` из `../middleware/auth.js` (единственный middleware файл).
+
+### Escrow hooks в bookings.ts (fire-and-forget с try/catch)
+- `confirmed` → `holdFunds(...)` (gated by `isCommercialMode`)
+- `cancelled`/`rejected` → `releaseFunds(...)`
+- `completed` → `payoutOwner(...)`
+
+### Frontend (isCommercialMode gate)
+- **Dashboard.tsx**: таб "wallet" (иконка Wallet), компонент `WalletSection` — 2 карточки (доступно/заморожено) + история транзакций. Таб виден только при `isCommercialMode=true`. Beta guard через `validTabs`.
+- **AdminPage.tsx → PayoutsTab**: `WalletStatsCard` — stats: walletsCount, totalAvailable, totalFrozen, totalPlatformCommission, paymentProvider, isCommercialMode. Всегда виден суперадмину.
+
+### paymentProvider в AdminPage
+- Поле добавлено в `ALLOWED_FIELDS` + валидация `mock|yookassa` + `publicSettings()`
+- В Settings tab можно переключать через UI
+
+### Баги, найденные и исправленные
+1. **`requireRole` импортировался из несуществующего `../middleware/requireRole.js`** — исправлено на `../middleware/auth.js`
+
+### Тест-сьют (security gates)
+- `GET /wallet/balance` без `isCommercialMode=true` → 403 ✅
+- `GET /wallet/balance` без токена → 401 ✅
+- `PUT /admin/settings {paymentProvider:"invalid"}` → 400 ✅
+- `GET /wallet/admin/stats` → 200 + корректные поля ✅
+
+```bash
+feat(stage39): Fintech Core & Escrow Engine — atomic wallets, escrow hold/release/payout, paymentProvider toggle, WalletSection UI, WalletStatsCard admin
 ```

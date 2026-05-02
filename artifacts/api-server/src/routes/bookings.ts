@@ -9,6 +9,7 @@ import { applyBookingCountDelta, bookingCountDelta, bookingCounts } from "../lib
 import { recordAuditEvent } from "../lib/audit-events.js";
 import { recalcTrustScoreForUsers } from "../lib/trust-score.js";
 import { broadcastToUser } from "../lib/websocket.js";
+import { holdFunds, releaseFunds, payoutOwner } from "../lib/escrow.js";
 
 const router = Router();
 
@@ -883,6 +884,46 @@ router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
       req.userId ?? null,
       `booking_completed:${updated.id}`,
     );
+  }
+
+  // Stage 39 — Escrow Engine: хуки управления кошельками.
+  // Активны только при isCommercialMode=true. Все ошибки перехватываются —
+  // основной поток бронирования НЕ должен падать из-за сбоя escrow.
+  try {
+    const escrowSettings = await getPlatformSettings();
+    if (escrowSettings.isCommercialMode) {
+      const isMock = escrowSettings.paymentProvider === "mock";
+      const totalAmt = parseFloat(String(updated.totalPrice ?? "0"));
+
+      if (status === "confirmed" && fromStatus === "pending" && totalAmt > 0) {
+        // Владелец принял бронь → замораживаем средства арендатора
+        void holdFunds({
+          renterId: updated.renterId,
+          ownerId: updated.ownerId,
+          bookingId: updated.id,
+          amount: totalAmt,
+          isMock,
+        });
+      } else if ((status === "cancelled" || status === "rejected") && totalAmt > 0) {
+        // Бронь отменена/отклонена → возврат арендатору
+        void releaseFunds({
+          renterId: updated.renterId,
+          bookingId: updated.id,
+          amount: totalAmt,
+        });
+      } else if (status === "completed" && totalAmt > 0) {
+        // Аренда завершена → выплата владельцу (минус комиссия платформы)
+        void payoutOwner({
+          renterId: updated.renterId,
+          ownerId: updated.ownerId,
+          bookingId: updated.id,
+          amount: totalAmt,
+          commissionPercent: escrowSettings.serviceFeePercent,
+        });
+      }
+    }
+  } catch (escrowErr) {
+    console.error("[bookings PUT] escrow hook failed (non-fatal)", { bookingId: updated.id, status, escrowErr });
   }
 
   res.json(formatBooking(updated, listing, undefined, owner));

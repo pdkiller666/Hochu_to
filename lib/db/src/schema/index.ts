@@ -25,3 +25,5 @@ export * from "./payments";
 export * from "./digital_acts";
 export * from "./co_sharing";
 export * from "./audit_events";
+export * from "./wallets";
+export * from "./wallet_transactions";

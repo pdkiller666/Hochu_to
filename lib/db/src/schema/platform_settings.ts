@@ -172,6 +172,14 @@ export const platformSettingsTable = pgTable("platform_settings", {
   /** Кастомный endpoint провайдера (опционально) */
   smsApiUrl: text("sms_api_url"),
 
+  // ── Stage 39: Escrow Engine ───────────────────────────────────────────
+  /**
+   * Платёжный провайдер для движка эскроу.
+   * 'mock'     — виртуальные балансы без реальных денег (по умолчанию).
+   * 'yookassa' — реальные платежи через ЮKassa.
+   */
+  paymentProvider: text("payment_provider").default("mock").notNull(),
+
   // ── Метаданные ─────────────────────────────────────────────────────────
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
   updatedBy: integer("updated_by"),

@@ -179,18 +179,17 @@ export default function Dashboard() {
   const isBetaMode = publicSettings?.isCommercialMode === false;
   const isCommercialMode = !isBetaMode;
 
-  type DashTab = "incoming" | "outgoing" | "listings" | "profile" | "history" | "support" | "contacts" | "finance";
-  // В Бета-режиме «finance» и «contacts» выключены полностью — не принимаем
-  // их даже из URL/persisted state (defense in depth поверх скрытия пунктов меню).
+  type DashTab = "incoming" | "outgoing" | "listings" | "profile" | "history" | "support" | "contacts" | "finance" | "wallet";
+  // В Бета-режиме «finance», «contacts» и «wallet» выключены полностью.
   const baseTabs: DashTab[] = ["incoming", "outgoing", "listings", "profile", "history", "support"];
-  const validTabs: DashTab[] = isBetaMode ? baseTabs : [...baseTabs, "contacts", "finance"];
+  const validTabs: DashTab[] = isBetaMode ? baseTabs : [...baseTabs, "contacts", "finance", "wallet"];
   const urlTab = initialTab && validTabs.includes(initialTab as DashTab) ? (initialTab as DashTab) : null;
   const [activeTab, setActiveTab] = usePersistedState<DashTab>("dashboard_tab", urlTab ?? "incoming");
   // URL-параметр tab всегда берёт приоритет над сохранённым значением
   useEffect(() => { if (urlTab) setActiveTab(urlTab); }, []);
   // Если settings прилетели позже и пользователь сидит на коммерч. вкладке в beta — переключаем.
   useEffect(() => {
-    if (isBetaMode && (activeTab === "finance" || activeTab === "contacts")) {
+    if (isBetaMode && (activeTab === "finance" || activeTab === "contacts" || activeTab === "wallet")) {
       setActiveTab("incoming");
     }
   }, [isBetaMode, activeTab, setActiveTab]);
@@ -1641,6 +1640,7 @@ export default function Dashboard() {
     // В Бета-режиме скрываем «Финансы» (выплаты/комиссии) и «Баланс контактов»
     // (платный доступ) — функциональности в beta нет.
     ...(isCommercialMode ? [
+      { id: "wallet" as const, label: "Кошелёк", icon: Wallet, badge: 0 },
       { id: "finance" as const, label: "Финансы", icon: Coins, badge: 0 },
       { id: "contacts" as const, label: "Баланс контактов", icon: Wallet, badge: 0 },
     ] : []),
@@ -2448,6 +2448,11 @@ export default function Dashboard() {
                   </div>
                 )}
               </div>
+            )}
+
+            {/* ── WALLET (Stage 39) ── */}
+            {activeTab === "wallet" && (
+              <WalletSection token={token!} />
             )}
 
             {/* ── CONTACTS BALANCE ── */}
@@ -3577,6 +3582,159 @@ export default function Dashboard() {
         />
       )}
     </Layout>
+  );
+}
+
+// ════════════════════════════════════════════════════════════════════
+// WalletSection — кошелёк пользователя (Stage 39 Escrow Engine)
+// Виден только в коммерческом режиме (isCommercialMode=true).
+// ════════════════════════════════════════════════════════════════════
+
+interface WalletBalance {
+  availableBalance: number;
+  frozenBalance: number;
+  currency: string;
+  updatedAt: string;
+}
+
+interface WalletTx {
+  id: number;
+  amount: number;
+  platformCommission: number;
+  type: string;
+  status: string;
+  referenceId: number | null;
+  referenceType: string | null;
+  description: string | null;
+  createdAt: string;
+}
+
+const TX_LABELS: Record<string, { label: string; color: string }> = {
+  hold:       { label: "Заморозка",   color: "text-amber-700" },
+  release:    { label: "Разморозка",  color: "text-blue-700" },
+  commission: { label: "Комиссия",    color: "text-red-700" },
+  payout:     { label: "Выплата",     color: "text-emerald-700" },
+  refund:     { label: "Возврат",     color: "text-sky-700" },
+  topup:      { label: "Пополнение",  color: "text-violet-700" },
+};
+
+function WalletSection({ token }: { token: string }) {
+  const API_BASE = import.meta.env.VITE_API_URL ?? "";
+  const [balance, setBalance] = useState<WalletBalance | null>(null);
+  const [history, setHistory] = useState<WalletTx[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const [bRes, hRes] = await Promise.all([
+          fetch(`${API_BASE}/api/wallet/balance`, { headers: { Authorization: `Bearer ${token}` } }),
+          fetch(`${API_BASE}/api/wallet/history`, { headers: { Authorization: `Bearer ${token}` } }),
+        ]);
+        if (!bRes.ok) throw new Error(String(bRes.status));
+        const b: WalletBalance = await bRes.json();
+        const h: WalletTx[] = hRes.ok ? await hRes.json() : [];
+        if (!cancelled) { setBalance(b); setHistory(h); }
+      } catch (e: any) {
+        if (!cancelled) setError(e?.message === "403" ? "Кошелёк доступен только в коммерческом режиме" : "Не удалось загрузить данные");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [token, API_BASE]);
+
+  if (loading) return (
+    <div className="flex items-center justify-center py-16">
+      <Loader2 className="w-6 h-6 animate-spin text-primary" />
+    </div>
+  );
+
+  if (error) return (
+    <div className="max-w-xl w-full">
+      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">{error}</div>
+    </div>
+  );
+
+  return (
+    <div className="max-w-2xl w-full space-y-6">
+      {/* ── Балансы ── */}
+      <div className="bg-white border border-border rounded-2xl p-6">
+        <h2 className="text-lg font-semibold text-stone-800 mb-4 flex items-center gap-2">
+          <Wallet className="w-5 h-5 text-primary" />
+          Кошелёк
+        </h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
+            <p className="text-xs text-emerald-700 font-medium mb-1">Доступно</p>
+            <p className="text-2xl font-bold text-emerald-800">
+              {(balance?.availableBalance ?? 0).toLocaleString("ru-RU", { minimumFractionDigits: 2 })} ₽
+            </p>
+          </div>
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+            <p className="text-xs text-amber-700 font-medium mb-1">Заморожено (эскроу)</p>
+            <p className="text-2xl font-bold text-amber-800">
+              {(balance?.frozenBalance ?? 0).toLocaleString("ru-RU", { minimumFractionDigits: 2 })} ₽
+            </p>
+          </div>
+        </div>
+        {balance?.updatedAt && (
+          <p className="text-xs text-stone-400 mt-3">
+            Обновлено: {new Date(balance.updatedAt).toLocaleString("ru-RU")}
+          </p>
+        )}
+      </div>
+
+      {/* ── История транзакций ── */}
+      <div className="bg-white border border-border rounded-2xl overflow-hidden">
+        <div className="px-6 py-4 border-b border-border">
+          <h3 className="text-base font-semibold text-stone-800">История транзакций</h3>
+        </div>
+        {history.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 text-stone-400">
+            <Wallet className="w-10 h-10 mb-3 opacity-30" />
+            <p className="text-sm">Транзакций пока нет</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-border">
+            {history.map((tx) => {
+              const info = TX_LABELS[tx.type] ?? { label: tx.type, color: "text-stone-600" };
+              return (
+                <div key={tx.id} className="px-6 py-4 flex items-start gap-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={`text-sm font-semibold ${info.color}`}>{info.label}</span>
+                      {tx.referenceId && (
+                        <span className="text-xs text-stone-400">
+                          {tx.referenceType === "booking" ? `бронь #${tx.referenceId}` : `#${tx.referenceId}`}
+                        </span>
+                      )}
+                    </div>
+                    {tx.description && (
+                      <p className="text-xs text-stone-500 mt-0.5 truncate">{tx.description}</p>
+                    )}
+                    <p className="text-xs text-stone-400 mt-1">
+                      {new Date(tx.createdAt).toLocaleString("ru-RU")}
+                    </p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className={`font-semibold text-sm ${info.color}`}>
+                      {tx.amount.toLocaleString("ru-RU", { minimumFractionDigits: 2 })} ₽
+                    </p>
+                    {tx.platformCommission > 0 && (
+                      <p className="text-xs text-stone-400">комиссия {tx.platformCommission.toFixed(2)} ₽</p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 

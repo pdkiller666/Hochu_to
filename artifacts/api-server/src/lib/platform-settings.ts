@@ -50,6 +50,8 @@ const DEFAULTS = {
   cloudpaymentsEnabled: false,
   // Stage 30A — AI Gateway
   activeAiProvider: "mock",
+  // Stage 39 — Escrow Engine
+  paymentProvider: "mock",
 };
 
 export async function ensurePlatformSettings(): Promise<PlatformSettings> {
@@ -165,5 +167,7 @@ export function publicSettings(s: PlatformSettings) {
     defaultCatalogSort: s.defaultCatalogSort,
     minPremiumShareInResults: s.minPremiumShareInResults,
     showFormatBadges: s.showFormatBadges,
+    // Stage 39 — Escrow Engine
+    paymentProvider: s.paymentProvider,
   };
 }

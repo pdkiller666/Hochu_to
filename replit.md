@@ -1423,3 +1423,11 @@ bash scripts/github-push.sh "fix(ai): restore working gemini-flash-latest model 
 - Payment gateway hooks ready (total_price calculated at booking)
 - SEO: unique title/meta per page, Russian-language content
  
+
+## Stage 39 — Fintech Core & Escrow Engine (02.05.2026)
+- **Атомарные кошельки** (SELECT FOR UPDATE): `wallets` + `wallet_transactions` таблицы в DB
+- **Escrow-движок** (`artifacts/api-server/src/lib/escrow.ts`): hold/release/payout, комиссия Math.ceil
+- **paymentProvider** в `platform_settings` (mock|yookassa), переключается из AdminPage Settings
+- **API** `/wallet/*`: balance, history, admin stats/payouts (gated + auth)
+- **Dashboard WalletSection**: таб «Кошелёк» за флагом `isCommercialMode`
+- **AdminPage PayoutsTab**: `WalletStatsCard` — агрегированная статистика кошельков

@@ -3202,6 +3202,66 @@ function payoutStatusLabel(s: AdminPayoutRow["status"]): { text: string; cls: st
   }
 }
 
+// ─── Wallet Stats Card (Stage 39) ─────────────────────────────────────────────
+function WalletStatsCard() {
+  const [stats, setStats] = useState<{
+    walletsCount: number;
+    totalAvailableBalance: number;
+    totalFrozenBalance: number;
+    totalPlatformCommission: number;
+    paymentProvider: string;
+    isCommercialMode: boolean;
+  } | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    fetch("/api/wallet/admin/stats", { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : null)
+      .then(j => setStats(j))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <div className="h-24 flex items-center justify-center"><Loader2 className="w-5 h-5 animate-spin text-stone-400" /></div>;
+  if (!stats) return null;
+
+  const fmt = (n: number) => n.toLocaleString("ru-RU", { minimumFractionDigits: 2 });
+
+  return (
+    <div className="bg-white border border-border rounded-2xl p-5 mb-6">
+      <div className="flex items-center gap-2 mb-4">
+        <Wallet className="w-5 h-5 text-primary" />
+        <h3 className="text-base font-semibold text-stone-800">Escrow Engine (Stage 39)</h3>
+        <span className={`ml-auto text-xs px-2 py-0.5 rounded-full font-medium ${stats.isCommercialMode ? "bg-emerald-100 text-emerald-800" : "bg-stone-100 text-stone-500"}`}>
+          {stats.isCommercialMode ? "Коммерческий режим" : "Бета-режим"}
+        </span>
+        <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-blue-100 text-blue-800">
+          {stats.paymentProvider === "mock" ? "Mock (виртуально)" : "ЮKassa"}
+        </span>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="bg-stone-50 rounded-xl p-3">
+          <p className="text-xs text-stone-500 mb-1">Кошельков</p>
+          <p className="text-xl font-bold text-stone-800">{stats.walletsCount}</p>
+        </div>
+        <div className="bg-emerald-50 rounded-xl p-3">
+          <p className="text-xs text-emerald-700 mb-1">Доступно</p>
+          <p className="text-xl font-bold text-emerald-800">{fmt(stats.totalAvailableBalance)} ₽</p>
+        </div>
+        <div className="bg-amber-50 rounded-xl p-3">
+          <p className="text-xs text-amber-700 mb-1">В эскроу</p>
+          <p className="text-xl font-bold text-amber-800">{fmt(stats.totalFrozenBalance)} ₽</p>
+        </div>
+        <div className="bg-violet-50 rounded-xl p-3">
+          <p className="text-xs text-violet-700 mb-1">Комиссия платформы</p>
+          <p className="text-xl font-bold text-violet-800">{fmt(stats.totalPlatformCommission)} ₽</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PayoutsTab() {
   const [statusFilter, setStatusFilter] = useState<"all" | AdminPayoutRow["status"]>("pending");
   const [rows, setRows] = useState<AdminPayoutRow[]>([]);
@@ -3252,6 +3312,9 @@ function PayoutsTab() {
 
   return (
     <div className="space-y-6">
+      {/* Stage 39: Wallet Engine Stats */}
+      <WalletStatsCard />
+
       <div className="bg-white rounded-xl border border-stone-200 p-4">
         <div className="flex flex-wrap gap-2">
           {(["pending", "approved", "paid", "rejected", "all"] as const).map(s => (

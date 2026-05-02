@@ -29,6 +29,7 @@ import buyoutsRouter from "./buyouts.js";
 import aiRouter from "./ai.js";
 import telegramRouter from "./telegram.js";
 import smsRouter from "./sms.js";
+import walletRouter from "./wallet.js";
 
 const router: IRouter = Router();
 
@@ -56,6 +57,7 @@ router.use("/admin", adminRouter);
 router.use("/ai", aiRouter);
 router.use("/telegram", telegramRouter);
 router.use("/sms", smsRouter);
+router.use("/wallet", walletRouter);
 router.use(digitalActsRouter);
 router.use(contactsRouter);
 router.use(financeRouter);

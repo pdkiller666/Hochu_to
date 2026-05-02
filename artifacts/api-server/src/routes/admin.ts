@@ -1287,6 +1287,8 @@ router.put("/settings", requireAuth, requireRole("superadmin"), async (req: Auth
     "telegramBotToken", "telegramEnv",
     // ── Stage 38-UE: Universal SMS Adapter ──────────────────────────────
     "smsEnabled", "smsProvider", "smsApiKey", "smsApiSecret", "smsSenderName", "smsApiUrl",
+    // ── Stage 39: Escrow Engine ──────────────────────────────────────────
+    "paymentProvider",
   ] as const;
   const body = req.body ?? {};
   const patch: Record<string, any> = {};
@@ -1445,6 +1447,10 @@ router.put("/settings", requireAuth, requireRole("superadmin"), async (req: Auth
   const VALID_SMS_PROVIDERS = ["mts_exolve", "smsc", "stream_telecom"];
   if ("smsProvider" in patch && !VALID_SMS_PROVIDERS.includes(patch.smsProvider)) {
     return res.status(400).json({ error: "invalid_value", field: "smsProvider", message: "Допустимо: mts_exolve | smsc | stream_telecom" });
+  }
+  // Stage 39: paymentProvider — mock | yookassa
+  if ("paymentProvider" in patch && !["mock", "yookassa"].includes(patch.paymentProvider)) {
+    return res.status(400).json({ error: "invalid_value", field: "paymentProvider", message: "Допустимо: mock | yookassa" });
   }
 
   const prevToken = (await getPlatformSettings()).telegramBotToken;
