@@ -262,6 +262,13 @@ export default function Dashboard() {
   const [tgOtp, setTgOtp] = useState<{ otp: string; expiresAt: string } | null>(null);
   const [tgPrefs, setTgPrefs] = useState({ bookings: true, system: true, chats: true });
   const [tgBusy, setTgBusy] = useState(false);
+  // Stage 38-UE — Phone Verification via SMS
+  const [phoneVerified, setPhoneVerified] = useState(false);
+  const [smsEnabled, setSmsEnabled] = useState(false);
+  const [phoneOtpSent, setPhoneOtpSent] = useState(false);
+  const [phoneOtpExpiresAt, setPhoneOtpExpiresAt] = useState<string | null>(null);
+  const [phoneOtpInput, setPhoneOtpInput] = useState("");
+  const [phoneOtpBusy, setPhoneOtpBusy] = useState(false);
   // Stage 19g — Trust & Verification: модалка подачи заявки на бейдж «Проверенный владелец».
   const { toast } = useToast();
   const [verifModalOpen, setVerifModalOpen] = useState(false);
@@ -524,6 +531,22 @@ export default function Dashboard() {
       .catch(() => {});
   }, [user?.id, token]);
 
+  // Stage 38-UE: load phone verification status
+  useEffect(() => {
+    if (!user || !token) return;
+    fetch("/api/sms/status", { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.json())
+      .then(d => {
+        setPhoneVerified(d.phoneVerified ?? false);
+        setSmsEnabled(d.smsEnabled ?? false);
+        if (d.hasOtp) {
+          setPhoneOtpSent(true);
+          setPhoneOtpExpiresAt(d.otpExpiresAt ?? null);
+        }
+      })
+      .catch(() => {});
+  }, [user?.id, token]);
+
   const tgGenerateOtp = async () => {
     if (!token) return;
     setTgBusy(true);
@@ -562,6 +585,49 @@ export default function Dashboard() {
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify({ [key]: val }),
     }).catch(() => setTgPrefs(tgPrefs));
+  };
+
+  // Stage 38-UE: phone OTP handlers
+  const sendPhoneOtp = async () => {
+    if (!token) return;
+    setPhoneOtpBusy(true);
+    try {
+      const r = await fetch("/api/sms/send-phone-otp", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.message || d.error || "Ошибка отправки");
+      setPhoneOtpSent(true);
+      setPhoneOtpExpiresAt(d.expiresAt ?? null);
+      toast({ title: "SMS отправлен", description: `Код отправлен на ${d.maskedPhone ?? "ваш номер"}` });
+    } catch (e: any) {
+      toast({ title: "Ошибка", description: e.message, variant: "destructive" });
+    } finally {
+      setPhoneOtpBusy(false);
+    }
+  };
+
+  const verifyPhoneOtp = async () => {
+    if (!token || !phoneOtpInput.trim()) return;
+    setPhoneOtpBusy(true);
+    try {
+      const r = await fetch("/api/sms/verify-phone-otp", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ otp: phoneOtpInput.trim() }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.message || d.error || "Неверный код");
+      setPhoneVerified(true);
+      setPhoneOtpSent(false);
+      setPhoneOtpInput("");
+      toast({ title: "Телефон верифицирован!", description: "Теперь вы будете получать SMS-уведомления" });
+    } catch (e: any) {
+      toast({ title: "Ошибка", description: e.message, variant: "destructive" });
+    } finally {
+      setPhoneOtpBusy(false);
+    }
   };
 
   // Stage 20a — подгружаем открытую заявку на верификацию (для кнопки «Отозвать»).
@@ -2850,6 +2916,71 @@ export default function Dashboard() {
                     </div>
                   )}
                 </div>
+
+                {/* ── Stage 38-UE: Phone Verification via SMS ── */}
+                {smsEnabled && (
+                  <div className="bg-white border border-border rounded-2xl p-6 shadow-sm mt-4">
+                    <h3 className="text-base font-bold flex items-center gap-2 mb-1">
+                      <Phone className="w-4 h-4 text-emerald-600" /> Верификация телефона (SMS)
+                    </h3>
+                    <p className="text-sm text-muted-foreground mb-4">
+                      Верифицированный номер используется как резервный канал уведомлений и для подтверждения важных операций.
+                    </p>
+
+                    {phoneVerified ? (
+                      <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-4 py-3">
+                        <CheckCircle2 className="w-4 h-4 text-green-600 flex-shrink-0" />
+                        <span className="text-sm font-semibold text-green-700">Телефон верифицирован</span>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {!(user as any)?.phone ? (
+                          <div className="bg-amber-50 border border-amber-200 text-amber-700 text-sm rounded-xl px-4 py-3">
+                            Сначала добавьте номер телефона в профиль выше.
+                          </div>
+                        ) : phoneOtpSent ? (
+                          <div className="space-y-3">
+                            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                              <p className="text-sm text-blue-700 font-semibold mb-1">Введите код из SMS:</p>
+                              {phoneOtpExpiresAt && (
+                                <p className="text-xs text-blue-500 mb-3">
+                                  Действителен до {new Date(phoneOtpExpiresAt).toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" })}
+                                </p>
+                              )}
+                              <div className="flex gap-2">
+                                <input
+                                  type="text"
+                                  inputMode="numeric"
+                                  maxLength={6}
+                                  value={phoneOtpInput}
+                                  onChange={e => setPhoneOtpInput(e.target.value.replace(/\D/g, ""))}
+                                  placeholder="000000"
+                                  className="flex-1 input-field font-mono text-center text-xl tracking-[0.3em]"
+                                />
+                                <button type="button" onClick={verifyPhoneOtp}
+                                  disabled={phoneOtpBusy || phoneOtpInput.length < 4}
+                                  className="btn-primary px-4 py-2.5 text-sm flex items-center gap-2 disabled:opacity-50">
+                                  {phoneOtpBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                                  Подтвердить
+                                </button>
+                              </div>
+                            </div>
+                            <button type="button" onClick={sendPhoneOtp} disabled={phoneOtpBusy}
+                              className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
+                              <RefreshCw className="w-3.5 h-3.5" /> Отправить код повторно
+                            </button>
+                          </div>
+                        ) : (
+                          <button type="button" onClick={sendPhoneOtp} disabled={phoneOtpBusy}
+                            className="btn-primary flex items-center gap-2 px-5 py-2.5">
+                            {phoneOtpBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Phone className="w-4 h-4" />}
+                            Отправить код верификации
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* ── Security card: email + password ── */}
                 <div className="bg-white border border-border rounded-2xl p-6 shadow-sm mt-4">

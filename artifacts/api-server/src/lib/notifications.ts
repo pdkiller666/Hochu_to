@@ -1,7 +1,8 @@
-import { db, notificationsTable } from "@workspace/db";
+import { db, notificationsTable, usersTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { broadcastToUser } from "./websocket.js";
 import { sendTelegramToUser } from "./telegram.js";
+import { getSmsProvider } from "./sms/factory.js";
 
 // ─── Gender helpers (Stage 33.1) ─────────────────────────────────────────────
 //
@@ -127,8 +128,27 @@ export async function createNotification(params: {
     ? `<b>${params.title}</b>\n${params.message}`
     : `<b>${params.title}</b>`;
 
-  // Fire-and-forget: TG delivery failures are non-fatal
-  sendTelegramToUser(params.userId, category, tgText, params.link).catch(() => {});
+  // Stage 38-UE: circuit breaker — if Telegram times out (60 s), fall back to SMS
+  const tgDelivery = Promise.race([
+    sendTelegramToUser(params.userId, category, tgText, params.link),
+    new Promise<boolean>(resolve => setTimeout(() => resolve(false), 60_000)),
+  ]);
+
+  tgDelivery.then(async (tgOk) => {
+    if (!tgOk) {
+      const sms = getSmsProvider();
+      if (sms) {
+        const [user] = await db.select({ phone: usersTable.phone, phoneVerified: usersTable.phoneVerified })
+          .from(usersTable).where(eq(usersTable.id, params.userId)).limit(1).catch(() => [null]);
+        if (user?.phone && user.phoneVerified) {
+          const text = params.message
+            ? `${params.title}: ${params.message}`
+            : params.title;
+          sms.send(user.phone, `Хочу_То: ${text.slice(0, 160)}`).catch(() => {});
+        }
+      }
+    }
+  }).catch(() => {});
 }
 
 export async function reminderAlreadySent(

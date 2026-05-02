@@ -28,6 +28,7 @@ import poolsRouter from "./pools.js";
 import buyoutsRouter from "./buyouts.js";
 import aiRouter from "./ai.js";
 import telegramRouter from "./telegram.js";
+import smsRouter from "./sms.js";
 
 const router: IRouter = Router();
 
@@ -54,6 +55,7 @@ router.use("/webhooks", webhooksRouter);
 router.use("/admin", adminRouter);
 router.use("/ai", aiRouter);
 router.use("/telegram", telegramRouter);
+router.use("/sms", smsRouter);
 router.use(digitalActsRouter);
 router.use(contactsRouter);
 router.use(financeRouter);

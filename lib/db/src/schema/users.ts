@@ -46,6 +46,13 @@ export const usersTable = pgTable("users", {
     system: boolean;
     chats: boolean;
   }>(),
+  // ── Stage 38-UE — Phone Verification & SMS OTP ────────────────────────────
+  /** Верифицирован ли номер телефона через SMS-OTP */
+  phoneVerified: boolean("phone_verified").default(false).notNull(),
+  /** OTP для верификации телефона или финансовых операций */
+  phoneOtp: text("phone_otp"),
+  /** Когда истекает phone OTP (5 минут) */
+  phoneOtpExpiresAt: timestamp("phone_otp_expires_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

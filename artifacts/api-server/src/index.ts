@@ -6,6 +6,7 @@ import { ensurePlatformSettings } from "./lib/platform-settings";
 import { backfillListingCounters } from "./lib/backfill-counters";
 import { initWebSocketServer } from "./lib/websocket";
 import { initTelegramBot } from "./lib/telegram";
+import { initSmsProvider } from "./lib/sms/factory";
 import { db, usersTable } from "@workspace/db";
 import { sql, eq } from "drizzle-orm";
 import bcrypt from "bcryptjs";
@@ -88,6 +89,23 @@ httpServer.listen(port, "0.0.0.0", async (err?: Error) => {
     await initTelegramBot();
   } catch (e) {
     logger.error({ err: e }, "Failed to initialize Telegram bot (non-fatal)");
+  }
+  // Stage 38-UE: init SMS provider from platform settings (non-fatal)
+  try {
+    const ps = await ensurePlatformSettings();
+    if (ps.smsEnabled && ps.smsApiKey) {
+      initSmsProvider(ps.smsProvider as any, {
+        apiKey:     ps.smsApiKey ?? undefined,
+        apiSecret:  ps.smsApiSecret ?? undefined,
+        senderName: ps.smsSenderName ?? "HochuTo",
+        apiUrl:     ps.smsApiUrl ?? undefined,
+      });
+      logger.info({ provider: ps.smsProvider }, "SMS provider initialized");
+    } else {
+      logger.info("SMS provider disabled or not configured");
+    }
+  } catch (e) {
+    logger.error({ err: e }, "Failed to initialize SMS provider (non-fatal)");
   }
   try {
     await backfillListingCounters();

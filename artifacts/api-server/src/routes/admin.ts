@@ -16,6 +16,7 @@ import { getPlatformSettings, updatePlatformSettings } from "../lib/platform-set
 import { seedTestListings } from "../lib/seed-test-listings.js";
 import { calculateAndUpdateTrustScore } from "../lib/trust-score.js";
 import { getBotStatus, hotSwapToken, broadcastToAll, isValidBroadcastRole } from "../lib/telegram.js";
+import { hotSwapSmsProvider, getSmsProvider, PROVIDER_LABELS, type SmsProviderKey } from "../lib/sms/factory.js";
 
 /**
  * Кириллично-безопасный поиск: PostgreSQL с locale=C игнорирует регистр кириллицы в ILIKE.
@@ -1284,6 +1285,8 @@ router.put("/settings", requireAuth, requireRole("superadmin"), async (req: Auth
     "activeAiProvider",
     // ── Stage 38: Telegram Bot ──────────────────────────────────────────
     "telegramBotToken", "telegramEnv",
+    // ── Stage 38-UE: Universal SMS Adapter ──────────────────────────────
+    "smsEnabled", "smsProvider", "smsApiKey", "smsApiSecret", "smsSenderName", "smsApiUrl",
   ] as const;
   const body = req.body ?? {};
   const patch: Record<string, any> = {};
@@ -1322,10 +1325,14 @@ router.put("/settings", requireAuth, requireRole("superadmin"), async (req: Auth
     "contactPackRefundEnabled", "freeToPremiumUpgradeEnabled", "showFormatBadges",
     // Stage 21a
     "isCommercialMode",
+    // Stage 38-UE
+    "smsEnabled",
   ] as const;
   const NULLABLE_STR_FIELDS = [
     "yookassaShopId", "yookassaSecretKey", "sbpMerchantId", "cloudpaymentsPublicId",
     "telegramBotToken",
+    // Stage 38-UE
+    "smsApiKey", "smsApiSecret", "smsApiUrl",
   ] as const;
 
   for (const k of PERCENT_FIELDS) {
@@ -1434,6 +1441,12 @@ router.put("/settings", requireAuth, requireRole("superadmin"), async (req: Auth
     return res.status(400).json({ error: "invalid_value", field: "telegramEnv", message: "Допустимо: prod | dev" });
   }
 
+  // Stage 38-UE: smsProvider — допустимы только известные провайдеры
+  const VALID_SMS_PROVIDERS = ["mts_exolve", "smsc", "stream_telecom"];
+  if ("smsProvider" in patch && !VALID_SMS_PROVIDERS.includes(patch.smsProvider)) {
+    return res.status(400).json({ error: "invalid_value", field: "smsProvider", message: "Допустимо: mts_exolve | smsc | stream_telecom" });
+  }
+
   const prevToken = (await getPlatformSettings()).telegramBotToken;
   const updated = await updatePlatformSettings(patch, req.userId);
   if (req.userId) {
@@ -1455,6 +1468,20 @@ router.put("/settings", requireAuth, requireRole("superadmin"), async (req: Auth
           hotSwapToken(fallback, req.userId).catch(() => {});
         }
       }
+    }
+  }
+
+  // Stage 38-UE: горячая смена SMS-провайдера при изменении настроек SMS
+  const SMS_CFG_FIELDS = ["smsEnabled", "smsProvider", "smsApiKey", "smsApiSecret", "smsSenderName", "smsApiUrl"] as const;
+  if (SMS_CFG_FIELDS.some(f => f in patch)) {
+    const s = await getPlatformSettings();
+    if (s.smsEnabled && s.smsApiKey) {
+      hotSwapSmsProvider(s.smsProvider as SmsProviderKey, {
+        apiKey:     s.smsApiKey ?? undefined,
+        apiSecret:  s.smsApiSecret ?? undefined,
+        senderName: s.smsSenderName ?? "HochuTo",
+        apiUrl:     s.smsApiUrl ?? undefined,
+      });
     }
   }
 
@@ -1521,6 +1548,41 @@ router.post("/telegram/broadcast", requireAuth, requireRole("superadmin"), async
       JSON.stringify({ sent: result.sent, failed: result.failed, preview: text.slice(0, 100), role }));
   }
   res.json({ ok: true, ...result });
+});
+
+// ─── Stage 38-UE: SMS — статус провайдера и тестовая отправка ───────────────
+
+router.get("/sms/status", requireAuth, requireRole("superadmin"), async (_req, res) => {
+  const s = await getPlatformSettings();
+  const provider = getSmsProvider();
+  const providerKey = s.smsProvider;
+  res.json({
+    smsEnabled: s.smsEnabled,
+    provider: providerKey,
+    providerLabel: PROVIDER_LABELS[providerKey as SmsProviderKey] ?? providerKey,
+    hasApiKey: !!s.smsApiKey,
+    hasApiSecret: !!s.smsApiSecret,
+    senderName: s.smsSenderName,
+    providerReady: !!provider,
+  });
+});
+
+router.post("/sms/test-send", requireAuth, requireRole("superadmin"), async (req: AuthRequest, res) => {
+  const { phone } = req.body ?? {};
+  if (!phone || typeof phone !== "string") {
+    return res.status(400).json({ error: "bad_request", message: "Укажите phone" });
+  }
+  const s = await getPlatformSettings();
+  if (!s.smsEnabled) return res.status(503).json({ error: "sms_disabled", message: "SMS отключены" });
+  const provider = getSmsProvider();
+  if (!provider) return res.status(503).json({ error: "no_provider", message: "Провайдер не настроен" });
+
+  const result = await provider.send(phone.trim(), "Хочу_То: тестовое SMS от администратора. Всё работает!");
+  if (req.userId) {
+    await audit(req.userId, "platform_settings", 0, "sms_test_send",
+      JSON.stringify({ phone: phone.replace(/\d(?=\d{4})/g, "*"), ok: result.ok, error: result.error }));
+  }
+  res.json({ ok: result.ok, messageId: result.messageId, error: result.error });
 });
 
 export default router;

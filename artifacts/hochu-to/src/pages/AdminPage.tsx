@@ -4012,6 +4012,253 @@ function AiSettingsTab() {
   );
 }
 
+// ─── IntegrationsTab (Stage 38-UE) ────────────────────────────────────────────
+
+const PROVIDER_LABELS: Record<string, string> = {
+  mts_exolve:    "MTS Exolve",
+  smsc:          "SMSC.ru",
+  stream_telecom:"Stream Telecom",
+};
+
+type SmsFieldKey = "apiKey" | "apiSecret" | "senderName" | "apiUrl";
+
+const PROVIDER_FIELDS: Record<string, Array<{ key: SmsFieldKey; label: string; placeholder: string; secret?: boolean }>> = {
+  mts_exolve: [
+    { key: "apiKey",     label: "Bearer-токен",      placeholder: "ey…",        secret: true },
+    { key: "senderName", label: "Имя отправителя",   placeholder: "HochuTo" },
+    { key: "apiUrl",     label: "Endpoint (необязательно)", placeholder: "https://gateway.api.mts.ru/api/v1/sms/send" },
+  ],
+  smsc: [
+    { key: "apiKey",     label: "Логин SMSC",         placeholder: "my_login" },
+    { key: "apiSecret",  label: "Пароль SMSC",        placeholder: "••••••",     secret: true },
+    { key: "senderName", label: "Имя отправителя",    placeholder: "HochuTo" },
+  ],
+  stream_telecom: [
+    { key: "apiKey",     label: "Логин",              placeholder: "my_login" },
+    { key: "apiSecret",  label: "Пароль",             placeholder: "••••••",     secret: true },
+    { key: "senderName", label: "Имя отправителя",    placeholder: "HochuTo" },
+    { key: "apiUrl",     label: "Endpoint (необязательно)", placeholder: "https://gateway.api.sc/api/v2/send" },
+  ],
+};
+
+function IntegrationsTab() {
+  const { toast } = useToast();
+  const [smsStatus, setSmsStatus] = useState<any>(null);
+  const [smsEnabled, setSmsEnabled] = useState(false);
+  const [smsProvider, setSmsProvider] = useState("smsc");
+  const [fields, setFields] = useState<Record<SmsFieldKey, string>>({
+    apiKey: "", apiSecret: "", senderName: "HochuTo", apiUrl: "",
+  });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [testPhone, setTestPhone] = useState("");
+  const [testing, setTesting] = useState(false);
+  const [showSecrets, setShowSecrets] = useState<Record<SmsFieldKey, boolean>>({
+    apiKey: false, apiSecret: false, senderName: false, apiUrl: false,
+  });
+
+  const loadSettings = async () => {
+    try {
+      const [sR, stR] = await Promise.all([
+        fetch(`${API}/api/admin/settings`, { headers: getAuthHeaders() }),
+        fetch(`${API}/api/admin/sms/status`, { headers: getAuthHeaders() }),
+      ]);
+      const s = await sR.json();
+      const st = await stR.json();
+      setSmsEnabled(s.smsEnabled ?? false);
+      setSmsProvider(s.smsProvider ?? "smsc");
+      setFields(prev => ({ ...prev, senderName: s.smsSenderName ?? "HochuTo" }));
+      setSmsStatus(st);
+    } catch {}
+    setLoading(false);
+  };
+
+  useEffect(() => { loadSettings(); }, []);
+
+  const saveSmsCfg = async () => {
+    setSaving(true);
+    try {
+      const body: Record<string, any> = {
+        smsEnabled,
+        smsProvider,
+        smsSenderName: fields.senderName || "HochuTo",
+      };
+      if (fields.apiKey.trim())    body.smsApiKey    = fields.apiKey.trim();
+      if (fields.apiSecret.trim()) body.smsApiSecret = fields.apiSecret.trim();
+      if (fields.apiUrl.trim())    body.smsApiUrl    = fields.apiUrl.trim();
+
+      const r = await fetch(`${API}/api/admin/settings`, {
+        method: "PUT",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.message || d.error || "Ошибка сохранения");
+      toast({ title: "Сохранено", description: "Настройки SMS-провайдера обновлены" });
+      await loadSettings();
+    } catch (e: any) {
+      toast({ title: "Ошибка", description: e.message, variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const sendTestSms = async () => {
+    if (!testPhone.trim()) return;
+    setTesting(true);
+    try {
+      const r = await fetch(`${API}/api/admin/sms/test-send`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: testPhone.trim() }),
+      });
+      const d = await r.json();
+      if (!r.ok || !d.ok) throw new Error(d.message || d.error || "Ошибка отправки");
+      toast({ title: "SMS отправлено", description: `ID: ${d.messageId || "n/a"}` });
+    } catch (e: any) {
+      toast({ title: "Ошибка", description: e.message, variant: "destructive" });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="w-6 h-6 animate-spin text-[#C65D3B]" />
+      </div>
+    );
+  }
+
+  const currentFields = PROVIDER_FIELDS[smsProvider] ?? PROVIDER_FIELDS.smsc;
+
+  return (
+    <div className="space-y-6">
+      {/* ── SMS Provider ── */}
+      <div className="rounded-xl border border-stone-200 bg-white p-6">
+        <div className="flex items-start gap-3 mb-5">
+          <div className="w-10 h-10 rounded-xl bg-emerald-600 flex items-center justify-center flex-shrink-0">
+            <Cpu className="w-5 h-5 text-white" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h2 className="text-xl font-bold text-stone-800">SMS-провайдер (Stage 38-UE)</h2>
+            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+              {smsStatus?.providerReady ? (
+                <span className="inline-flex items-center gap-1.5 text-sm text-green-700 bg-green-50 px-2.5 py-1 rounded-full border border-green-200">
+                  <span className="w-2 h-2 bg-green-500 rounded-full" />
+                  Активен · {PROVIDER_LABELS[smsStatus.provider] ?? smsStatus.provider}
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 text-sm text-stone-500 bg-stone-100 px-2.5 py-1 rounded-full border border-stone-200">
+                  <span className="w-2 h-2 bg-stone-400 rounded-full" />
+                  {smsEnabled ? "Не настроен" : "Отключён"}
+                </span>
+              )}
+              <button onClick={loadSettings} className="p-1.5 rounded-md hover:bg-stone-100 text-stone-400 hover:text-stone-600 transition">
+                <RefreshCw className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          {/* Enabled toggle */}
+          <label className="flex items-center gap-3 p-3 rounded-xl border border-stone-200 hover:bg-stone-50 cursor-pointer transition">
+            <div className={`relative w-11 h-6 rounded-full transition-colors ${smsEnabled ? "bg-emerald-500" : "bg-stone-300"}`}
+              onClick={() => setSmsEnabled(v => !v)}>
+              <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${smsEnabled ? "translate-x-5" : "translate-x-0"}`} />
+            </div>
+            <div>
+              <span className="text-sm font-semibold text-stone-800">SMS-уведомления включены</span>
+              <p className="text-xs text-stone-500">Резервный канал при недоступности Telegram (circuit breaker 60 с)</p>
+            </div>
+          </label>
+
+          {/* Provider selector */}
+          <div>
+            <label className="block text-sm font-semibold mb-2 text-stone-700">Провайдер</label>
+            <div className="flex gap-2 flex-wrap">
+              {Object.entries(PROVIDER_LABELS).map(([key, label]) => (
+                <button key={key} type="button" onClick={() => setSmsProvider(key)}
+                  className={`px-4 py-2 rounded-lg border text-sm font-medium transition ${
+                    smsProvider === key
+                      ? "bg-[#C65D3B] text-white border-[#C65D3B]"
+                      : "border-stone-200 text-stone-600 hover:bg-stone-50"
+                  }`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Dynamic provider fields */}
+          <div className="space-y-3 p-4 rounded-xl bg-stone-50 border border-stone-200">
+            <p className="text-xs font-bold text-stone-500 uppercase tracking-widest">{PROVIDER_LABELS[smsProvider]} — настройки</p>
+            {currentFields.map(f => (
+              <div key={f.key}>
+                <label className="block text-sm font-semibold mb-1 text-stone-700">{f.label}</label>
+                <div className="relative">
+                  <input
+                    type={f.secret && !showSecrets[f.key] ? "password" : "text"}
+                    value={fields[f.key]}
+                    onChange={e => setFields(prev => ({ ...prev, [f.key]: e.target.value }))}
+                    placeholder={f.placeholder}
+                    className="w-full border border-stone-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#C65D3B]/30 pr-10"
+                  />
+                  {f.secret && (
+                    <button type="button"
+                      onClick={() => setShowSecrets(prev => ({ ...prev, [f.key]: !prev[f.key] }))}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 hover:text-stone-600">
+                      {showSecrets[f.key] ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  )}
+                </div>
+                {f.secret && (
+                  <p className="text-xs text-stone-400 mt-0.5">Оставьте пустым, чтобы не менять текущее значение.</p>
+                )}
+              </div>
+            ))}
+          </div>
+
+          <button onClick={saveSmsCfg} disabled={saving}
+            className="btn-primary px-5 py-2.5 text-sm flex items-center gap-2">
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+            Сохранить и применить
+          </button>
+        </div>
+      </div>
+
+      {/* ── Test SMS ── */}
+      <div className="rounded-xl border border-stone-200 bg-white p-6">
+        <h2 className="text-lg font-bold text-stone-800 mb-1">Тестовая отправка SMS</h2>
+        <p className="text-sm text-stone-500 mb-4">
+          Отправьте тестовое SMS на указанный номер — для проверки настроек провайдера.
+        </p>
+        {!smsStatus?.providerReady && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-700 text-sm rounded-lg p-3 mb-4">
+            ⚠️ Провайдер не настроен. Сохраните настройки выше.
+          </div>
+        )}
+        <div className="flex gap-2">
+          <input
+            type="tel"
+            value={testPhone}
+            onChange={e => setTestPhone(e.target.value)}
+            placeholder="+7 999 000 00 00"
+            className="flex-1 border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C65D3B]/30"
+          />
+          <button onClick={sendTestSms}
+            disabled={testing || !testPhone.trim() || !smsStatus?.providerReady || !smsEnabled}
+            className="btn-primary px-4 py-2 text-sm flex items-center gap-2 disabled:opacity-50">
+            {testing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+            Отправить
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── TelegramBotTab ────────────────────────────────────────────────────────────
 function TelegramBotTab() {
   const { toast } = useToast();
@@ -4206,24 +4453,25 @@ function TelegramBotTab() {
 }
 
 // ─── Main AdminPage ────────────────────────────────────────────────────────────
-type Tab = "overview" | "analytics" | "users" | "listings" | "bookings" | "support" | "reports" | "claims" | "audit" | "economy" | "payments" | "finance" | "payouts" | "ai" | "telegram";
+type Tab = "overview" | "analytics" | "users" | "listings" | "bookings" | "support" | "reports" | "claims" | "audit" | "economy" | "payments" | "finance" | "payouts" | "ai" | "telegram" | "integrations";
 
 const TABS: { id: Tab; label: string; icon: any; roles?: string[] }[] = [
-  { id: "overview",  label: "Обзор",            icon: LayoutDashboard },
-  { id: "analytics", label: "Аналитика",         icon: BarChart2,   roles: ["superadmin", "admin"] },
-  { id: "finance",   label: "Денежные потоки",   icon: Banknote,    roles: ["superadmin"] },
-  { id: "payouts",   label: "Выплаты",           icon: Wallet,      roles: ["superadmin"] },
-  { id: "users",     label: "Пользователи",      icon: Users,       roles: ["superadmin", "admin"] },
-  { id: "listings",  label: "Объявления",        icon: Package,     roles: ["superadmin", "admin", "moderator"] },
-  { id: "bookings",  label: "Бронирования",      icon: CalendarDays,roles: ["superadmin", "admin", "moderator"] },
-  { id: "economy",   label: "Экономика",         icon: Coins,       roles: ["superadmin"] },
-  { id: "payments",  label: "Платежи",           icon: CreditCard,  roles: ["superadmin"] },
-  { id: "support",   label: "Поддержка",         icon: LifeBuoy,    roles: ["superadmin", "admin", "support", "moderator"] },
-  { id: "reports",   label: "Жалобы",            icon: Flag,        roles: ["superadmin", "admin", "moderator"] },
-  { id: "claims",    label: "Заявки фонда",      icon: Shield,      roles: ["superadmin", "admin", "arbiter"] },
-  { id: "audit",     label: "Аудит",             icon: ScrollText,  roles: ["superadmin"] },
-  { id: "ai",        label: "Настройки ИИ",      icon: Sparkles,    roles: ["superadmin"] },
-  { id: "telegram",  label: "Telegram-бот",       icon: Send,        roles: ["superadmin"] },
+  { id: "overview",      label: "Обзор",            icon: LayoutDashboard },
+  { id: "analytics",     label: "Аналитика",         icon: BarChart2,   roles: ["superadmin", "admin"] },
+  { id: "finance",       label: "Денежные потоки",   icon: Banknote,    roles: ["superadmin"] },
+  { id: "payouts",       label: "Выплаты",           icon: Wallet,      roles: ["superadmin"] },
+  { id: "users",         label: "Пользователи",      icon: Users,       roles: ["superadmin", "admin"] },
+  { id: "listings",      label: "Объявления",        icon: Package,     roles: ["superadmin", "admin", "moderator"] },
+  { id: "bookings",      label: "Бронирования",      icon: CalendarDays,roles: ["superadmin", "admin", "moderator"] },
+  { id: "economy",       label: "Экономика",         icon: Coins,       roles: ["superadmin"] },
+  { id: "payments",      label: "Платежи",           icon: CreditCard,  roles: ["superadmin"] },
+  { id: "support",       label: "Поддержка",         icon: LifeBuoy,    roles: ["superadmin", "admin", "support", "moderator"] },
+  { id: "reports",       label: "Жалобы",            icon: Flag,        roles: ["superadmin", "admin", "moderator"] },
+  { id: "claims",        label: "Заявки фонда",      icon: Shield,      roles: ["superadmin", "admin", "arbiter"] },
+  { id: "audit",         label: "Аудит",             icon: ScrollText,  roles: ["superadmin"] },
+  { id: "ai",            label: "Настройки ИИ",      icon: Sparkles,    roles: ["superadmin"] },
+  { id: "telegram",      label: "Telegram-бот",       icon: Send,        roles: ["superadmin"] },
+  { id: "integrations",  label: "Интеграции",         icon: Cpu,         roles: ["superadmin"] },
 ];
 
 export default function AdminPage() {
@@ -4294,6 +4542,7 @@ export default function AdminPage() {
         {tab === "payouts" && <PayoutsTab />}
         {tab === "ai" && <AiSettingsTab />}
         {tab === "telegram" && <TelegramBotTab />}
+        {tab === "integrations" && <IntegrationsTab />}
       </div>
 
       <BroadcastModal open={broadcastOpen} onClose={() => setBroadcastOpen(false)} />

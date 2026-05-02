@@ -158,6 +158,20 @@ export const platformSettingsTable = pgTable("platform_settings", {
    */
   telegramEnv: text("telegram_env").default("dev").notNull(),
 
+  // ── Stage 38-UE: Universal SMS Adapter ────────────────────────────────────
+  /** Включён ли SMS-канал уведомлений */
+  smsEnabled: boolean("sms_enabled").default(false).notNull(),
+  /** Активный SMS-провайдер: mts_exolve | smsc | stream_telecom */
+  smsProvider: text("sms_provider").default("smsc").notNull(),
+  /** Первичный ключ/логин провайдера (Bearer-token или login) */
+  smsApiKey: text("sms_api_key"),
+  /** Пароль/секрет провайдера (для SMSC.ru, Stream Telecom) */
+  smsApiSecret: text("sms_api_secret"),
+  /** Имя отправителя (alphanumeric, до 11 символов) */
+  smsSenderName: text("sms_sender_name").default("HochuTo").notNull(),
+  /** Кастомный endpoint провайдера (опционально) */
+  smsApiUrl: text("sms_api_url"),
+
   // ── Метаданные ─────────────────────────────────────────────────────────
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
   updatedBy: integer("updated_by"),

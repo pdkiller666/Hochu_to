@@ -159,7 +159,7 @@ All routes prefixed with `/api`:
 ## Database Schema
 
 Tables (`lib/db/src/schema/`):
-- `users` — User accounts (role: renter/owner/admin), `ownerProtectionEnabled` (per-user default), rating/reviewCount. **Stage 38:** `telegram_chat_id`, `telegram_otp`, `telegram_otp_expires_at`, `telegram_notifications jsonb`
+- `users` — User accounts (role: renter/owner/admin), `ownerProtectionEnabled` (per-user default), rating/reviewCount. **Stage 38:** `telegram_chat_id`, `telegram_otp`, `telegram_otp_expires_at`, `telegram_notifications jsonb`. **Stage 38-UE:** `phone_verified`, `phone_otp`, `phone_otp_expires_at`.
 - `auth_sessions` — Active JWT sessions (logout/revoke support)
 - `regions` — Russian cities/regions (10 major cities seeded)
 - `categories` — Item categories (10 catalog slugs)
@@ -176,7 +176,7 @@ Tables (`lib/db/src/schema/`):
 - `support` — Тикеты поддержки (категория, статус, переписка)
 - `reports` — Жалобы на объявления/пользователей
 - `admin_audit_log` — Действия админов (для тикетов/банов/правок настроек)
-- `platform_settings` — Singleton: все ставки, цены, paymentMode, ID шлюзов. Анти-фрод фонда (Stage 17b-limits): `fundReserveRatioPct`, `maxClaimAmountSingleRub`, `maxClaimsPerUserMonth`, `maxClaimAmountPerListingPct`. **Stage 38:** `telegram_bot_token` (nullable, hot-swap), `telegram_env (dev|prod)`.
+- `platform_settings` — Singleton: все ставки, цены, paymentMode, ID шлюзов. Анти-фрод фонда (Stage 17b-limits): `fundReserveRatioPct`, `maxClaimAmountSingleRub`, `maxClaimsPerUserMonth`, `maxClaimAmountPerListingPct`. **Stage 38:** `telegram_bot_token` (nullable, hot-swap), `telegram_env (dev|prod)`. **Stage 38-UE:** `sms_enabled`, `sms_provider (mts_exolve|smsc|stream_telecom)`, `sms_api_key`, `sms_api_secret`, `sms_sender_name`, `sms_api_url`.
 - `joint_purchases` — Заявки на совместные закупки
 - `contacts` — Заявки с формы «Контакты»
 - `newsletter` — Подписчики
@@ -610,6 +610,17 @@ DB поле `boosted_until` (timestamp). Сортировка `?sort=new` уже
 - **Stage 33.x — AI Video-анализ споров** — следующий этап AI-арбитражора. Видео ≤100МБ из `digital_acts` + промежуточная стадия «AI задаёт уточняющие вопросы участникам» (отложено от Stage 33.0).
 
 ### ✅ Закрытые этапы (последние)
+
+- **Stage 38-UE — Universal SMS Adapter** (**✅ 02.05.2026**) — Горячесменный SMS-адаптер с circuit breaker и верификацией телефона.
+  - **DB:** `platform_settings` +6 SMS-полей (`sms_enabled`, `sms_provider`, `sms_api_key`, `sms_api_secret`, `sms_sender_name`, `sms_api_url`). `users` +3 полей (`phone_verified`, `phone_otp`, `phone_otp_expires_at`).
+  - **SMS Library (`lib/sms/`):** `types.ts` (SmsProvider интерфейс), `mts-exolve.ts` (Bearer-токен, REST), `smsc.ts` (логин/пароль, GET), `stream-telecom.ts` (Basic Auth, REST), `factory.ts` (singleton `initSmsProvider`/`hotSwapSmsProvider`/`getSmsProvider`, `PROVIDER_LABELS`, `PROVIDER_FIELDS` для динамического UI).
+  - **Circuit Breaker в `notifications.ts`:** `createNotification()` оборачивает `sendTelegramToUser` в `Promise.race([..., timeout 60s])` — при timeout или ошибке → SMS-fallback на верифицированный телефон пользователя (fire-and-forget).
+  - **API `/sms` (auth required):** `POST /send-phone-otp` (OTP 6 цифр, TTL 5 мин, maskedPhone в ответе), `POST /verify-phone-otp` (ставит `phone_verified=true`, очищает OTP), `POST /send-financial-otp` (требует `phone_verified`, операция в тексте SMS), `POST /verify-financial-otp` (однократное использование), `GET /status` (hasPhone, phoneVerified, smsEnabled, hasOtp, otpExpiresAt).
+  - **API `/admin/sms` (superadmin):** `GET /status` (smsEnabled, provider, hasApiKey, providerReady), `POST /test-send` (phone → тестовое SMS, аудит-лог).
+  - **Hot-swap без перезапуска:** `PUT /admin/settings` с любым из SMS-полей → после сохранения в DB → `hotSwapSmsProvider(key, cfg)` мгновенно применяет новый провайдер.
+  - **UI AdminPage — таб «Интеграции»:** toggle smsEnabled, selector провайдера (3 кнопки), динамические поля из `PROVIDER_FIELDS` (eye-toggle для секретов), кнопка «Сохранить и применить», секция тестовой отправки с маскированием телефона.
+  - **UI Dashboard:** блок «Верификация телефона (SMS)» — виден только когда `smsEnabled=true`; показывает статус верификации (зелёный бейдж / форма OTP / кнопка отправки). Код вводится в большое mono-поле.
+  - **Инициализация при старте:** `index.ts` после Telegram init → читает `ensurePlatformSettings()` → если `smsEnabled && smsApiKey` → `initSmsProvider(providerKey, cfg)`.
 
 - **Stage 38 — Telegram Bot & Notification Engine** (**✅ 02.05.2026, tested 37/37**) — Полноценный Telegram-бот (`@Helper251223_bot`) на Telegraf 4.x.
   - **DB:** `users.telegram_chat_id / telegram_otp / telegram_otp_expires_at / telegram_notifications jsonb`; `platform_settings.telegram_bot_token / telegram_env (dev|prod)`.
