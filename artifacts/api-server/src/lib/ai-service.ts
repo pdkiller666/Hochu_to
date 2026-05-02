@@ -443,10 +443,10 @@ export async function generateListingDescription(
 // ИЗОЛИРОВАНО от текстовых функций. НЕ использует GEMINI_MODEL, generateGemini,
 // bulletsGemini. Отдельная константа, отдельный таймаут, отдельный промпт.
 //
-// ⚠️  Используем "gemini-flash-latest" — единственный рабочий алиас на v1beta.
-//     "gemini-1.5-flash" мёртв (Stage 30G journal). НЕ менять.
+// Модель берётся из env GEMINI_VISION_MODEL; дефолт — "gemini-1.5-flash".
+// Алиас "*-latest" также поддерживается через переменную окружения.
 
-const GEMINI_VISION_MODEL = "gemini-flash-latest";
+const GEMINI_VISION_MODEL = process.env.GEMINI_VISION_MODEL || "gemini-1.5-flash";
 const GEMINI_VISION_TIMEOUT_MS = 15_000;
 
 const VISION_ARBITRATION_PROMPT =
@@ -510,8 +510,8 @@ export async function arbitrateWithGeminiVision(claimId: number): Promise<AiVerd
     const checkIn = acts.find((a) => a.type === "check_in");
     const checkOut = acts.find((a) => a.type === "check_out") ?? acts.find((a) => a.type === "pool_handover");
 
-    if (!checkIn && !checkOut) {
-      return { faultEstimatePercent: 0, confidence: "low", verdictDraft: "", evidenceCitations: [], error: "Нет фото Цифровых Актов для анализа" };
+    if (!checkIn || !checkOut) {
+      return { faultEstimatePercent: 0, confidence: "low", verdictDraft: "", evidenceCitations: [], error: "Недостаточно фото для анализа" };
     }
 
     const photoUrls: string[] = [
@@ -573,6 +573,12 @@ export async function arbitrateWithGeminiVision(claimId: number): Promise<AiVerd
       const data: any = await res.json();
       raw = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
       if (!raw.trim()) throw new Error("Gemini Vision: пустой ответ");
+    } catch (fetchErr: any) {
+      clearTimeout(timer);
+      if (fetchErr?.name === "AbortError" || ctrl.signal.aborted) {
+        return { faultEstimatePercent: 0, confidence: "low", verdictDraft: "", evidenceCitations: [], error: "AI service timeout" };
+      }
+      throw fetchErr;
     } finally {
       clearTimeout(timer);
     }
