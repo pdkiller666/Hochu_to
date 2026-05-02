@@ -15,7 +15,7 @@ import bcrypt from "bcryptjs";
 import { getPlatformSettings, updatePlatformSettings } from "../lib/platform-settings.js";
 import { seedTestListings } from "../lib/seed-test-listings.js";
 import { calculateAndUpdateTrustScore } from "../lib/trust-score.js";
-import { getBotStatus, hotSwapToken, broadcastToAll } from "../lib/telegram.js";
+import { getBotStatus, hotSwapToken, broadcastToAll, isValidBroadcastRole } from "../lib/telegram.js";
 
 /**
  * Кириллично-безопасный поиск: PostgreSQL с locale=C игнорирует регистр кириллицы в ILIKE.
@@ -1441,13 +1441,24 @@ router.put("/settings", requireAuth, requireRole("superadmin"), async (req: Auth
   }
 
   // Stage 38: горячая смена токена бота при изменении telegramBotToken
+  let telegramSwap: { ok: boolean; username?: string; error?: string } | undefined;
   if ("telegramBotToken" in patch && patch.telegramBotToken !== prevToken) {
     if (patch.telegramBotToken) {
-      hotSwapToken(patch.telegramBotToken as string, req.userId).catch(() => {});
+      const swapResult = await hotSwapToken(patch.telegramBotToken as string, req.userId);
+      telegramSwap = swapResult;
+      if (!swapResult.ok) {
+        // Откат: восстанавливаем предыдущий токен в БД
+        await updatePlatformSettings({ telegramBotToken: prevToken } as any, req.userId);
+        // Перезапускаем бота с предыдущим токеном (или env-fallback)
+        const fallback = prevToken ?? process.env["TELEGRAM_BOT_TOKEN"] ?? null;
+        if (fallback) {
+          hotSwapToken(fallback, req.userId).catch(() => {});
+        }
+      }
     }
   }
 
-  res.json(updated);
+  res.json({ ...updated, ...(telegramSwap !== undefined ? { telegramSwap } : {}) });
 });
 
 // ─── Stage 30A: AI Gateway — выделенный endpoint для смены провайдера ──────
@@ -1494,17 +1505,20 @@ router.get("/telegram/status", requireAuth, requireRole("superadmin"), async (_r
 });
 
 router.post("/telegram/broadcast", requireAuth, requireRole("superadmin"), async (req: AuthRequest, res) => {
-  const { text, link } = req.body ?? {};
+  const { text, link, role } = req.body ?? {};
   if (!text || typeof text !== "string" || !text.trim()) {
     return res.status(400).json({ error: "bad_request", message: "Поле text обязательно" });
   }
   if (link !== undefined && link !== null && typeof link !== "string") {
     return res.status(400).json({ error: "bad_request", field: "link" });
   }
-  const result = await broadcastToAll(text.trim(), link ?? undefined, req.userId);
+  if (role !== undefined && role !== null && (typeof role !== "string" || !isValidBroadcastRole(role))) {
+    return res.status(400).json({ error: "bad_request", field: "role", message: "Неверная роль" });
+  }
+  const result = await broadcastToAll(text.trim(), link ?? undefined, req.userId, role ?? undefined);
   if (req.userId) {
     await audit(req.userId, "platform_settings", 0, "notification_broadcast_sent",
-      JSON.stringify({ sent: result.sent, failed: result.failed, preview: text.slice(0, 100) }));
+      JSON.stringify({ sent: result.sent, failed: result.failed, preview: text.slice(0, 100), role }));
   }
   res.json({ ok: true, ...result });
 });

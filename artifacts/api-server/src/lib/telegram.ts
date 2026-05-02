@@ -251,14 +251,22 @@ export async function notifyStaffByRole(
   }
 }
 
+const VALID_ROLES = ["user", "owner", "moderator", "admin", "superadmin", "support", "arbiter", "staff"] as const;
+export type TgBroadcastRole = typeof VALID_ROLES[number];
+export function isValidBroadcastRole(r: string): r is TgBroadcastRole {
+  return (VALID_ROLES as readonly string[]).includes(r);
+}
+
 /**
  * Массовая рассылка всем пользователям с привязанным Telegram.
+ * Если role указана — только пользователи с этой ролью.
  * Логирует событие в audit_events (тип: notification_broadcast_sent).
  */
 export async function broadcastToAll(
   text: string,
   link?: string,
   adminId?: number,
+  role?: TgBroadcastRole,
 ): Promise<{ sent: number; failed: number }> {
   if (!bot) return { sent: 0, failed: 0 };
   try {
@@ -271,6 +279,7 @@ export async function broadcastToAll(
     for (const u of users) {
       if (!u.telegramChatId) continue;
       if (s.telegramEnv === "dev" && u.role !== "superadmin") continue;
+      if (role && u.role !== role) continue;
       const ok = await sendMsg(u.telegramChatId, text, link);
       ok ? sent++ : failed++;
       await sleep(50); // ~20 msg/sec — safe Telegram rate
