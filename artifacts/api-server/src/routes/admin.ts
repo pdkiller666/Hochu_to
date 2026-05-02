@@ -488,6 +488,12 @@ router.patch("/users/:id", requireAuth, requireAdmin, async (req: AuthRequest, r
     return;
   }
 
+  // Guard: only superadmin can assign 'superadmin' role, even via the general edit form.
+  if (role !== undefined && role === "superadmin" && req.userRole !== "superadmin") {
+    res.status(403).json({ error: "forbidden", message: "Только суперадмин может назначить роль суперадмина" });
+    return;
+  }
+
   const updates: Record<string, any> = {};
   if (role !== undefined) updates.role = role;
   if (isBanned !== undefined) updates.isBanned = isBanned;

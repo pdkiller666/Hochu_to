@@ -248,8 +248,8 @@ function BroadcastModal({ open, onClose }: { open: boolean; onClose: () => void 
 }
 
 // ─── UserDetailPanel ──────────────────────────────────────────────────────────
-function UserDetailPanel({ userId, onClose, onChanged }: {
-  userId: number | null; onClose: () => void; onChanged: () => void;
+function UserDetailPanel({ userId, onClose, onChanged, viewerRole = "" }: {
+  userId: number | null; onClose: () => void; onChanged: () => void; viewerRole?: string;
 }) {
   const { toast } = useToast();
   const { data, loading, refresh } = useFetch<any>(userId ? `${API}/api/admin/users/${userId}` : null, [userId]);
@@ -467,7 +467,9 @@ function UserDetailPanel({ userId, onClose, onChanged }: {
                 <label className="text-xs text-stone-600 font-medium block mb-1">Роль</label>
                 <select value={form.role} onChange={e => setForm(p => ({ ...p, role: e.target.value }))}
                   className="w-full border border-stone-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none">
-                  {ALL_ROLES.map(r => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
+                  {ALL_ROLES.filter(r => r !== "superadmin" || viewerRole === "superadmin").map(r => (
+                    <option key={r} value={r}>{ROLE_LABELS[r]}</option>
+                  ))}
                 </select>
               </div>
               <div className="flex gap-2">
@@ -1177,7 +1179,7 @@ function UsersTab() {
         </div>
       )}
       <Pagination page={page} pages={data?.pagination.pages ?? 1} onChange={setPage} />
-      <UserDetailPanel userId={selectedId} onClose={() => setSelectedId(null)} onChanged={() => setRev(v => v + 1)} />
+      <UserDetailPanel userId={selectedId} onClose={() => setSelectedId(null)} onChanged={() => setRev(v => v + 1)} viewerRole={viewerRole} />
     </div>
   );
 }
