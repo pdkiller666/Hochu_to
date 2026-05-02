@@ -3141,3 +3141,35 @@ feat(users): Stage 35b - implement account soft delete with data anonymization a
 ```bash
 feat(rbac): implement role-based access control, secure finance routes, and hide unauthorized admin UI tabs
 ```
+
+## Журнал — Stage 37 (Staff Profiles & UI Polish, 02.05.2026)
+
+### Что реализовано
+
+**Action 1 — Staff Badge на публичных страницах**
+
+- `artifacts/api-server/src/routes/listings.ts`: добавлено поле `ownerRole: usersTable.role` во все три SELECT-блока (одиночный листинг, catalog-query, fallback-query).
+- `artifacts/hochu-to/src/pages/OwnerProfile.tsx`: константы `STAFF_ROLES` + `isStaff`; бейдж `<span className="... bg-[#0ea5e9] text-white">` с `<Shield w-3>` + «Команда Хочу_То» добавлен рядом с именем — отображается для `superadmin | admin | moderator | support | arbiter`.
+- `artifacts/hochu-to/src/pages/ListingDetail.tsx`: тот же бейдж добавлен в owner card (секция «Владелец» в правой колонке), проверяет `(listing as any).ownerRole`.
+
+**Action 2 — Служебный статус в личном кабинете**
+
+- `artifacts/hochu-to/src/pages/Dashboard.tsx`: в блоке `activeTab === "profile" && user.role !== "admin"` добавлен IIFE-блок Stage 37 (перед Trust Score).
+- Виджет видим только для ролей `superadmin | admin | moderator | support | arbiter`.
+- Объект `STAFF_META` хранит `{ label, border, icon }` по каждой роли.
+- Русские названия ролей: `superadmin → Владелец платформы`, `admin → Администратор`, `moderator → Модератор`, `support → Поддержка`, `arbiter → Арбитр`.
+- Бейдж «Команда Хочу_То» дублируется в заголовке виджета.
+
+**Action 3 — Back-button Polish**
+
+- `OwnerProfile.tsx` line 107: `className="flex ..."` → `"inline-flex ..."` — кнопка «Назад» больше не растягивается на всю ширину контейнера.
+- `ListingDetail.tsx`: «Вернуться в каталог» уже использует `inline-flex` — изменений не потребовалось.
+
+### Ключевые заметки
+- Tailwind-классы в `STAFF_META` — литеральные строки (не собирать через `.split()`), purge-safe.
+- `ownerRole` не был в ответе API до Stage 37; теперь присутствует во всех трёх query-блоках listings.ts.
+- Блок «Служебный статус» отображается внутри `user.role !== "admin"` ветки; `admin`-роль по-прежнему видит `AdminAccountPanel` с отдельным баннером «Администратор платформы».
+
+```bash
+feat(users): implement staff badges for public profiles and refine navigation buttons UI
+```

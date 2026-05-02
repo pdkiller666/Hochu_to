@@ -535,6 +535,12 @@ export default function ListingDetail() {
                   <p className="text-xs text-muted-foreground mb-0.5">Владелец</p>
                   <div className="flex items-center gap-2 flex-wrap">
                     <h4 className="font-bold text-lg leading-tight group-hover:text-primary transition-colors">{listing.ownerName || "Владелец"}</h4>
+                    {/* Stage 37 — Staff Badge */}
+                    {["superadmin","admin","moderator","support","arbiter"].includes((listing as any).ownerRole) && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-[#0ea5e9] text-white">
+                        <Shield className="w-3 h-3" /> Команда Хочу_То
+                      </span>
+                    )}
                     {/* Stage 29 — Trust Score владельца */}
                     <TrustBadge score={(listing as any).ownerTrustScore} size="sm" />
                   </div>

@@ -92,6 +92,8 @@ export default function OwnerProfile() {
     }
   })();
 
+  const STAFF_ROLES = ["superadmin", "admin", "moderator", "support", "arbiter"];
+  const isStaff = STAFF_ROLES.includes(user.role as string);
   const roleLabel = user.role === "owner" ? "Владелец" : "Арендатор";
   const roleColor = user.role === "owner" ? "bg-amber-100 text-amber-700" : "bg-blue-100 text-blue-700";
 
@@ -99,7 +101,7 @@ export default function OwnerProfile() {
     <Layout>
       {/* Back */}
       <div className="container max-w-5xl mx-auto px-4 pt-6">
-        <button onClick={() => history.back()} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors mb-6">
+        <button onClick={() => history.back()} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors mb-6">
           <ChevronLeft className="w-4 h-4" />
           Назад
         </button>
@@ -127,6 +129,12 @@ export default function OwnerProfile() {
               <div className="flex-1 min-w-0 pb-1">
                 <div className="flex flex-wrap items-center gap-2 mb-1">
                   <h1 className="text-2xl font-bold truncate">{user.name}</h1>
+                  {/* Stage 37 — Staff Badge */}
+                  {isStaff && (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#0ea5e9] text-white">
+                      <Shield className="w-3 h-3" /> Команда Хочу_То
+                    </span>
+                  )}
                   {/* Stage 19g — бейдж «Проверенный владелец» (Уровень 1). Показываем только если админ верифицировал. */}
                   {(user as any).isVerified && (
                     <span

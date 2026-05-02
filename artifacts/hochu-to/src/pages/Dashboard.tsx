@@ -2528,6 +2528,41 @@ export default function Dashboard() {
                   </div>
                 )}
 
+                {/* ── Stage 37: Служебный статус — для staff-ролей ── */}
+                {(["superadmin","admin","moderator","support","arbiter"] as string[]).includes(user.role) && (() => {
+                  const STAFF_META: Record<string, { label: string; border: string; icon: string }> = {
+                    superadmin: { label: "Владелец платформы", border: "border-purple-200", icon: "text-purple-600" },
+                    admin:      { label: "Администратор",       border: "border-[#C65D3B]/30", icon: "text-[#C65D3B]" },
+                    moderator:  { label: "Модератор",           border: "border-sky-200",    icon: "text-sky-600" },
+                    support:    { label: "Поддержка",           border: "border-teal-200",   icon: "text-teal-600" },
+                    arbiter:    { label: "Арбитр",              border: "border-amber-200",  icon: "text-amber-600" },
+                  };
+                  const meta = STAFF_META[user.role] ?? { label: user.role, border: "border-border", icon: "text-muted-foreground" };
+                  return (
+                    <div className={`bg-white border ${meta.border} rounded-2xl p-5 mb-4 shadow-sm`}>
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-muted/50 flex items-center justify-center flex-shrink-0">
+                          <Shield className={`w-5 h-5 ${meta.icon}`} />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex flex-wrap items-center gap-2 mb-0.5">
+                            <h3 className="font-bold text-base">Служебный статус</h3>
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#0ea5e9] text-white">
+                              <Shield className="w-3 h-3" /> Команда Хочу_То
+                            </span>
+                          </div>
+                          <p className="text-sm text-muted-foreground">
+                            Ваша роль: <span className="font-semibold text-foreground">{meta.label}</span>
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            Служебный аккаунт. Публичный профиль помечен бейджем «Команда Хочу_То».
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 {/* ── Stage 29: Trust Score — общий «индекс доверия» (0..100) ── */}
                 {(() => {
                   const ts = (user as any).trustScore as number | null | undefined;
