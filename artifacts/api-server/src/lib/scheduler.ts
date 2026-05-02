@@ -26,12 +26,11 @@ import {
   usersTable,
 } from "@workspace/db";
 import { recordAuditEvent } from "./audit-events.js";
-import { inArray, and, eq, lt, isNotNull } from "drizzle-orm";
+import { inArray, and, eq, lt, isNotNull, sql } from "drizzle-orm";
 import type { NotifType } from "./notifications";
 import { createNotification } from "./notifications.js";
 import { logger } from "./logger";
 import { recalcTrustScoreForUsers, calculateAndUpdateTrustScore } from "./trust-score.js";
-import { recordAuditEvent } from "./audit-events.js";
 
 const REMINDER_TYPES: NotifType[] = [
   "reminder_confirm_pending",
