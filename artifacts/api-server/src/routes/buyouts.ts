@@ -13,7 +13,7 @@ import { requireAuth, type AuthRequest } from "../middleware/auth.js";
 import { getPlatformSettings } from "../lib/platform-settings.js";
 import { logger } from "../lib/logger.js";
 import { recordAuditEvent } from "../lib/audit-events.js";
-import { createNotification } from "../lib/notifications.js";
+import { createNotification, genderedWord } from "../lib/notifications.js";
 
 const router = Router();
 
@@ -367,11 +367,13 @@ router.post(
           .from(usersTable)
           .where(eq(usersTable.id, req.userId!))
           .limit(1);
-        const who = (initiator?.name ?? "").trim() || `Пользователь #${req.userId}`;
+        const initiatorName = (initiator?.name ?? "").trim();
+        const who = initiatorName || `Пользователь #${req.userId}`;
+        const transferVerb = genderedWord(initiatorName, "перевёл", "перевела");
         await createNotification({
           userId: updated.userId,
           type: "pool_buyout_transferred",
-          title: `${who} перевёл вам ${updated.priceRub} ₽`,
+          title: `${who} ${transferVerb} вам ${updated.priceRub} ₽`,
           message: `Проверьте поступление по СБП и подтвердите получение в карточке пула${poolRow ? ` «${poolRow.title}»` : ""}.`,
           listingTitle: poolRow?.title ?? null,
         });
@@ -605,13 +607,15 @@ router.post(
           .from(usersTable)
           .where(eq(usersTable.id, req.userId!))
           .limit(1);
-        const whoConfirmed = (participantUser?.name ?? "").trim() || `Пользователь #${req.userId}`;
+        const participantName = (participantUser?.name ?? "").trim();
+        const whoConfirmed = participantName || `Пользователь #${req.userId}`;
+        const confirmVerb = genderedWord(participantName, "подтвердил", "подтвердила");
 
         // Уведомить инициатора что доля смерджена.
         await createNotification({
           userId: result.initiatorId,
           type: "pool_buyout_confirmed",
-          title: `${whoConfirmed} подтвердил получение`,
+          title: `${whoConfirmed} ${confirmVerb} получение`,
           message: `Доля перешла к вам. Текущая доля: ${result.initiatorShare.sharePercentage}%${
             result.liquidated ? " — пул ликвидирован, вы единственный владелец." : "."
           }`,
@@ -636,14 +640,17 @@ router.post(
             .from(usersTable)
             .where(eq(usersTable.id, result.initiatorId))
             .limit(1);
-          const initiatorName = (initiatorUser?.name ?? "").trim() || `Пользователь #${result.initiatorId}`;
+          const initiatorRawName = (initiatorUser?.name ?? "").trim();
+          const initiatorName = initiatorRawName || `Пользователь #${result.initiatorId}`;
+          const buyoutVerb = genderedWord(initiatorRawName, "выкупил", "выкупила");
+          const buyoutPronoun = genderedWord(initiatorRawName, "его", "её");
           for (const p of allParticipants) {
             if (p.userId === result.initiatorId) continue;
             await createNotification({
               userId: p.userId,
               type: "pool_buyout_completed",
               title: `Пул ликвидирован`,
-              message: `${initiatorName} выкупил все доли — теперь это его личная вещь${poolRow ? ` («${poolRow.title}»)` : ""}.`,
+              message: `${initiatorName} ${buyoutVerb} все доли — теперь это ${buyoutPronoun} личная вещь${poolRow ? ` («${poolRow.title}»)` : ""}.`,
               listingTitle: poolRow?.title ?? null,
             });
           }
@@ -747,7 +754,9 @@ router.post(
           .from(usersTable)
           .where(eq(usersTable.id, req.userId!))
           .limit(1);
-        const initiatorName = (initiatorUser?.name ?? "").trim() || `Пользователь #${req.userId}`;
+        const initiatorRawName = (initiatorUser?.name ?? "").trim();
+        const initiatorName = initiatorRawName || `Пользователь #${req.userId}`;
+        const cancelVerb = genderedWord(initiatorRawName, "отменил", "отменила");
         const participants = await db
           .select({ userId: buyoutParticipantsTable.userId })
           .from(buyoutParticipantsTable)
@@ -756,7 +765,7 @@ router.post(
           await createNotification({
             userId: p.userId,
             type: "pool_buyout_canceled",
-            title: `${initiatorName} отменил выкуп`,
+            title: `${initiatorName} ${cancelVerb} выкуп`,
             message: `Запрос на выкуп пула${poolRow ? ` «${poolRow.title}»` : ""} отменён.`,
             listingTitle: poolRow?.title ?? null,
           });
