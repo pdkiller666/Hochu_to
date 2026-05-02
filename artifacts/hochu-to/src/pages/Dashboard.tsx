@@ -302,7 +302,6 @@ export default function Dashboard() {
   const fetchMessages = useCallback(async (bookingId: number, silent = false) => {
     try {
       const res = await fetch(`${DASHBOARD_API}/api/bookings/${bookingId}/messages`, {
-        credentials: "include",
         headers: { Authorization: `Bearer ${getToken()}` },
       });
       if (res.ok) {
@@ -316,7 +315,6 @@ export default function Dashboard() {
   const fetchUnreadCounts = useCallback(async () => {
     try {
       const res = await fetch(`${DASHBOARD_API}/api/messages/unread-counts`, {
-        credentials: "include",
         headers: { Authorization: `Bearer ${getToken()}` },
       });
       if (res.ok) {
@@ -357,7 +355,6 @@ export default function Dashboard() {
     try {
       const res = await fetch(`${DASHBOARD_API}/api/bookings/${bookingId}/messages`, {
         method: "POST",
-        credentials: "include",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${getToken()}`,
