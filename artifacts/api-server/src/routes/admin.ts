@@ -10,7 +10,7 @@ import {
 } from "@workspace/db";
 import { recordAuditEvent } from "../lib/audit-events.js";
 import { eq, desc, or, sql, and, lt, gte } from "drizzle-orm";
-import { requireAuth, requireAdmin, AuthRequest } from "../middleware/auth.js";
+import { requireAuth, requireAdmin, requireRole, AuthRequest } from "../middleware/auth.js";
 import bcrypt from "bcryptjs";
 import { getPlatformSettings, updatePlatformSettings } from "../lib/platform-settings.js";
 import { seedTestListings } from "../lib/seed-test-listings.js";
@@ -46,7 +46,7 @@ async function audit(adminId: number, entityType: string, entityId: number | nul
 // STATS + ANALYTICS
 // ─────────────────────────────────────────────────────────────────────────────
 
-router.get("/stats", requireAuth, requireAdmin, async (_req, res) => {
+router.get("/stats", requireAuth, requireRole("superadmin", "admin"), async (_req, res) => {
   const [bStats] = await db.select({
     totalBookings: sql<number>`COUNT(*)`,
     pending: sql<number>`COUNT(*) FILTER (WHERE status = 'pending')`,
@@ -97,7 +97,7 @@ router.get("/stats", requireAuth, requireAdmin, async (_req, res) => {
   });
 });
 
-router.get("/analytics", requireAuth, requireAdmin, async (_req, res) => {
+router.get("/analytics", requireAuth, requireRole("superadmin", "admin"), async (_req, res) => {
   // Last 30 days — bookings created per day
   const bookingsByDay = await db.execute(sql`
     SELECT DATE(created_at) AS day, COUNT(*) AS count,
@@ -164,7 +164,7 @@ function parseDateOnly(s: unknown, fallback: string): string {
   return fallback;
 }
 
-router.get("/stats/extended", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+router.get("/stats/extended", requireAuth, requireRole("superadmin"), async (req: AuthRequest, res) => {
   // Период по умолчанию — последние 30 дней
   const today = new Date();
   const defaultTo = today.toISOString().slice(0, 10);
@@ -543,6 +543,39 @@ router.patch("/users/:id", requireAuth, requireAdmin, async (req: AuthRequest, r
   res.json({ id: updated.id, role: updated.role, isBanned: updated.isBanned, isVerified: updated.isVerified, verifiedAt: updated.verifiedAt?.toISOString() ?? null, verificationNote: updated.verificationNote, name: updated.name, email: updated.email });
 });
 
+// ─── Stage 36: RBAC — change role for a user ──────────────────────────────────
+// Only superadmin can assign the 'superadmin' role. Admin can assign any other role.
+router.patch("/users/:id/role", requireAuth, requireRole("superadmin", "admin"), async (req: AuthRequest, res) => {
+  const id = parseInt(req.params.id as string);
+  const { role } = req.body;
+
+  const ALLOWED_ROLES = ["renter", "user", "owner", "moderator", "support", "arbiter", "admin", "superadmin"];
+  if (!role || !ALLOWED_ROLES.includes(role)) {
+    res.status(400).json({ error: "bad_request", message: `Недопустимая роль. Допустимо: ${ALLOWED_ROLES.join(", ")}` });
+    return;
+  }
+
+  if (id === req.userId) {
+    res.status(400).json({ error: "bad_request", message: "Нельзя изменить собственную роль" });
+    return;
+  }
+
+  if (role === "superadmin" && req.userRole !== "superadmin") {
+    res.status(403).json({ error: "forbidden", message: "Только суперадмин может назначить роль суперадмина" });
+    return;
+  }
+
+  const [updated] = await db.update(usersTable)
+    .set({ role: role as any })
+    .where(eq(usersTable.id, id))
+    .returning({ id: usersTable.id, role: usersTable.role, name: usersTable.name });
+
+  if (!updated) { res.status(404).json({ error: "not_found" }); return; }
+
+  await audit(req.userId!, "user", id, "change_role", `role → ${role}`);
+  res.json({ id: updated.id, role: updated.role, name: updated.name });
+});
+
 // Send notification to a user
 router.post("/users/:id/notify", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
   const id = parseInt(req.params.id as string);
@@ -561,7 +594,7 @@ router.post("/users/:id/notify", requireAuth, requireAdmin, async (req: AuthRequ
 });
 
 // Broadcast notification to all users
-router.post("/broadcast", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+router.post("/broadcast", requireAuth, requireRole("superadmin", "admin"), async (req: AuthRequest, res) => {
   const { title, body, link, roles } = req.body;
   if (!title?.trim() || !body?.trim()) {
     res.status(400).json({ error: "bad_request", message: "Тема и текст обязательны" });
@@ -595,7 +628,7 @@ router.post("/broadcast", requireAuth, requireAdmin, async (req: AuthRequest, re
 // LISTINGS
 // ─────────────────────────────────────────────────────────────────────────────
 
-router.get("/listings", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+router.get("/listings", requireAuth, requireRole("superadmin", "admin", "moderator"), async (req: AuthRequest, res) => {
   const q = (req.query.q as string | undefined)?.trim();
   const available = req.query.available as string | undefined;
   const page = Math.max(1, parseInt(req.query.page as string) || 1);
@@ -633,7 +666,7 @@ router.get("/listings", requireAuth, requireAdmin, async (req: AuthRequest, res)
 });
 
 // GET full listing detail
-router.get("/listings/:id", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+router.get("/listings/:id", requireAuth, requireRole("superadmin", "admin", "moderator"), async (req: AuthRequest, res) => {
   const id = parseInt(req.params.id as string);
 
   const listing = await db.execute(sql`
@@ -665,7 +698,7 @@ router.get("/listings/:id", requireAuth, requireAdmin, async (req: AuthRequest, 
 });
 
 // Update listing (title, description, price, deposit, isAvailable, ownerId, etc.)
-router.patch("/listings/:id", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+router.patch("/listings/:id", requireAuth, requireRole("superadmin", "admin", "moderator"), async (req: AuthRequest, res) => {
   const id = parseInt(req.params.id as string);
   const { title, description, pricePerDay, deposit, isActive, categoryId, regionId, city, meetingAddress } = req.body;
 
@@ -694,7 +727,7 @@ router.patch("/listings/:id", requireAuth, requireAdmin, async (req: AuthRequest
 });
 
 // Delete listing (admin only)
-router.delete("/listings/:id", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+router.delete("/listings/:id", requireAuth, requireRole("superadmin", "admin", "moderator"), async (req: AuthRequest, res) => {
   const id = parseInt(req.params.id as string);
 
   const [listing] = await db.select({ title: listingsTable.title }).from(listingsTable)
@@ -710,7 +743,7 @@ router.delete("/listings/:id", requireAuth, requireAdmin, async (req: AuthReques
 // BOOKINGS
 // ─────────────────────────────────────────────────────────────────────────────
 
-router.get("/bookings", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+router.get("/bookings", requireAuth, requireRole("superadmin", "admin", "moderator"), async (req: AuthRequest, res) => {
   const q = (req.query.q as string | undefined)?.trim();
   const status = req.query.status as string | undefined;
   const page = Math.max(1, parseInt(req.query.page as string) || 1);
@@ -752,7 +785,7 @@ router.get("/bookings", requireAuth, requireAdmin, async (req: AuthRequest, res)
   });
 });
 
-router.get("/bookings/:number", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+router.get("/bookings/:number", requireAuth, requireRole("superadmin", "admin", "moderator"), async (req: AuthRequest, res) => {
   const { number } = req.params;
   const [row] = await db.select({
     booking: bookingsTable, listingTitle: listingsTable.title,
@@ -804,7 +837,7 @@ router.get("/bookings/:number", requireAuth, requireAdmin, async (req: AuthReque
 });
 
 // Admin: force-override booking status
-router.post("/bookings/:id/override", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+router.post("/bookings/:id/override", requireAuth, requireRole("superadmin", "admin", "moderator"), async (req: AuthRequest, res) => {
   const id = parseInt(req.params.id as string);
   const { newStatus, comment } = req.body;
 
@@ -847,7 +880,7 @@ router.post("/bookings/:id/override", requireAuth, requireAdmin, async (req: Aut
 });
 
 // Add manager note to booking
-router.post("/bookings/:number/comment", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+router.post("/bookings/:number/comment", requireAuth, requireRole("superadmin", "admin", "moderator"), async (req: AuthRequest, res) => {
   const { number } = req.params;
   const { comment } = req.body;
   if (!comment?.trim()) { res.status(400).json({ error: "bad_request" }); return; }
@@ -874,7 +907,7 @@ router.post("/bookings/:number/comment", requireAuth, requireAdmin, async (req: 
 // SUPPORT TICKETS (admin)
 // ─────────────────────────────────────────────────────────────────────────────
 
-router.get("/tickets", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+router.get("/tickets", requireAuth, requireRole("superadmin", "admin", "support", "moderator"), async (req: AuthRequest, res) => {
   const status = req.query.status as string | undefined;
   const q = (req.query.q as string | undefined)?.trim();
   const priority = req.query.priority as string | undefined;
@@ -912,7 +945,7 @@ router.get("/tickets", requireAuth, requireAdmin, async (req: AuthRequest, res) 
   });
 });
 
-router.get("/tickets/:id", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+router.get("/tickets/:id", requireAuth, requireRole("superadmin", "admin", "support", "moderator"), async (req: AuthRequest, res) => {
   const id = parseInt(req.params.id as string);
   const [ticket] = await db.select({
     ticket: supportTicketsTable, userName: sql<string>`u.name`,
@@ -944,7 +977,7 @@ router.get("/tickets/:id", requireAuth, requireAdmin, async (req: AuthRequest, r
   });
 });
 
-router.patch("/tickets/:id", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+router.patch("/tickets/:id", requireAuth, requireRole("superadmin", "admin", "support", "moderator"), async (req: AuthRequest, res) => {
   const id = parseInt(req.params.id as string);
   const { status, priority, assignedToId } = req.body;
   const updates: Record<string, any> = { updatedAt: new Date() };
@@ -957,7 +990,7 @@ router.patch("/tickets/:id", requireAuth, requireAdmin, async (req: AuthRequest,
   res.json(updated);
 });
 
-router.post("/tickets/:id/reply", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+router.post("/tickets/:id/reply", requireAuth, requireRole("superadmin", "admin", "support", "moderator"), async (req: AuthRequest, res) => {
   const id = parseInt(req.params.id as string);
   const { body, status } = req.body;
   if (!body?.trim()) { res.status(400).json({ error: "bad_request" }); return; }
@@ -988,7 +1021,7 @@ router.post("/tickets/:id/reply", requireAuth, requireAdmin, async (req: AuthReq
 // REPORTS
 // ─────────────────────────────────────────────────────────────────────────────
 
-router.get("/reports", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+router.get("/reports", requireAuth, requireRole("superadmin", "admin", "moderator"), async (req: AuthRequest, res) => {
   const status = (req.query.status as string) || "pending";
   const page = Math.max(1, parseInt(req.query.page as string) || 1);
   const limit = Math.min(100, parseInt(req.query.limit as string) || 20);
@@ -1020,7 +1053,7 @@ router.get("/reports", requireAuth, requireAdmin, async (req: AuthRequest, res) 
   });
 });
 
-router.patch("/reports/:id", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+router.patch("/reports/:id", requireAuth, requireRole("superadmin", "admin", "moderator"), async (req: AuthRequest, res) => {
   const id = parseInt(req.params.id as string);
   const { status, resolvedNote } = req.body;
   if (!["resolved", "dismissed"].includes(status)) {
@@ -1041,7 +1074,7 @@ router.patch("/reports/:id", requireAuth, requireAdmin, async (req: AuthRequest,
 // AUDIT LOG
 // ─────────────────────────────────────────────────────────────────────────────
 
-router.get("/audit-log", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+router.get("/audit-log", requireAuth, requireRole("superadmin"), async (req: AuthRequest, res) => {
   const page = Math.max(1, parseInt(req.query.page as string) || 1);
   const limit = Math.min(100, parseInt(req.query.limit as string) || 30);
   const offset = (page - 1) * limit;
@@ -1114,7 +1147,7 @@ const CATEGORIES_DATA = [
   { name: "Книги и учёба",    slug: "books",        icon: "📚" },
 ];
 
-router.post("/seed", requireAuth, requireAdmin, async (_req, res) => {
+router.post("/seed", requireAuth, requireRole("superadmin"), async (_req, res) => {
   try {
     const log: string[] = [];
 
@@ -1193,7 +1226,7 @@ router.post("/seed", requireAuth, requireAdmin, async (_req, res) => {
 
 // POST /api/admin/seed-test-listings — доливает по N (по умолчанию 15) объявлений в каждую категорию.
 // Идемпотентно: если в категории уже >=N тестовых, ничего не добавляет. Не трогает живые данные.
-router.post("/seed-test-listings", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+router.post("/seed-test-listings", requireAuth, requireRole("superadmin"), async (req: AuthRequest, res) => {
   try {
     const perCategory = Number((req.body as any)?.perCategory) || 15;
     const result = await seedTestListings({ perCategory });
@@ -1208,12 +1241,12 @@ router.post("/seed-test-listings", requireAuth, requireAdmin, async (req: AuthRe
 // PLATFORM SETTINGS — управление экономикой и монетизацией
 // ─────────────────────────────────────────────────────────────────────────────
 
-router.get("/settings", requireAuth, requireAdmin, async (_req, res) => {
+router.get("/settings", requireAuth, requireRole("superadmin"), async (_req, res) => {
   const s = await getPlatformSettings();
   res.json(s);
 });
 
-router.put("/settings", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+router.put("/settings", requireAuth, requireRole("superadmin"), async (req: AuthRequest, res) => {
   const allowed = [
     "serviceFeePercent", "taxFeePercent", "shieldFeePercent", "shieldFeeMin",
     "riskCoveragePercent", "riskCoverageMin", "depositMultiplier", "depositMin",
@@ -1397,7 +1430,7 @@ router.put("/settings", requireAuth, requireAdmin, async (req: AuthRequest, res)
 router.put(
   "/settings/ai-provider",
   requireAuth,
-  requireAdmin,
+  requireRole("superadmin"),
   async (req: AuthRequest, res) => {
     const { activeAiProvider } = req.body ?? {};
     if (!["mock", "openai", "amvera"].includes(activeAiProvider)) {

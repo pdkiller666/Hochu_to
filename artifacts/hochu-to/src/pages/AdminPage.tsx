@@ -467,9 +467,7 @@ function UserDetailPanel({ userId, onClose, onChanged }: {
                 <label className="text-xs text-stone-600 font-medium block mb-1">Роль</label>
                 <select value={form.role} onChange={e => setForm(p => ({ ...p, role: e.target.value }))}
                   className="w-full border border-stone-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none">
-                  <option value="renter">Арендатор</option>
-                  <option value="owner">Владелец</option>
-                  <option value="admin">Администратор</option>
+                  {ALL_ROLES.map(r => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
                 </select>
               </div>
               <div className="flex gap-2">
@@ -483,7 +481,7 @@ function UserDetailPanel({ userId, onClose, onChanged }: {
           ) : (
             <div className="grid grid-cols-2 gap-3 text-sm">
               {[
-                { l: "Email", v: u.email }, { l: "Роль", v: u.role },
+                { l: "Email", v: u.email }, { l: "Роль", v: ROLE_LABELS[u.role] ?? u.role },
                 { l: "Телефон", v: u.phone || "—" }, { l: "Telegram", v: u.telegram || "—" },
                 { l: "Регистрация", v: format(new Date(u.createdAt), "dd.MM.yyyy") },
               ].map(i => (
@@ -1027,12 +1025,54 @@ function OverviewTab({ onBroadcast }: { onBroadcast: () => void }) {
   );
 }
 
+const ROLE_LABELS: Record<string, string> = {
+  renter: "Арендатор", user: "Пользователь", owner: "Владелец",
+  moderator: "Модератор", support: "Поддержка", arbiter: "Арбитр",
+  admin: "Администратор", superadmin: "Суперадмин",
+};
+const ROLE_COLORS: Record<string, string> = {
+  renter: "bg-stone-100 text-stone-600",
+  user: "bg-stone-100 text-stone-600",
+  owner: "bg-blue-100 text-blue-700",
+  moderator: "bg-purple-100 text-purple-700",
+  support: "bg-teal-100 text-teal-700",
+  arbiter: "bg-yellow-100 text-yellow-700",
+  admin: "bg-[#C65D3B]/10 text-[#C65D3B]",
+  superadmin: "bg-red-100 text-red-700",
+};
+const ALL_ROLES = ["renter", "user", "owner", "moderator", "support", "arbiter", "admin", "superadmin"];
+
 // ─── Users Tab ────────────────────────────────────────────────────────────────
 function UsersTab() {
+  const { data: currentUser } = useGetCurrentUser();
+  const viewerRole = (currentUser as any)?.role ?? "";
+  const canChangeRole = viewerRole === "superadmin" || viewerRole === "admin";
+  const { toast } = useToast();
   const [q, setQ] = useState(""); const [dq, setDq] = useState("");
   const [roleFilter, setRoleFilter] = useState(""); const [bannedFilter, setBannedFilter] = useState("");
   const [page, setPage] = useState(1); const [rev, setRev] = useState(0);
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [changingRoleId, setChangingRoleId] = useState<number | null>(null);
+
+  async function handleRoleChange(userId: number, newRole: string) {
+    setChangingRoleId(userId);
+    try {
+      const r = await fetch(`${API}/api/admin/users/${userId}/role`, {
+        method: "PATCH",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ role: newRole }),
+      });
+      if (r.ok) {
+        toast({ title: "Роль изменена", description: `→ ${ROLE_LABELS[newRole] ?? newRole}` });
+        setRev(v => v + 1);
+      } else {
+        const err = await r.json().catch(() => ({}));
+        toast({ title: "Ошибка", description: err.message ?? "Не удалось изменить роль", variant: "destructive" });
+      }
+    } finally {
+      setChangingRoleId(null);
+    }
+  }
 
   useEffect(() => { const t = setTimeout(() => { setDq(q); setPage(1); }, 400); return () => clearTimeout(t); }, [q]);
 
@@ -1051,8 +1091,13 @@ function UsersTab() {
           className="border border-stone-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none">
           <option value="">Все роли</option>
           <option value="renter">Арендаторы</option>
+          <option value="user">Пользователи</option>
           <option value="owner">Владельцы</option>
+          <option value="moderator">Модераторы</option>
+          <option value="support">Поддержка</option>
+          <option value="arbiter">Арбитры</option>
           <option value="admin">Администраторы</option>
+          <option value="superadmin">Суперадмины</option>
         </select>
         <select value={bannedFilter} onChange={e => { setBannedFilter(e.target.value); setPage(1); }}
           className="border border-stone-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none">
@@ -1090,9 +1135,23 @@ function UsersTab() {
                       </div>
                     </div>
                   </td>
-                  <td className="px-4 py-3">
-                    <Badge cls={u.role === "admin" ? "bg-[#C65D3B]/10 text-[#C65D3B]" : u.role === "owner" ? "bg-blue-100 text-blue-700" : "bg-stone-100 text-stone-600"}
-                      label={u.role === "admin" ? "Админ" : u.role === "owner" ? "Владелец" : "Арендатор"} />
+                  <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                    {canChangeRole ? (
+                      <select
+                        value={u.role}
+                        disabled={changingRoleId === u.id || (u.role === "superadmin" && viewerRole !== "superadmin")}
+                        onChange={e => handleRoleChange(u.id, e.target.value)}
+                        className={`text-xs font-medium px-2 py-1 rounded-lg border-0 cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#C65D3B]/30 ${ROLE_COLORS[u.role] ?? "bg-stone-100 text-stone-600"} ${changingRoleId === u.id ? "opacity-50" : ""}`}
+                      >
+                        {ALL_ROLES.filter(r => r !== "superadmin" || viewerRole === "superadmin").map(r => (
+                          <option key={r} value={r}>{ROLE_LABELS[r]}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className={`text-xs font-medium px-2 py-1 rounded-lg ${ROLE_COLORS[u.role] ?? "bg-stone-100 text-stone-600"}`}>
+                        {ROLE_LABELS[u.role] ?? u.role}
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-center text-stone-600">{u.listingCount}</td>
                   <td className="px-4 py-3 text-center text-stone-600">{u.bookingCount}</td>
@@ -3954,21 +4013,21 @@ function AiSettingsTab() {
 // ─── Main AdminPage ────────────────────────────────────────────────────────────
 type Tab = "overview" | "analytics" | "users" | "listings" | "bookings" | "support" | "reports" | "claims" | "audit" | "economy" | "payments" | "finance" | "payouts" | "ai";
 
-const TABS: { id: Tab; label: string; icon: any }[] = [
-  { id: "overview", label: "Обзор", icon: LayoutDashboard },
-  { id: "analytics", label: "Аналитика", icon: BarChart2 },
-  { id: "finance", label: "Денежные потоки", icon: Banknote },
-  { id: "payouts", label: "Выплаты", icon: Wallet },
-  { id: "users", label: "Пользователи", icon: Users },
-  { id: "listings", label: "Объявления", icon: Package },
-  { id: "bookings", label: "Бронирования", icon: CalendarDays },
-  { id: "economy", label: "Экономика", icon: Coins },
-  { id: "payments", label: "Платежи", icon: CreditCard },
-  { id: "support", label: "Поддержка", icon: LifeBuoy },
-  { id: "reports", label: "Жалобы", icon: Flag },
-  { id: "claims", label: "Заявки фонда", icon: Shield },
-  { id: "audit", label: "Аудит", icon: ScrollText },
-  { id: "ai", label: "Настройки ИИ", icon: Sparkles },
+const TABS: { id: Tab; label: string; icon: any; roles?: string[] }[] = [
+  { id: "overview",  label: "Обзор",            icon: LayoutDashboard },
+  { id: "analytics", label: "Аналитика",         icon: BarChart2,   roles: ["superadmin", "admin"] },
+  { id: "finance",   label: "Денежные потоки",   icon: Banknote,    roles: ["superadmin"] },
+  { id: "payouts",   label: "Выплаты",           icon: Wallet,      roles: ["superadmin"] },
+  { id: "users",     label: "Пользователи",      icon: Users,       roles: ["superadmin", "admin"] },
+  { id: "listings",  label: "Объявления",        icon: Package,     roles: ["superadmin", "admin", "moderator"] },
+  { id: "bookings",  label: "Бронирования",      icon: CalendarDays,roles: ["superadmin", "admin", "moderator"] },
+  { id: "economy",   label: "Экономика",         icon: Coins,       roles: ["superadmin"] },
+  { id: "payments",  label: "Платежи",           icon: CreditCard,  roles: ["superadmin"] },
+  { id: "support",   label: "Поддержка",         icon: LifeBuoy,    roles: ["superadmin", "admin", "support", "moderator"] },
+  { id: "reports",   label: "Жалобы",            icon: Flag,        roles: ["superadmin", "admin", "moderator"] },
+  { id: "claims",    label: "Заявки фонда",      icon: Shield,      roles: ["superadmin", "admin", "arbiter"] },
+  { id: "audit",     label: "Аудит",             icon: ScrollText,  roles: ["superadmin"] },
+  { id: "ai",        label: "Настройки ИИ",      icon: Sparkles,    roles: ["superadmin"] },
 ];
 
 export default function AdminPage() {
@@ -3977,8 +4036,13 @@ export default function AdminPage() {
   const [tab, setTab] = useState<Tab>("overview");
   const [broadcastOpen, setBroadcastOpen] = useState(false);
 
+  const ADMIN_ROLES = ["admin", "superadmin", "moderator", "support", "arbiter"];
+  const currentRole = (currentUser as any)?.role ?? "";
+  const isSuperadmin = currentRole === "superadmin";
+  const isAdmin = currentRole === "admin" || isSuperadmin;
+
   useEffect(() => {
-    if (!isLoading && (!currentUser || (currentUser as any).role !== "admin")) navigate("/");
+    if (!isLoading && (!currentUser || !ADMIN_ROLES.includes((currentUser as any).role))) navigate("/");
   }, [currentUser, isLoading]);
 
   if (isLoading) {
@@ -3991,7 +4055,7 @@ export default function AdminPage() {
     );
   }
 
-  if (!currentUser || (currentUser as any).role !== "admin") return null;
+  if (!currentUser || !ADMIN_ROLES.includes((currentUser as any).role)) return null;
 
   return (
     <Layout>
@@ -4002,13 +4066,13 @@ export default function AdminPage() {
           </div>
           <div>
             <h1 className="text-2xl font-bold text-stone-800">Панель управления</h1>
-            <p className="text-stone-500 text-sm">Администратор: {(currentUser as any).name}</p>
+            <p className="text-stone-500 text-sm">{(currentUser as any).name} · <span className="uppercase tracking-wide text-xs">{currentRole}</span></p>
           </div>
         </div>
 
-        {/* Tab bar */}
+        {/* Tab bar — filtered by current user's role */}
         <div className="flex gap-1 bg-stone-100 p-1 rounded-xl mb-6 overflow-x-auto">
-          {TABS.map(t => (
+          {TABS.filter(t => !t.roles || t.roles.includes(currentRole)).map(t => (
             <button key={t.id} onClick={() => setTab(t.id)}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition whitespace-nowrap ${
                 tab === t.id ? "bg-white text-stone-800 shadow-sm" : "text-stone-500 hover:text-stone-700"

@@ -3096,3 +3096,48 @@ fix(mobile): Stage 35 – responsive typography, grid cols and padding across Ca
 ```bash
 feat(users): Stage 35b - implement account soft delete with data anonymization and prepare schema for RBAC/KYC
 ```
+
+## Журнал — Stage 36 (RBAC — Role-Based Access Control, 02.05.2026)
+
+### Что реализовано
+
+**Action 1 — Backend Middleware (`auth.ts`)**
+- Добавлена `requireRole(...allowedRoles: string[])` — гибкий RBAC middleware, ставится ПОСЛЕ `requireAuth`.
+- `requireAdmin` обновлён: теперь пускает `admin` **и** `superadmin` (backward-compat для незатронутых маршрутов).
+
+**Action 2 — Защита API-эндпоинтов**
+
+| Группа | Роли | Маршруты |
+|--------|------|----------|
+| Finance/Stats | `superadmin` | GET /stats/extended, /settings, PUT /settings, /settings/ai-provider, /audit-log, /seed, /seed-test-listings |
+| Stats/Analytics | `superadmin`, `admin` | GET /stats, /analytics |
+| User Management | `superadmin`, `admin` | GET/PATCH /users/:id, GET /users, POST /broadcast |
+| Moderation | `superadmin`, `admin`, `moderator` | GET/PATCH/DELETE /listings, GET /bookings, POST /bookings/override |
+| Поддержка | `superadmin`, `admin`, `support`, `moderator` | GET/PATCH /tickets, POST /tickets/reply |
+| Жалобы | `superadmin`, `admin`, `moderator` | GET/PATCH /reports |
+| Claims — просмотр/вердикт | `superadmin`, `admin`, `arbiter` | GET /claims, POST /claims/:id/approve/reject/ai-verdict |
+| Claims — выплата | `superadmin`, `admin` | POST /claims/:id/mark-paid |
+| Claims analytics | `superadmin` | GET /claims/analytics |
+
+**Action 3 — Frontend Tab Hiding (`AdminPage.tsx`)**
+- Стража входа в `/admin` расширена: принимает все 5 admin-ролей (`admin`, `superadmin`, `moderator`, `support`, `arbiter`).
+- `TABS` массив получил поле `roles?: string[]` — если не задано, таб виден всем.
+- Tab bar рендерит только `TABS.filter(t => !t.roles || t.roles.includes(currentRole))`.
+- Заголовок панели: `Имя · ROLE` вместо «Администратор: Имя».
+
+**Action 4 — Role Assignment UI + Endpoint**
+- `PATCH /admin/users/:id/role` — принимает `{ role }`, пишет audit `change_role`, guard: только суперадмин может назначить `superadmin`, нельзя изменить собственную роль.
+- В таблице Users: для admin/superadmin — цветной `<select>` с мгновенным сохранением; для остальных — read-only span.
+- Константы `ROLE_LABELS`, `ROLE_COLORS`, `ALL_ROLES` — общие для таблицы, edit-формы UserDetailPanel и filter dropdown.
+- Фильтр ролей расширен (все 8 ролей включая `user`, `moderator`, `support`, `arbiter`, `superadmin`).
+
+### Ключевые заметки
+- Порядок middleware: `requireAuth` → `requireRole(...)` — requireRole читает `req.userRole` из requireAuth.
+- `requireAdmin` = backward-compat alias для `requireRole('admin', 'superadmin')` — незатронутые маршруты автоматически поддерживают superadmin.
+- Inline `<select>` в строке таблицы: `onClick={e => e.stopPropagation()}` — клик не открывает UserDetailPanel.
+- superadmin-опция скрыта из выпадающего если текущий зритель не superadmin.
+- Все TypeScript-ошибки в tsc-проверке — **pre-existing** (до Stage 36): scheduler.ts, bookings.ts, claims.ts, contacts.ts — esbuild транспилирует без ошибок.
+
+```bash
+feat(rbac): implement role-based access control, secure finance routes, and hide unauthorized admin UI tabs
+```

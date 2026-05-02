@@ -9,7 +9,7 @@ import {
   auditEventsTable,
 } from "@workspace/db";
 import { eq, desc, and, inArray, sql, gte } from "drizzle-orm";
-import { requireAuth, requireAdmin, AuthRequest } from "../middleware/auth.js";
+import { requireAuth, requireAdmin, requireRole, AuthRequest } from "../middleware/auth.js";
 import { createNotification } from "../lib/notifications.js";
 import { getPlatformSettings } from "../lib/platform-settings.js";
 import { arbitrateWithGeminiVision } from "../lib/ai-service.js";
@@ -97,13 +97,13 @@ async function countClaimsThisMonth(userId: number): Promise<number> {
 }
 
 // ─── GET /claims/fund-status — публичный (для админа) баланс фонда ───────────
-router.get("/fund-status", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+router.get("/fund-status", requireAuth, requireRole("superadmin", "admin", "arbiter"), async (req: AuthRequest, res) => {
   res.json(await calcFundBalance());
 });
 
 // ─── GET /claims/analytics — аналитика фонда (admin) ────────────────────────
 //   Возвращает: ежедневный баланс за N дней, топ получателей, флаги подозрительных
-router.get("/analytics", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+router.get("/analytics", requireAuth, requireRole("superadmin"), async (req: AuthRequest, res) => {
   const days = Math.min(365, Math.max(7, parseInt(String(req.query.days ?? "30"), 10) || 30));
   // UTC-начало окна: предсказуемо совпадает с TO_CHAR(...::date) в Postgres (UTC).
   const now = new Date();
@@ -240,7 +240,7 @@ router.get("/analytics", requireAuth, requireAdmin, async (req: AuthRequest, res
 });
 
 // ─── GET /claims/payout-methods/:userId — реквизиты получателя (admin) ───────
-router.get("/payout-methods/:userId", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+router.get("/payout-methods/:userId", requireAuth, requireRole("superadmin", "admin"), async (req: AuthRequest, res) => {
   const userId = parseInt(req.params.userId as string, 10);
   if (!Number.isFinite(userId)) {
     res.status(400).json({ error: "invalid_user_id" });
@@ -260,7 +260,7 @@ router.get("/payout-methods/:userId", requireAuth, requireAdmin, async (req: Aut
 });
 
 // ─── GET /claims — список всех заявок (только admin) ─────────────────────────
-router.get("/", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+router.get("/", requireAuth, requireRole("superadmin", "admin", "arbiter"), async (req: AuthRequest, res) => {
 
   const claims = await db.select().from(claimsTable).orderBy(desc(claimsTable.createdAt));
   if (claims.length === 0) {
@@ -538,7 +538,7 @@ router.patch("/:id", requireAuth, async (req: AuthRequest, res) => {
 });
 
 // ─── POST /claims/:id/approve — admin одобряет с указанием получателя/суммы ──
-router.post("/:id/approve", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+router.post("/:id/approve", requireAuth, requireRole("superadmin", "admin", "arbiter"), async (req: AuthRequest, res) => {
   const claimId = parseInt(req.params.id as string, 10);
   const body = (req.body ?? {}) as Record<string, unknown>;
   const payoutToUserId = Number(body.payoutToUserId);
@@ -687,7 +687,7 @@ router.post("/:id/approve", requireAuth, requireAdmin, async (req: AuthRequest, 
 });
 
 // ─── POST /claims/:id/mark-paid — admin отмечает выплату ─────────────────────
-router.post("/:id/mark-paid", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+router.post("/:id/mark-paid", requireAuth, requireRole("superadmin", "admin"), async (req: AuthRequest, res) => {
   const claimId = parseInt(req.params.id as string, 10);
   const body = (req.body ?? {}) as Record<string, unknown>;
   const paymentRef = typeof body.paymentRef === "string" ? body.paymentRef.trim() : "";
@@ -747,7 +747,7 @@ router.post("/:id/mark-paid", requireAuth, requireAdmin, async (req: AuthRequest
 });
 
 // ─── POST /claims/:id/reject — admin отклоняет ───────────────────────────────
-router.post("/:id/reject", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+router.post("/:id/reject", requireAuth, requireRole("superadmin", "admin", "arbiter"), async (req: AuthRequest, res) => {
   const claimId = parseInt(req.params.id as string, 10);
   const body = (req.body ?? {}) as Record<string, unknown>;
   const rejectionReason = typeof body.rejectionReason === "string" ? body.rejectionReason.trim() : "";
@@ -793,7 +793,7 @@ router.post("/:id/reject", requireAuth, requireAdmin, async (req: AuthRequest, r
 });
 
 // ─── POST /claims/:id/ai-verdict — AI-анализ заявки (только admin) ──────────
-router.post("/:id/ai-verdict", requireAuth, requireAdmin, async (req: AuthRequest, res) => {
+router.post("/:id/ai-verdict", requireAuth, requireRole("superadmin", "admin", "arbiter"), async (req: AuthRequest, res) => {
   const claimId = parseInt(req.params.id as string, 10);
   if (!Number.isFinite(claimId)) {
     res.status(400).json({ error: "invalid_id" });

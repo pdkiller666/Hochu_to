@@ -46,16 +46,40 @@ export async function requireAuth(req: AuthRequest, res: Response, next: NextFun
   }
 }
 
+const ADMIN_ROLES = ["admin", "superadmin", "moderator", "support", "arbiter"] as const;
+
 /**
- * RBAC middleware: разрешает доступ только пользователям с role='admin'.
+ * RBAC middleware: разрешает доступ только пользователям с role IN (admin, superadmin).
  * Должен ставиться ПОСЛЕ requireAuth (читает req.userRole, выставленный requireAuth).
  *
  * Пример:  router.get("/admin/x", requireAuth, requireAdmin, handler)
  */
 export function requireAdmin(req: AuthRequest, res: Response, next: NextFunction) {
-  if (!req.userRole || req.userRole !== "admin") {
-    res.status(403).json({ error: "forbidden", message: "Только для менеджеров портала" });
+  if (!req.userRole || !["admin", "superadmin"].includes(req.userRole)) {
+    res.status(403).json({ error: "forbidden", message: "Только для администраторов портала" });
     return;
   }
   next();
 }
+
+/**
+ * Гибкий RBAC middleware: разрешает доступ только пользователям с role IN allowedRoles.
+ * Должен ставиться ПОСЛЕ requireAuth.
+ *
+ * Пример:  router.get("/admin/settings", requireAuth, requireRole("superadmin"), handler)
+ * Пример:  router.get("/admin/users", requireAuth, requireRole("superadmin", "admin"), handler)
+ */
+export function requireRole(...allowedRoles: string[]) {
+  return function (req: AuthRequest, res: Response, next: NextFunction) {
+    if (!req.userRole || !allowedRoles.includes(req.userRole)) {
+      res.status(403).json({
+        error: "forbidden",
+        message: `Доступ ограничен. Требуется роль: ${allowedRoles.join(" | ")}`,
+      });
+      return;
+    }
+    next();
+  };
+}
+
+export { ADMIN_ROLES };
