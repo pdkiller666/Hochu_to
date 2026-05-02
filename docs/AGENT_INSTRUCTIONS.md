@@ -3205,3 +3205,92 @@ feat(users): implement staff badges for public profiles and refine navigation bu
 ```bash
 fix(auth): promote platform owner admin@hochu.to to superadmin on every server start
 ```
+
+## Журнал — Stage 38 (Telegram Bot & Notification Engine, 02.05.2026)
+
+### Обзор
+Полноценная интеграция Telegram-бота (`@Helper251223_bot`) для доставки уведомлений пользователям и рассылок персоналу. Тест-сьют: **37/37 ✅**.
+
+### DB-миграции
+**`lib/db/src/schema/users.ts`**
+- `telegram_chat_id text` — chat ID пользователя после привязки
+- `telegram_otp text` — текущий OTP (перезаписывается при повторной генерации)
+- `telegram_otp_expires_at timestamp` — TTL 10 минут
+- `telegram_notifications jsonb` — `{bookings, system, chats: boolean}` (дефолт: все true)
+
+**`lib/db/src/schema/platform-settings.ts`**
+- `telegram_bot_token text` — nullable; если NULL — бот берёт токен из env `TELEGRAM_BOT_TOKEN`
+- `telegram_env text` — `"dev"` (только суперадмины получают уведомления) | `"prod"` (все)
+
+### Новые файлы
+**`artifacts/api-server/src/lib/telegram.ts`** — весь Telegram-слой:
+- `initTelegramBot()` — читает токен из `platform_settings ?? process.env.TELEGRAM_BOT_TOKEN`, вызывается в `index.ts` при старте
+- `startBot(token)` — Telegraf long-poll, регистрирует handlers `/start` и `/link`
+- `handleOtp(ctx, otp)` — ищет пользователя по OTP, проверяет TTL, пишет `telegram_chat_id`, очищает OTP
+- `sendTelegramToUser(userId, category, text, link?)` — уважает dev-режим и preferences пользователя; 3 retry с exponential backoff
+- `notifyStaffByRole(roles[], text, link?)` — рассылка по ролям сотрудников
+- `broadcastToAll(text, link?, adminId?, role?)` — массовая рассылка с опциональным роль-фильтром (VALID_ROLES whitelist), dev-фильтр, rate ~20 msg/sec
+- `hotSwapToken(newToken, adminId?)` — **await** + автооткат DB к `prevToken` при 401; возвращает `{ok, username|error}`
+- `getBotStatus()`, `stopBot()`, `isValidBroadcastRole()`
+
+**`artifacts/api-server/src/routes/telegram.ts`** — маршруты для пользователей:
+- `POST /telegram/generate-otp` — 6-значный код, TTL 10 мин, перезаписывает предыдущий
+- `GET /telegram/status` — `{linked, hasOtp, otpExpiresAt, preferences}`
+- `POST /telegram/unlink` — очищает `telegram_chat_id`, идемпотентен
+- `PATCH /telegram/preferences` — Zod-валидация `{bookings?, system?, chats?: boolean}`
+
+### Изменения в существующих файлах
+**`artifacts/api-server/src/routes/admin.ts`**
+- `PUT /admin/settings` — `telegramBotToken` и `telegramEnv` добавлены в `ALLOWED_FIELDS` и `NULLABLE_STR_FIELDS`. Hot-swap: await `hotSwapToken()` → если fail → rollback DB → `hotSwapToken(prevToken)` fire-and-forget; `telegramSwap: {ok, username|error}` в ответе.
+- `GET /admin/telegram/status` — `{online, username, env, hasToken}` (superadmin only)
+- `POST /admin/telegram/broadcast` — `{text, link?, role?}` с валидацией роли через `isValidBroadcastRole()` → 400 при невалидной; (superadmin only)
+
+**`artifacts/api-server/src/lib/notifications.ts`**
+- `createNotification()` — fire-and-forget `sendTelegramToUser(userId, category, text, link)` после insert
+
+**`artifacts/api-server/src/index.ts`**
+- Вызов `await initTelegramBot()` после `ensurePlatformSettings()`, non-fatal
+
+**`artifacts/api-server/src/routes/index.ts`**
+- Регистрация `/telegram` маршрутов
+
+**`artifacts/hochu-to/src/pages/Dashboard.tsx`**
+- Состояния: `tgLinked, tgOtp, tgPrefs, tgBusy`
+- `useEffect` — загружает `/telegram/status` при открытии таба профиля
+- Функции: `tgGenerateOtp()`, `tgUnlink()`, `tgUpdatePref(key, val)`
+- UI: карточка «Telegram-уведомления» с OTP-инструкцией, кнопкой «Обновить код», toggle-переключателями (bookings/system/chats), кнопкой «Отвязать»
+- Импорт: добавлен `RefreshCw` из `lucide-react`
+
+**`artifacts/hochu-to/src/pages/AdminPage.tsx`**
+- `TABS` — добавлен `{ id: "telegram", label: "Telegram", icon: Send }` (только superadmin)
+- `TelegramBotTab` — статус бота (🟢/🔴 + @username), env dev/prod, broadcast-форма (textarea + URL + select роли)
+
+### Секреты
+- `TELEGRAM_BOT_TOKEN` — добавлен в Replit Secrets. Текущий бот: `@Helper251223_bot`. Суперадмин может сменить через AdminPage → горячая замена без перезапуска.
+
+### Ключевые архитектурные решения
+1. **env-fallback приоритет:** `platform_settings.telegram_bot_token ?? process.env.TELEGRAM_BOT_TOKEN` — бот работает из коробки, суперадмин переопределяет через UI
+2. **Hot-swap с откатом:** неудачный swap не убивает работающий бот — atomically rollback DB и restart с предыдущим токеном
+3. **Dev-режим:** `telegramEnv=dev` → уведомления только суперадминам; безопасно запускать в тестовой среде
+4. **Fire-and-forget диспетч:** `createNotification()` не блокируется на Telegram; сбой отправки не ломает основной поток
+5. **VALID_ROLES whitelist:** broadcast принимает только известные роли → 400 при попытке broadcast role=hacker
+
+### Тест-сьют (37/37)
+- **A (5):** бот онлайн, 401/403 контроль доступа
+- **B (4):** OTP 6 цифр, TTL 10 мин, hasOtp, перегенерация
+- **C (4):** preferences update, валидация типов, пустой body
+- **D (2):** unlink идемпотентность, status после unlink
+- **E (6):** broadcast text/role валидация, невалидная роль → 400
+- **F (5):** hot-swap фейковый → rollback → бот онлайн, hot-swap валидный → ok
+- **G (5):** OTP-привязка через DB-симуляцию → linked=true → unlink → linked=false
+- **H (4):** dev/prod env переключение, невалидный env → 400
+- **I (2):** GET /notifications, superadmin без привязки
+
+### Баги, найденные и исправленные при тестировании
+1. **Hot-swap был fire-and-forget** — `hotSwapToken().catch(() => {})` не блокировал ответ и не откатывал DB при ошибке. Исправлено: await + rollback.
+2. **Broadcast не валидировал роль** — `role="hacker"` молча игнорировался. Исправлено: `isValidBroadcastRole()` + 400.
+3. **RefreshCw не был импортирован** в `Dashboard.tsx`. Исправлено.
+
+```bash
+feat(stage38): Telegram bot integration — OTP linking, hot-swap, broadcast, notification dispatch (37/37 tests)
+```

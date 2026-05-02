@@ -130,6 +130,14 @@ All routes prefixed with `/api`:
 - `POST /reviews` — Create review
 - `GET/POST /joint-purchases` — Joint purchase requests
 - `POST /newsletter/subscribe` — Newsletter
+- **Telegram (Stage 38, auth required):**
+  - `POST /telegram/generate-otp` — 6-значный OTP (TTL 10 мин) для привязки к боту
+  - `GET /telegram/status` — статус привязки: linked, hasOtp, otpExpiresAt, preferences
+  - `POST /telegram/unlink` — отвязка (идемпотентна)
+  - `PATCH /telegram/preferences` — настройка уведомлений `{bookings, system, chats: boolean}`
+- **Telegram Admin (Stage 38, superadmin only):**
+  - `GET /admin/telegram/status` — online, username, env, hasToken
+  - `POST /admin/telegram/broadcast` — рассылка `{text, link?, role?}` всем или по роли
 - `POST /contact` — Contact form
 - `GET /bookings/:id/messages` — Get chat messages for a booking (requires auth, must be owner or renter)
 - `POST /bookings/:id/messages` — Send a chat message (body: `{content}`)
@@ -151,7 +159,7 @@ All routes prefixed with `/api`:
 ## Database Schema
 
 Tables (`lib/db/src/schema/`):
-- `users` — User accounts (role: renter/owner/admin), `ownerProtectionEnabled` (per-user default), rating/reviewCount
+- `users` — User accounts (role: renter/owner/admin), `ownerProtectionEnabled` (per-user default), rating/reviewCount. **Stage 38:** `telegram_chat_id`, `telegram_otp`, `telegram_otp_expires_at`, `telegram_notifications jsonb`
 - `auth_sessions` — Active JWT sessions (logout/revoke support)
 - `regions` — Russian cities/regions (10 major cities seeded)
 - `categories` — Item categories (10 catalog slugs)
@@ -168,7 +176,7 @@ Tables (`lib/db/src/schema/`):
 - `support` — Тикеты поддержки (категория, статус, переписка)
 - `reports` — Жалобы на объявления/пользователей
 - `admin_audit_log` — Действия админов (для тикетов/банов/правок настроек)
-- `platform_settings` — Singleton: все ставки, цены, paymentMode, ID шлюзов. Анти-фрод фонда (Stage 17b-limits): `fundReserveRatioPct`, `maxClaimAmountSingleRub`, `maxClaimsPerUserMonth`, `maxClaimAmountPerListingPct`.
+- `platform_settings` — Singleton: все ставки, цены, paymentMode, ID шлюзов. Анти-фрод фонда (Stage 17b-limits): `fundReserveRatioPct`, `maxClaimAmountSingleRub`, `maxClaimsPerUserMonth`, `maxClaimAmountPerListingPct`. **Stage 38:** `telegram_bot_token` (nullable, hot-swap), `telegram_env (dev|prod)`.
 - `joint_purchases` — Заявки на совместные закупки
 - `contacts` — Заявки с формы «Контакты»
 - `newsletter` — Подписчики
@@ -189,6 +197,9 @@ bash scripts/setup-new-replit.sh
 - `GEMINI_API_KEY` — Google Gemini (рекомендуется как основной провайдер)
 - `AMVERA_API_TOKEN` — Amvera DeepSeek-V3 (российский шлюз)
 - `DEEPSEEK_API_KEY` — прямой DeepSeek API (api.deepseek.com), второй резерв после Amvera (Stage 33.0)
+
+**Telegram-бот (Stage 38):**
+- `TELEGRAM_BOT_TOKEN` — токен от @BotFather. Используется как fallback, если в `platform_settings.telegram_bot_token = NULL`. Суперадмин может сменить токен через AdminPage (hot-swap без перезапуска). Текущий бот: `@Helper251223_bot`.
 
 **Опциональные (нужны только при `is_commercial_mode=true` — Stage 21a):**
 - `YOOKASSA_SHOP_ID`, `YOOKASSA_SECRET_KEY` — реквизиты ИП в ЮKassa
@@ -536,10 +547,10 @@ DB поле `boosted_until` (timestamp). Сортировка `?sort=new` уже
 - **Создание/редактирование объявлений** с автоматическим расчётом `maxProtectionLimit`, флагом ручной модерации (аномальная цена)
 - **Бронирования**: полный поток pending→confirmed→active→return_pending→completed, отмены/отказы, история, нумерация `ХТ-YYYY-NNNNNN`
 - **Финансовая модель Dual Shield** (см. ниже): множители, Shield Fee, риск-резерв, ownerPayout — все ставки в `platform_settings`, кэш 60с
-- **Админка (7+ вкладок)**: Обзор+аналитика, Пользователи, Объявления, Бронирования, Поддержка, Жалобы, Аудит, **Экономика** (множители фонда, комиссии, Shield), **Платежи** (paymentMode, шлюзы), **Заявки Shield** (claims)
+- **Админка (7+ вкладок)**: Обзор+аналитика, Пользователи, Объявления, Бронирования, Поддержка, Жалобы, Аудит, **Экономика** (множители фонда, комиссии, Shield), **Платежи** (paymentMode, шлюзы), **Заявки Shield** (claims), **Telegram** (статус бота, env, broadcast — Stage 38)
 - **Отзывы (двусторонние)**: listing-review + renter-review с привязкой к завершённой брони, ответ от рецензируемой стороны
 - **Чат по бронированию** (`booking_messages`): уведомления о новых сообщениях, бейджи unread
-- **Уведомления**: in-app + sсheduler с 6 правилами напоминаний (cron каждый час)
+- **Уведомления**: in-app + scheduler с 6 правилами напоминаний (cron каждый час) + **Telegram-диспетч (Stage 38)**: `createNotification()` fire-and-forget отправляет в Telegram по категории (bookings/system/chats), с учётом preferences пользователя и dev-фильтра
 - **Аудит-trail брони** (`booking_events`) с поиском админа по номеру `ХТ-…`
 - **Маркетинговые карусели на главной** (4 шт: хиты / новинки / рейтинг / выгодные)
 - **Бейджи объявлений** (VIP / Срочно / Безопасная сделка / Высокий рейтинг / Часто берут / Новинка / Проверенный)
@@ -600,7 +611,18 @@ DB поле `boosted_until` (timestamp). Сортировка `?sort=new` уже
 
 ### ✅ Закрытые этапы (последние)
 
-- **Stage 38 — Telegram Bot & Notification Engine** (**✅ 02.05.2026**) — Полноценный Telegram-бот на Telegraf 4.x с hot-swap токена без перезапуска сервера. DB: `users.telegram_chat_id/otp/otp_expires_at/telegram_notifications`, `platform_settings.telegram_bot_token/telegram_env`. Сервис `lib/telegram.ts`: OTP-привязка аккаунта через `/start <OTP>` и `/link <OTP>`, `sendTelegramToUser`, `notifyStaffByRole`, `broadcastToAll`, `getBotStatus`, `stopBot`. API-маршруты: `POST /telegram/generate-otp`, `GET /telegram/status`, `POST /telegram/unlink`, `PATCH /telegram/preferences`. Админ: `GET /admin/telegram/status`, `POST /admin/telegram/broadcast` (HTML-разметка, роли-фильтр). `notifications.ts`: fire-and-forget Telegram-диспетч по типу уведомления. UI: карточка «Telegram-уведомления» в Dashboard (OTP-код с таймером, toggle-переключатели предпочтений, кнопка отвязки), таб «Telegram» в AdminPage (статус бота, env dev/prod, broadcast по всем или по роли). Проверено: generate-otp, status, preferences, unlink, broadcast — все эндпоинты OK.
+- **Stage 38 — Telegram Bot & Notification Engine** (**✅ 02.05.2026, tested 37/37**) — Полноценный Telegram-бот (`@Helper251223_bot`) на Telegraf 4.x.
+  - **DB:** `users.telegram_chat_id / telegram_otp / telegram_otp_expires_at / telegram_notifications jsonb`; `platform_settings.telegram_bot_token / telegram_env (dev|prod)`.
+  - **Секрет по умолчанию:** `TELEGRAM_BOT_TOKEN` (env) → используется как fallback, если `platform_settings.telegram_bot_token = NULL`. Суперадмин может переопределить токен в AdminPage без перезапуска сервера.
+  - **Сервис `lib/telegram.ts`:** `initTelegramBot()` (env-fallback), `startBot()` (Telegraf long-poll + handlers), `handleOtp()` (привязка через `/start <OTP>` или `/link <OTP>`), `sendTelegramToUser()` (с dev-фильтром и preferences), `notifyStaffByRole()`, `broadcastToAll(text, link?, adminId?, role?)` (роль-фильтр, VALID_ROLES whitelist), `getBotStatus()`, `stopBot()`, `hotSwapToken()` (await + автооткат DB при 401), `isValidBroadcastRole()`.
+  - **API `/telegram` (auth required):** `POST /generate-otp` (6-цифр, TTL 10 мин, перезаписывает предыдущий), `GET /status` (linked, hasOtp, otpExpiresAt, preferences), `POST /unlink` (идемпотентен), `PATCH /preferences` (Zod-валидация boolean-полей bookings/system/chats).
+  - **API `/admin/telegram` (superadmin):** `GET /status` (online, username, env, hasToken), `POST /broadcast` (text, link?, role? — валидация VALID_ROLES → 400 при невалидной роли).
+  - **Hot-swap с автооткатом:** `PUT /admin/settings` с новым `telegramBotToken` → await `hotSwapToken()` → если 401 → rollback DB к prevToken → restart с fallback-токеном; `telegramSwap: {ok, username|error}` в ответе API.
+  - **Dev-режим (`telegramEnv=dev`):** `sendTelegramToUser` и `broadcastToAll` доставляют сообщения только суперадминам — безопасно для тестовых окружений. Переключается через `PUT /admin/settings {telegramEnv:"prod"}`.
+  - **`notifications.ts`:** `createNotification()` теперь fire-and-forget диспетч в Telegram по категории уведомления.
+  - **UI Dashboard:** карточка «Telegram-уведомления» — OTP-код с кнопкой «Обновить код», инструкция отправить боту, toggle-переключатели предпочтений, кнопка «Отвязать».
+  - **UI AdminPage:** таб «Telegram» — статус бота (🟢/🔴 + @username), env dev/prod, broadcast-форма (текст + опциональный URL + фильтр по роли).
+  - **Тест-сьют 37/37 ✅:** контроль доступа (401/403), OTP-цикл, preferences-валидация, unlink-идемпотентность, broadcast-валидация (невалидная роль → 400), hot-swap с откатом, dev-режим, OTP-привязка через DB-симуляцию.
 - **Stage 37.1 — Platform Owner Fix** (**✅ 02.05.2026**) — `seedDefaultAdmin()` теперь создаёт/обновляет `admin@hochu.to` с ролью `superadmin` (ранее `admin`). Dashboard `AdminAccountPanel` показывается для `admin || superadmin`. Баннер: «Владелец платформы» для superadmin, «Администратор платформы» для admin.
 - **Stage 37 — Staff Profiles & UI Polish** (**✅ 02.05.2026**) — Бейдж «Команда Хочу_То» (sky-500) на публичном профиле владельца и карточке объявления для staff-ролей. Виджет «Служебный статус» в Настройках: роль переведена на рус. (Владелец платформы / Модератор / Арбитр …), цветная граница по роли. Кнопка «Назад» в OwnerProfile: `flex` → `inline-flex` (больше не растягивается на всю ширину). Поле `ownerRole` добавлено в 3 SELECT-блока API listings.
 - **Stage 36 — RBAC (Role-Based Access Control)** (**✅ 02.05.2026**) — `requireRole(...allowedRoles)` middleware в `auth.ts`. Гранулярная защита 40+ эндпоинтов: суперадмин (stats/settings/audit/seed), admin+superadmin (users/broadcast), moderator+admin+superadmin (listings/bookings/reports), support+moderator+admin+superadmin (tickets), arbiter+admin+superadmin (claims). Новый `PATCH /admin/users/:id/role` (guard: только суперадмин может назначить роль superadmin). UI: фильтрация табов по роли, цветные бейджи всех 8 ролей, inline `<select>` смены роли в таблице Users, расширенный фильтр ролей.
