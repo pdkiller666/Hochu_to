@@ -1,5 +1,5 @@
 import { Layout } from "@/components/layout/Layout";
-import { useAuthState, getToken } from "@/lib/auth";
+import { useAuthState, getToken, removeToken } from "@/lib/auth";
 import {
   useGetCurrentUser,
   useGetUserById,
@@ -269,6 +269,9 @@ export default function Dashboard() {
   const [credSaved, setCredSaved] = useState(false);
   const [credError, setCredError] = useState("");
   const [credPending, setCredPending] = useState(false);
+  const [showDeleteAccountModal, setShowDeleteAccountModal] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [deletingAccount, setDeletingAccount] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
   const [updatingId, setUpdatingId] = useState<number | null>(null);
@@ -816,6 +819,31 @@ export default function Dashboard() {
       setAvatarPreview(null);
     } finally {
       setUploadingAvatar(false);
+    }
+  }
+
+  async function handleDeleteAccount() {
+    if (deleteConfirmText !== "УДАЛИТЬ") return;
+    setDeletingAccount(true);
+    try {
+      const API_BASE = import.meta.env.VITE_API_URL ?? "";
+      const res = await fetch(`${API_BASE}/api/users/me`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${getToken()}` },
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({ title: "Ошибка", description: data.message ?? "Не удалось удалить аккаунт", variant: "destructive" });
+        return;
+      }
+      removeToken();
+      toast({ title: "Аккаунт удалён", description: "Ваши данные анонимизированы. До свидания!" });
+      setShowDeleteAccountModal(false);
+      setLocation("/");
+    } catch {
+      toast({ title: "Ошибка соединения", variant: "destructive" });
+    } finally {
+      setDeletingAccount(false);
     }
   }
 
@@ -2731,6 +2759,23 @@ export default function Dashboard() {
                     </button>
                   </form>
                 </div>
+
+                {/* ── Danger Zone: Delete Account ── */}
+                <div className="bg-red-50 border border-red-200 rounded-2xl p-6 shadow-sm mt-4">
+                  <h3 className="text-base font-bold flex items-center gap-2 mb-2 text-red-700">
+                    <AlertTriangle className="w-5 h-5" /> Опасная зона
+                  </h3>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Удаление аккаунта необратимо. Личные данные будут анонимизированы, объявления — скрыты. История завершённых сделок сохранится.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => { setShowDeleteAccountModal(true); setDeleteConfirmText(""); }}
+                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white border border-red-300 text-red-600 text-sm font-semibold hover:bg-red-100 transition-colors"
+                  >
+                    <Trash2 className="w-4 h-4" /> Удалить аккаунт
+                  </button>
+                </div>
               </div>
             )}
 
@@ -2756,6 +2801,53 @@ export default function Dashboard() {
                 className="flex-1 px-4 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold text-sm transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
                 {deletingId === confirmDeleteId ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
                 Удалить
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Delete Account Confirmation Modal ── */}
+      {showDeleteAccountModal && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl p-6 max-w-md w-full shadow-2xl">
+            <div className="w-14 h-14 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <AlertTriangle className="w-7 h-7 text-red-500" />
+            </div>
+            <h3 className="text-lg font-bold mb-2 text-center text-red-700">Удалить аккаунт?</h3>
+            <p className="text-sm text-muted-foreground mb-4 text-center leading-relaxed">
+              Это действие <strong>необратимо</strong>. Ваши объявления будут скрыты, а личные данные удалены. История завершённых сделок сохранится для других пользователей.
+            </p>
+            <div className="bg-red-50 border border-red-200 rounded-xl p-3 mb-4">
+              <p className="text-sm font-semibold text-red-700 mb-2 text-center">
+                Для подтверждения введите слово <span className="font-mono bg-red-100 px-1 rounded">УДАЛИТЬ</span>
+              </p>
+              <input
+                type="text"
+                className="input-field w-full text-center font-mono tracking-widest"
+                placeholder="УДАЛИТЬ"
+                value={deleteConfirmText}
+                onChange={e => setDeleteConfirmText(e.target.value)}
+                autoComplete="off"
+              />
+            </div>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setShowDeleteAccountModal(false)}
+                disabled={deletingAccount}
+                className="flex-1 px-4 py-2.5 rounded-xl border border-border font-bold text-sm hover:bg-muted transition-colors"
+              >
+                Отмена
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteAccount}
+                disabled={deleteConfirmText !== "УДАЛИТЬ" || deletingAccount}
+                className="flex-1 px-4 py-2.5 rounded-xl bg-red-500 hover:bg-red-600 text-white font-bold text-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {deletingAccount ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                Удалить навсегда
               </button>
             </div>
           </div>

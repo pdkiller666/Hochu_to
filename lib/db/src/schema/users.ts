@@ -1,8 +1,8 @@
-import { pgTable, text, serial, integer, timestamp, pgEnum, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, timestamp, pgEnum, boolean, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
-export const userRoleEnum = pgEnum("user_role", ["renter", "owner", "admin"]);
+export const userRoleEnum = pgEnum("user_role", ["renter", "owner", "user", "moderator", "support", "arbiter", "admin", "superadmin"]);
 
 export const usersTable = pgTable("users", {
   id: serial("id").primaryKey(),
@@ -29,6 +29,10 @@ export const usersTable = pgTable("users", {
   /** Уровень 2 — Trust Score 0..100 (NULL = не вычислялось). Реализация формулы — V6, пока поле зарезервировано. */
   trustScore: integer("trust_score"),
   trustScoreUpdatedAt: timestamp("trust_score_updated_at"),
+  /** Stage 35 — KYC fields (зарезервировано для будущих этапов, например, Суфтели/Yoti). */
+  verificationStatus: text("verification_status").default("unverified"),
+  verificationProvider: text("verification_provider"),
+  verificationData: jsonb("verification_data"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

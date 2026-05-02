@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { db, usersTable, listingsTable, bookingsTable, categoriesTable, regionsTable, reviewsTable } from "@workspace/db";
+import { db, usersTable, listingsTable, bookingsTable, categoriesTable, regionsTable, reviewsTable, authSessionsTable, claimsTable } from "@workspace/db";
 import { eq, sql } from "drizzle-orm";
 import { requireAuth, AuthRequest } from "../middleware/auth.js";
 import bcrypt from "bcryptjs";
@@ -10,6 +10,67 @@ import fs from "fs";
 import { UPLOADS_DIR } from "../lib/uploadsDir.js";
 
 const router = Router();
+
+/* ── DELETE /me — Soft delete (anonymize) current user account ─────────── */
+router.delete("/me", requireAuth, async (req: AuthRequest, res) => {
+  const userId = req.userId!;
+
+  // 1. Block if user has active bookings (as owner or renter)
+  const [activeBooking] = await db
+    .select({ id: bookingsTable.id })
+    .from(bookingsTable)
+    .where(
+      sql`(${bookingsTable.ownerId} = ${userId} OR ${bookingsTable.renterId} = ${userId})
+          AND ${bookingsTable.status} IN ('pending', 'confirmed', 'active')`
+    )
+    .limit(1);
+
+  if (activeBooking) {
+    res.status(400).json({ error: "active_bookings", message: "Нельзя удалить аккаунт при наличии активных сделок или споров." });
+    return;
+  }
+
+  // 2. Block if user has active claims
+  const [activeClaim] = await db
+    .select({ id: claimsTable.id })
+    .from(claimsTable)
+    .where(
+      sql`${claimsTable.claimantId} = ${userId}
+          AND ${claimsTable.status} IN ('pending', 'admin_review')`
+    )
+    .limit(1);
+
+  if (activeClaim) {
+    res.status(400).json({ error: "active_claims", message: "Нельзя удалить аккаунт при наличии активных сделок или споров." });
+    return;
+  }
+
+  // 3. Anonymize user data
+  const randomSuffix = randomUUID().replace(/-/g, "").substring(0, 16);
+  await db.update(usersTable).set({
+    name: "Удаленный пользователь",
+    email: `deleted_${userId}_${randomSuffix}@hochu.to`,
+    phone: null,
+    avatar: null,
+    bio: null,
+    telegram: null,
+    website: null,
+    passwordHash: randomUUID() + randomUUID(),
+    isBanned: true,
+    banReason: "account_deleted",
+  }).where(eq(usersTable.id, userId));
+
+  // 4. Deactivate all listings owned by this user
+  await db.update(listingsTable)
+    .set({ isAvailable: false })
+    .where(eq(listingsTable.ownerId, userId));
+
+  // 5. Revoke all auth sessions (kills active sessions/refresh tokens)
+  await db.delete(authSessionsTable)
+    .where(eq(authSessionsTable.userId, userId));
+
+  res.json({ success: true, message: "Аккаунт успешно удалён" });
+});
 
 const avatarStorage = multer.diskStorage({
   destination: (_req, _file, cb) => {

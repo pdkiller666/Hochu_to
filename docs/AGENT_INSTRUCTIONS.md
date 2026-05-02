@@ -3054,3 +3054,45 @@ fix(ai): restore stable alias gemini-flash-latest for vision fallback to prevent
 ```bash
 fix(mobile): Stage 35 – responsive typography, grid cols and padding across Catalog, Cards, Admin, Home, ListingDetail, PoolDetail
 ```
+
+---
+
+## Журнал — Stage 35b (Soft Delete Account, 02.05.2026)
+
+**Контекст.** Право на забвение (GDPR/ФЗ-152): пользователь может удалить аккаунт без физического удаления строки (FK-ограничения).
+
+### Бэкенд: `DELETE /api/users/me`
+
+Файл: `artifacts/api-server/src/routes/users.ts`
+
+**Порядок операций:**
+1. Проверка активных броней (`status IN ('pending', 'confirmed', 'active')`) — 400 если есть.
+2. Проверка активных споров (`status IN ('pending', 'admin_review')`) — 400 если есть.
+3. Анонимизация: `name = 'Удаленный пользователь'`, `email = deleted_${id}_${uuid}@hochu.to`, `phone/avatar/bio/telegram/website = null`, `passwordHash = random UUID` (вход невозможен), `isBanned = true`, `banReason = 'account_deleted'`.
+4. Деактивация объявлений: `listings.isAvailable = false` для всех объявлений пользователя.
+5. Удаление сессий: `DELETE FROM auth_sessions WHERE user_id = $userId` (убивает все refresh tokens).
+
+### Фронтенд: `artifacts/hochu-to/src/pages/Dashboard.tsx`
+
+- Новые state: `showDeleteAccountModal`, `deleteConfirmText`, `deletingAccount`.
+- Функция `handleDeleteAccount()`: вызывает API, затем `removeToken()` + `setLocation("/")`.
+- UI: красная секция «Опасная зона» в настройках профиля с кнопкой «Удалить аккаунт».
+- Модальное окно: предупреждение + поле ввода слова «УДАЛИТЬ» (кнопка заблокирована до правильного ввода).
+- Импорт `removeToken` добавлен в `@/lib/auth`.
+
+### Схема БД: `lib/db/src/schema/users.ts`
+
+- `userRoleEnum` расширен: добавлены `'user', 'moderator', 'support', 'arbiter', 'superadmin'` (старые `renter`, `owner`, `admin` сохранены).
+- Новые KYC-поля: `verificationStatus` (text, default `'unverified'`), `verificationProvider` (text), `verificationData` (jsonb).
+- Миграция применена через `drizzle-kit push`.
+
+### Правила для следующего агента
+
+- `DELETE /me` зарегистрирован **до** `GET /:id` в роутере — важно для Express-матчинга.
+- `banReason = 'account_deleted'` — сигнал для admin-панели что это не ручной бан.
+- Новые роли (`moderator`, `support`, `arbiter`, `superadmin`) пока не имеют спец. логики — добавляй по мере необходимости.
+- Физически строки пользователя не удаляем никогда (FK integrity).
+
+```bash
+feat(users): Stage 35b - implement account soft delete with data anonymization and prepare schema for RBAC/KYC
+```

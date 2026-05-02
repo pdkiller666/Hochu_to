@@ -1,0 +1,51 @@
+Task: Stage 35 – Soft Delete Account (Право на забвение)
+
+Context:
+We need to allow users to delete their accounts to comply with privacy standards. We CANNOT physically delete the users row because it will break foreign keys (bookings, claims, digital acts). We must implement a "Soft Delete" with data anonymization.
+
+Action 1: Backend Validation & Anonymization Logic (artifacts/api-server/src/routes/users.ts or similar profile route)
+
+Create a new endpoint: DELETE /api/users/me (Protected route, requires auth).
+
+Validation: Check if the user has any active bookings (where they are owner or tenant with status pending, confirmed, active) or active claims. If yes, return HTTP 400: { error: 'Нельзя удалить аккаунт при наличии активных сделок или споров.' }.
+
+Anonymization (Soft Delete): Update the user record in the DB:
+
+name: 'Удаленный пользователь'
+
+email: deleted_${userId}@hochu.to (to prevent unique constraint errors but remove real email)
+
+phone: null (or empty string)
+
+avatar: null
+
+password: null (or a random long string so login is impossible)
+
+is_banned: true (or if you have a status field, set it to 'deleted')
+
+Listings: Update all listings belonging to this userId: set their status to inactive (or is_published = false).
+
+Tokens: Clear the user's refresh token from the database to kill active sessions.
+
+Action 2: Frontend UI (artifacts/hochu-to/src/pages/UserProfile.tsx or Settings)
+
+In the user's private settings/profile area, add a "Удалить аккаунт" (Delete Account) button in red.
+
+Confirmation Modal: When clicked, show a modal warning: "Вы уверены? Это действие необратимо. Ваши объявления будут скрыты, а личные данные удалены. История завершенных сделок сохранится для других пользователей."
+
+Require the user to type the word "УДАЛИТЬ" to enable the confirm button.
+
+On success: call the logout function (clear local JWT), show a toast notification, and redirect to the home page /.
+
+Action 3: Preparation for Future Stages (DB Schema Update - schema.ts)
+
+While we are here, let's prepare the schema for the next stages.
+
+Update role enum in users table to include: ['user', 'moderator', 'support', 'arbiter', 'admin', 'superadmin'].
+
+Add empty KYC fields to users: verificationStatus (text/enum default 'unverified'), verificationProvider (text), verificationData (jsonb).
+
+Run DB push/migration.
+
+Commit:
+feat(users): Stage 35 - implement account soft delete with data anonymization and prepare schema for RBAC/KYC
