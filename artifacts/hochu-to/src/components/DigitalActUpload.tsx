@@ -1,5 +1,8 @@
-import { useState, useRef } from "react";
-import { Loader2, Camera, X, MapPin, Clock, ShieldCheck, AlertTriangle, PenLine, Video, Upload, Maximize2, Info } from "lucide-react";
+import { useState, useRef, useEffect } from "react";
+import {
+  Loader2, Camera, X, MapPin, Clock, ShieldCheck, AlertTriangle,
+  PenLine, Video, Upload, Maximize2, Info, CheckCircle2, UserCheck,
+} from "lucide-react";
 // @ts-expect-error — exifr — pure JS, no bundled .d.ts
 import exifr from "exifr";
 import { getToken } from "@/lib/auth";
@@ -14,7 +17,7 @@ export type DigitalActKind = "check_in" | "check_out" | "pool_handover";
 
 interface UploadedPhoto {
   url: string;
-  exif?: { lat?: number; lng?: number; takenAt?: string };
+  exif?: { lat?: number; lng?: number; takenAt?: string; fromBrowserGeo?: boolean };
 }
 
 interface Props {
@@ -24,17 +27,21 @@ interface Props {
   toUserId?: number;
   toUserName?: string;
   /**
-   * Роль текущего пользователя в сделке: "owner" или "renter".
-   * check_in → первичный подписант owner (передаёт вещь).
-   * check_out → первичный подписант renter (возвращает вещь).
+   * Роль текущего пользователя в сделке.
+   * check_in → первичный подписант owner.
+   * check_out → первичный подписант renter.
    */
   userRole?: "owner" | "renter";
+  /** ID текущего пользователя — нужен для определения режима (кто уже подписал). */
+  currentUserId?: number;
   onClose: () => void;
   onSuccess: () => void;
 }
 
+type ActMode = "loading" | "full" | "countersign" | "already_signed" | "already_countersigned";
+
 export function DigitalActUpload({
-  bookingId, poolId, type, toUserId, toUserName, userRole, onClose, onSuccess,
+  bookingId, poolId, type, toUserId, toUserName, userRole, currentUserId, onClose, onSuccess,
 }: Props) {
   if ((bookingId == null) === (poolId == null)) {
     throw new Error("DigitalActUpload: укажите ровно один из bookingId / poolId");
@@ -50,6 +57,9 @@ export function DigitalActUpload({
       ? `/api/bookings/${bookingId}/digital-acts`
       : `/api/pools/${poolId}/digital-acts`;
 
+  const [actMode, setActMode] = useState<ActMode>(bookingId != null && currentUserId != null ? "loading" : "full");
+  const [existingAct, setExistingAct] = useState<any>(null);
+
   const [photos, setPhotos] = useState<UploadedPhoto[]>([]);
   const [videoUrl, setVideoUrl] = useState("");
   const [videoIsInternal, setVideoIsInternal] = useState(false);
@@ -59,11 +69,43 @@ export function DigitalActUpload({
   const [signatureEmpty, setSignatureEmpty] = useState(true);
   const [fsOpen, setFsOpen] = useState(false);
   const [fsEmpty, setFsEmpty] = useState(true);
+  const [browserGpsUsed, setBrowserGpsUsed] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const signatureRef = useRef<SignaturePadHandle>(null);
   const fsSignatureRef = useRef<SignaturePadHandle>(null);
+
+  // ─── Проверяем существующий акт при открытии ────────────────────────────────
+  useEffect(() => {
+    if (bookingId == null || currentUserId == null || type === "pool_handover") {
+      setActMode("full");
+      return;
+    }
+    (async () => {
+      try {
+        const r = await fetch(`${API_BASE}/api/bookings/${bookingId}/digital-acts`, {
+          headers: { Authorization: `Bearer ${getToken()}` },
+        });
+        if (!r.ok) { setActMode("full"); return; }
+        const { items } = await r.json() as { items: any[] };
+        const act = items?.find((a) => a.type === type);
+        if (!act) {
+          setActMode("full");
+          return;
+        }
+        setExistingAct(act);
+        const hasCountersign = !!(act.metadata?.counterSignature);
+        if (act.createdByUserId === currentUserId) {
+          setActMode(hasCountersign ? "already_countersigned" : "already_signed");
+        } else {
+          setActMode(hasCountersign ? "already_countersigned" : "countersign");
+        }
+      } catch {
+        setActMode("full");
+      }
+    })();
+  }, [bookingId, type, currentUserId]);
 
   const title = type === "check_in"
     ? "Цифровой акт приёмки"
@@ -85,6 +127,18 @@ export function DigitalActUpload({
   const isWrongParty = expectedSigner !== null && userRole !== undefined && userRole !== expectedSigner;
   const signerLabel = expectedSigner === "owner" ? "владелец" : expectedSigner === "renter" ? "арендатор" : "";
 
+  // ─── Получение GPS из браузера как fallback ──────────────────────────────────
+  async function getBrowserGps(): Promise<{ lat: number; lng: number } | null> {
+    if (!navigator.geolocation) return null;
+    return new Promise((resolve) => {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+        () => resolve(null),
+        { timeout: 6000, maximumAge: 60_000 },
+      );
+    });
+  }
+
   async function handleFiles(files: FileList | null) {
     if (!files || files.length === 0) return;
     const arr = Array.from(files).slice(0, MAX_PHOTOS - photos.length);
@@ -94,6 +148,8 @@ export function DigitalActUpload({
     try {
       const formData = new FormData();
       arr.forEach(f => formData.append("photos", f));
+
+      // 1) Пробуем извлечь EXIF GPS из файлов
       const exifResults = await Promise.all(
         arr.map(async (f) => {
           try {
@@ -106,6 +162,20 @@ export function DigitalActUpload({
           } catch { return {}; }
         })
       );
+
+      // 2) Если ни у одного файла нет GPS — запрашиваем через браузер
+      const hasExifGps = exifResults.some(e => e.lat && e.lng);
+      let browserGps: { lat: number; lng: number } | null = null;
+      if (!hasExifGps) {
+        browserGps = await getBrowserGps();
+        if (browserGps) setBrowserGpsUsed(true);
+      }
+
+      // 3) Применяем браузерный GPS ко всем фото, у которых нет EXIF GPS
+      const finalExif = exifResults.map(e =>
+        e.lat ? e : (browserGps ? { ...e, lat: browserGps.lat, lng: browserGps.lng, fromBrowserGeo: true } : e)
+      );
+
       const r = await fetch(`${API_BASE}/api/upload`, {
         method: "POST",
         headers: { Authorization: `Bearer ${getToken()}` },
@@ -113,7 +183,7 @@ export function DigitalActUpload({
       });
       if (!r.ok) throw new Error("Не удалось загрузить фото");
       const { urls } = await r.json() as { urls: string[] };
-      setPhotos(prev => [...prev, ...urls.map((url, i) => ({ url, exif: exifResults[i] }))]);
+      setPhotos(prev => [...prev, ...urls.map((url, i) => ({ url, exif: finalExif[i] }))]);
     } catch (e: any) {
       setError(e.message || "Ошибка загрузки");
     } finally {
@@ -184,6 +254,7 @@ export function DigitalActUpload({
     setFsOpen(false);
   }
 
+  // ─── Основная подпись (первая сторона) ──────────────────────────────────────
   async function submit() {
     if (videoUploading) { setError("Дождитесь окончания загрузки видео."); return; }
     if (photos.length < MIN_PHOTOS) { setError(`Минимум ${MIN_PHOTOS} фото — у вас ${photos.length}.`); return; }
@@ -214,7 +285,57 @@ export function DigitalActUpload({
       });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
+        // Если акт уже существует — перезагружаем состояние компонента
+        if (j.error === "act_already_exists") {
+          setActMode("loading");
+          const rActs = await fetch(`${API_BASE}/api/bookings/${bookingId}/digital-acts`, {
+            headers: { Authorization: `Bearer ${getToken()}` },
+          });
+          if (rActs.ok) {
+            const { items } = await rActs.json() as { items: any[] };
+            const act = items?.find((a) => a.type === type);
+            if (act) {
+              setExistingAct(act);
+              const hasCountersign = !!(act.metadata?.counterSignature);
+              setActMode(act.createdByUserId === currentUserId
+                ? (hasCountersign ? "already_countersigned" : "already_signed")
+                : (hasCountersign ? "already_countersigned" : "countersign"));
+              setBusy(false);
+              return;
+            }
+          }
+        }
         throw new Error(j.message || "Не удалось сохранить акт");
+      }
+      onSuccess();
+    } catch (e: any) {
+      setError(e.message || "Ошибка");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // ─── Контрподпись (вторая сторона) ──────────────────────────────────────────
+  async function submitCountersign() {
+    if (!signatureRef.current || signatureRef.current.isEmpty()) {
+      setError("Поставьте подпись для подтверждения акта.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const signature = signatureRef.current.toDataURL();
+      const r = await fetch(
+        `${API_BASE}/api/bookings/${bookingId}/digital-acts/${existingAct.id}/countersign`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+          body: JSON.stringify({ signature }),
+        }
+      );
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        throw new Error(j.message || "Не удалось сохранить подпись");
       }
       onSuccess();
     } catch (e: any) {
@@ -227,6 +348,191 @@ export function DigitalActUpload({
   const photosWithGps = photos.filter(p => p.exif?.lat && p.exif?.lng).length;
   const canSubmit = !isWrongParty && photos.length >= MIN_PHOTOS && !signatureEmpty && !busy && !videoUploading;
 
+  // ─── Loading state ───────────────────────────────────────────────────────────
+  if (actMode === "loading") {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+        <div className="bg-white rounded-2xl p-8 flex flex-col items-center gap-3 shadow-2xl">
+          <Loader2 className="w-8 h-8 animate-spin text-emerald-600" />
+          <p className="text-sm text-muted-foreground">Проверяем акт…</p>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── Обе стороны уже подписали ──────────────────────────────────────────────
+  if (actMode === "already_countersigned") {
+    const actTypeLabel = type === "check_in" ? "приёмки" : "возврата";
+    return (
+      <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm px-4">
+        <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl p-8 flex flex-col items-center gap-4 text-center">
+          <CheckCircle2 className="w-14 h-14 text-emerald-500" />
+          <h3 className="text-lg font-bold">Акт {actTypeLabel} подписан обеими сторонами</h3>
+          <p className="text-sm text-muted-foreground">
+            Обе стороны поставили подпись. Документ зафиксирован и является основой для арбитража.
+          </p>
+          <button onClick={onClose} className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-bold">
+            Закрыть
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── Текущий пользователь уже подписал, ждём вторую сторону ─────────────────
+  if (actMode === "already_signed") {
+    const actTypeLabel = type === "check_in" ? "приёмки" : "возврата";
+    const waitingFor = type === "check_in" ? "арендатора" : "владельца";
+    return (
+      <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm px-4">
+        <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl p-8 flex flex-col items-center gap-4 text-center">
+          <UserCheck className="w-14 h-14 text-amber-500" />
+          <h3 className="text-lg font-bold">Вы уже подписали акт {actTypeLabel}</h3>
+          <p className="text-sm text-muted-foreground">
+            Ожидается подпись <b>{waitingFor}</b>. Он получил уведомление и может подписать акт в своём личном кабинете.
+          </p>
+          <button onClick={onClose} className="w-full py-3 bg-stone-100 hover:bg-stone-200 rounded-xl text-sm font-bold">
+            Закрыть
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── Режим контрподписи (вторая сторона подписывает) ────────────────────────
+  if (actMode === "countersign") {
+    const actTypeLabel = type === "check_in" ? "приёмки" : "возврата";
+    const firstSignerLabel = type === "check_in" ? "Владелец" : "Арендатор";
+    return (
+      <>
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm px-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl max-h-[92vh] overflow-y-auto">
+            <div className="p-6 border-b border-border flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-lg font-bold flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-emerald-600" /> Подтвердите акт {actTypeLabel}
+                </h3>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {firstSignerLabel} уже подписал акт. Поставьте свою подпись для завершения.
+                </p>
+              </div>
+              <button onClick={onClose} className="p-1 hover:bg-stone-100 rounded-lg" aria-label="Закрыть">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              {/* Фото из акта (только просмотр) */}
+              {existingAct?.photos?.length > 0 && (
+                <div>
+                  <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-2 block">
+                    Фото из акта ({existingAct.photos.length} шт.)
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {existingAct.photos.map((url: string, i: number) => (
+                      <div key={i} className="aspect-square rounded-lg overflow-hidden border border-stone-200 bg-stone-100">
+                        <img src={`${API_BASE}${url}`} alt="" className="w-full h-full object-cover" />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-900 flex gap-2">
+                <Info className="w-4 h-4 shrink-0 mt-0.5 text-amber-600" />
+                <div>
+                  <p className="font-semibold">Проверьте состояние вещи</p>
+                  <p className="text-xs mt-0.5 text-amber-700">
+                    Просмотрите фотографии выше. Если согласны с зафиксированным состоянием — поставьте подпись.
+                  </p>
+                </div>
+              </div>
+
+              {/* Подпись */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                    <PenLine className="w-3.5 h-3.5" />
+                    Ваша подпись <span className="text-rose-600">*</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => { setFsEmpty(true); setFsOpen(true); }}
+                    className="flex items-center gap-1 px-2 py-1 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors"
+                  >
+                    <Maximize2 className="w-3.5 h-3.5" />
+                    На весь экран
+                  </button>
+                </div>
+                <SignaturePad ref={signatureRef} onChange={(emp) => setSignatureEmpty(emp)} />
+              </div>
+
+              {error && (
+                <div className="bg-rose-50 border border-rose-200 rounded-xl p-3 text-sm text-rose-700 flex gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" /> {error}
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 border-t border-border flex gap-3">
+              <button onClick={onClose} disabled={busy}
+                className="flex-1 py-2.5 bg-stone-100 hover:bg-stone-200 rounded-xl text-sm font-bold transition-colors disabled:opacity-50">
+                Отмена
+              </button>
+              <button
+                onClick={submitCountersign}
+                disabled={signatureEmpty || busy}
+                className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-bold transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                Подтвердить акт
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {fsOpen && (
+          <div className="fixed inset-0 z-[60] flex flex-col bg-white">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+              <span className="font-bold text-base flex items-center gap-2">
+                <PenLine className="w-4 h-4 text-emerald-600" />
+                Распишитесь пальцем
+              </span>
+              <button onClick={() => setFsOpen(false)} className="p-1.5 hover:bg-stone-100 rounded-lg">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 flex flex-col p-4 gap-4">
+              <p className="text-sm text-muted-foreground text-center">
+                Проведите пальцем или мышью по белому полю, чтобы поставить подпись
+              </p>
+              <div className="flex-1 min-h-0">
+                <SignaturePad
+                  ref={fsSignatureRef}
+                  height={Math.max(260, window.innerHeight - 220)}
+                  onChange={(emp) => setFsEmpty(emp)}
+                />
+              </div>
+            </div>
+            <div className="p-4 border-t border-border flex gap-3">
+              <button onClick={() => setFsOpen(false)}
+                className="flex-1 py-3 bg-stone-100 hover:bg-stone-200 rounded-xl text-sm font-bold transition-colors">
+                Отмена
+              </button>
+              <button
+                onClick={acceptFullscreenSignature}
+                disabled={fsEmpty}
+                className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-bold transition-colors disabled:opacity-50"
+              >
+                Принять подпись
+              </button>
+            </div>
+          </div>
+        )}
+      </>
+    );
+  }
+
+  // ─── Полный режим (первая сторона — новый акт) ───────────────────────────────
   return (
     <>
       <div
@@ -262,7 +568,7 @@ export function DigitalActUpload({
               <div>
                 Цифровой акт — ваша основная защита при споре. Фотографируйте с разных ракурсов,
                 включая мелкие повреждения, царапины, серийные номера.
-                <b> GPS и время съёмки</b> извлекаются автоматически (если не отключены в камере).
+                <b> GPS и время съёмки</b> извлекаются автоматически из фото или браузерной геолокации.
               </div>
             </div>
 
@@ -281,10 +587,14 @@ export function DigitalActUpload({
                       <X className="w-3 h-3" />
                     </button>
                     {(p.exif?.lat || p.exif?.takenAt) && (
-                      <div className="absolute bottom-0 inset-x-0 bg-emerald-700/90 text-white text-[9px] py-0.5 px-1 flex items-center gap-1">
+                      <div className={`absolute bottom-0 inset-x-0 text-white text-[9px] py-0.5 px-1 flex items-center gap-1 ${p.exif.fromBrowserGeo ? "bg-blue-700/90" : "bg-emerald-700/90"}`}>
                         {p.exif.lat && <MapPin className="w-2.5 h-2.5" />}
                         {p.exif.takenAt && <Clock className="w-2.5 h-2.5" />}
-                        <span>{p.exif.lat ? "GPS" : ""}{p.exif.lat && p.exif.takenAt ? " • " : ""}{p.exif.takenAt ? "EXIF" : ""}</span>
+                        <span>
+                          {p.exif.lat ? (p.exif.fromBrowserGeo ? "Геолок." : "GPS") : ""}
+                          {p.exif.lat && p.exif.takenAt ? " • " : ""}
+                          {p.exif.takenAt ? "EXIF" : ""}
+                        </span>
                       </div>
                     )}
                   </div>
@@ -304,7 +614,7 @@ export function DigitalActUpload({
                 <span>{photos.length} / {MIN_PHOTOS}+ загружено</span>
                 {photos.length > 0 && (
                   <span>{photosWithGps > 0
-                    ? `📍 GPS у ${photosWithGps} из ${photos.length}`
+                    ? `📍 GPS у ${photosWithGps} из ${photos.length}${browserGpsUsed ? " (браузер)" : ""}`
                     : "⚠️ GPS не извлечён (нормально для скриншотов)"}</span>
                 )}
               </div>

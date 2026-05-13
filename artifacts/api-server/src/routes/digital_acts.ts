@@ -199,6 +199,25 @@ router.post("/bookings/:bookingId/digital-acts", requireAuth, async (req: AuthRe
 
   try {
     const [created] = await db.insert(digitalActsTable).values(parsed.data).returning();
+
+    // Stage 22c: уведомить ВТОРУЮ сторону о необходимости контрподписи
+    try {
+      const isOwner = booking.ownerId === req.userId;
+      const otherPartyId = isOwner ? booking.renterId : booking.ownerId;
+      const actTypeLabel = type === "check_in" ? "приёмки" : "возврата";
+      const myRoleLabel = isOwner ? "Владелец" : "Арендатор";
+      await createNotification({
+        userId: otherPartyId,
+        type: "digital_act_countersign_required",
+        title: `Требуется ваша подпись акта ${actTypeLabel}`,
+        message: `${myRoleLabel} подписал Цифровой акт ${actTypeLabel} по брони ${booking.bookingNumber}. Откройте личный кабинет и поставьте свою подпись.`,
+        bookingId: booking.id,
+        link: "/dashboard",
+      });
+    } catch (notifErr) {
+      logger.warn({ err: notifErr, bookingId }, "digital_acts: notification after POST failed (non-critical)");
+    }
+
     res.status(201).json(created);
   } catch (e: any) {
     // 23505 — UNIQUE(booking_id, type) violation. Иммутабельность акта.
@@ -215,6 +234,107 @@ router.post("/bookings/:bookingId/digital-acts", requireAuth, async (req: AuthRe
     }
     throw e;
   }
+});
+
+// ─── Stage 22c — Контрподпись (вторая сторона подписывает акт) ───────────────
+//
+// PATCH /api/bookings/:bookingId/digital-acts/:actId/countersign
+//
+// Правила:
+//   - Только участник брони.
+//   - НЕ создатель акта (он уже подписал через POST).
+//   - Только если поле metadata.counterSignature ещё не заполнено.
+//   - Валидная PNG-подпись (те же проверки, что при POST).
+//
+router.patch("/bookings/:bookingId/digital-acts/:actId/countersign", requireAuth, async (req: AuthRequest, res) => {
+  const bookingId = Number.parseInt(req.params.bookingId as string, 10);
+  const actId = Number.parseInt(req.params.actId as string, 10);
+  if (!Number.isFinite(bookingId) || !Number.isFinite(actId)) {
+    res.status(400).json({ error: "bad_request", message: "Некорректный bookingId или actId" });
+    return;
+  }
+
+  const [booking] = await db
+    .select()
+    .from(bookingsTable)
+    .where(eq(bookingsTable.id, bookingId))
+    .limit(1);
+
+  if (!booking) {
+    res.status(404).json({ error: "not_found", message: "Бронирование не найдено" });
+    return;
+  }
+
+  const isParticipant = booking.renterId === req.userId || booking.ownerId === req.userId;
+  if (!isParticipant) {
+    res.status(403).json({ error: "forbidden", message: "Только участники брони могут подписывать акт" });
+    return;
+  }
+
+  const [act] = await db
+    .select()
+    .from(digitalActsTable)
+    .where(and(eq(digitalActsTable.id, actId), eq(digitalActsTable.bookingId, bookingId)))
+    .limit(1);
+
+  if (!act) {
+    res.status(404).json({ error: "not_found", message: "Акт не найден" });
+    return;
+  }
+
+  if (act.createdByUserId === req.userId) {
+    res.status(409).json({
+      error: "cannot_countersign_own_act",
+      message: "Вы уже подписали этот акт. Ожидайте подписи второй стороны.",
+    });
+    return;
+  }
+
+  const meta = (act.metadata ?? {}) as Record<string, any>;
+  if (meta.counterSignature) {
+    res.status(409).json({
+      error: "already_countersigned",
+      message: "Акт уже подписан обеими сторонами.",
+    });
+    return;
+  }
+
+  const sig = validateSignature(req.body?.signature);
+  if (!sig.ok) {
+    res.status(400).json({ error: "signature_required", message: sig.message });
+    return;
+  }
+
+  const updatedMeta = {
+    ...meta,
+    counterSignature: sig.value,
+    counterSignedByUserId: req.userId,
+    counterSignedAt: new Date().toISOString(),
+  };
+
+  const [updated] = await db
+    .update(digitalActsTable)
+    .set({ metadata: updatedMeta })
+    .where(eq(digitalActsTable.id, actId))
+    .returning();
+
+  // Уведомить первую сторону о завершении процесса подписания
+  try {
+    const actTypeLabel = act.type === "check_in" ? "приёмки" : act.type === "check_out" ? "возврата" : "передачи";
+    const myRoleLabel = booking.ownerId === req.userId ? "Арендатор" : "Владелец";
+    await createNotification({
+      userId: act.createdByUserId,
+      type: "digital_act_countersign_required",
+      title: `Акт ${actTypeLabel} подписан обеими сторонами`,
+      message: `${myRoleLabel} поставил свою подпись. Акт ${actTypeLabel} по брони ${booking.bookingNumber} оформлен полностью.`,
+      bookingId: booking.id,
+      link: "/dashboard",
+    });
+  } catch (notifErr) {
+    logger.warn({ err: notifErr, actId }, "digital_acts: PATCH countersign notification failed (non-critical)");
+  }
+
+  res.json(updated);
 });
 
 // ─── Stage 23c — Genesis-акт пула + auto-listing ─────────────────────────────

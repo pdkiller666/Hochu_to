@@ -77,6 +77,8 @@ export type NotifType =
   // Stage 22b-followup: за 24ч до передачи/возврата — напомни оформить акт
   | "reminder_checkin_soon"
   | "reminder_checkout_soon"
+  // Stage 22c: двусторонняя подпись Цифрового акта
+  | "digital_act_countersign_required"  // вторая сторона: «Первая сторона подписала — ваша очередь»
   // System auto-transition notifications
   | "auto_cancelled"
   | "auto_activated"

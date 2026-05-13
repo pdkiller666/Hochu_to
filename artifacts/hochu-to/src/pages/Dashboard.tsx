@@ -3674,11 +3674,12 @@ export default function Dashboard() {
           bookingId={digitalActModal.bookingId}
           type={digitalActModal.type}
           userRole={digitalActModal.userRole}
+          currentUserId={user.id}
           onClose={() => setDigitalActModal(null)}
           onSuccess={() => {
             toast({
               title: digitalActModal.type === "check_in" ? "✅ Акт приёмки сохранён" : "✅ Акт возврата сохранён",
-              description: "Теперь вы можете передать/вернуть вещь.",
+              description: "Вторая сторона получила уведомление о необходимости подписать акт.",
             });
             setDigitalActModal(null);
             void refetchBookings();
