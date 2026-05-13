@@ -532,6 +532,19 @@ export default function Dashboard() {
       .catch(() => {});
   }, [user?.id, token]);
 
+  // Stage 38: auto-poll linking status every 3s while OTP is shown
+  useEffect(() => {
+    if (!tgOtp || tgLinked || !token) return;
+    const id = setInterval(async () => {
+      try {
+        const r = await fetch("/api/telegram/status", { headers: { Authorization: `Bearer ${token}` } });
+        const d = await r.json();
+        if (d.linked) { setTgLinked(true); setTgOtp(null); }
+      } catch {}
+    }, 3000);
+    return () => clearInterval(id);
+  }, [!!tgOtp, tgLinked, token]);
+
   // Stage 38-UE: load phone verification status
   useEffect(() => {
     if (!user || !token) return;
@@ -2547,14 +2560,18 @@ export default function Dashboard() {
                             <p className="text-3xl font-mono font-bold text-blue-800 tracking-[0.3em]">{tgOtp.otp}</p>
                             <p className="text-xs text-blue-500 mt-2">Действителен 10 минут · истекает в {new Date(tgOtp.expiresAt).toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" })}</p>
                           </div>
-                          <ol className="space-y-1.5 text-sm text-muted-foreground">
-                            <li className="flex items-start gap-2">
-                              <span className="font-bold text-foreground mt-0.5">1.</span>
-                              <span>Откройте Telegram{tgBotUsername ? <> и найдите бота <a href={`https://t.me/${tgBotUsername}`} target="_blank" rel="noopener noreferrer" className="font-semibold text-[#2AABEE] hover:underline">@{tgBotUsername}</a></> : " и найдите бота платформы"}</span>
-                            </li>
-                            <li className="flex items-start gap-2"><span className="font-bold text-foreground mt-0.5">2.</span> Отправьте боту: <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-xs">/link {tgOtp.otp}</code></li>
-                            <li className="flex items-start gap-2"><span className="font-bold text-foreground mt-0.5">3.</span> Бот подтвердит привязку — перезагрузите страницу</li>
-                          </ol>
+                          {tgBotUsername ? (
+                            <a href={`https://t.me/${tgBotUsername}?start=${tgOtp.otp}`}
+                              target="_blank" rel="noopener noreferrer"
+                              className="btn-primary flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-sm font-semibold">
+                              <Send className="w-4 h-4" /> Открыть бота и привязать
+                            </a>
+                          ) : (
+                            <p className="text-sm text-muted-foreground">Найдите бота платформы в Telegram и отправьте: <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-xs">/link {tgOtp.otp}</code></p>
+                          )}
+                          <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                            <Loader2 className="w-3 h-3 animate-spin" /> Ожидаем подтверждения от бота...
+                          </p>
                           <button type="button" onClick={tgGenerateOtp} disabled={tgBusy}
                             className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
                             <RefreshCw className="w-3.5 h-3.5" /> Обновить код
@@ -2980,14 +2997,18 @@ export default function Dashboard() {
                             <p className="text-3xl font-mono font-bold text-blue-800 tracking-[0.3em]">{tgOtp.otp}</p>
                             <p className="text-xs text-blue-500 mt-2">Действителен 10 минут · истекает в {new Date(tgOtp.expiresAt).toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" })}</p>
                           </div>
-                          <ol className="space-y-1.5 text-sm text-muted-foreground">
-                            <li className="flex items-start gap-2">
-                              <span className="font-bold text-foreground mt-0.5">1.</span>
-                              <span>Откройте Telegram{tgBotUsername ? <> и найдите бота <a href={`https://t.me/${tgBotUsername}`} target="_blank" rel="noopener noreferrer" className="font-semibold text-[#2AABEE] hover:underline">@{tgBotUsername}</a></> : " и найдите бота платформы"}</span>
-                            </li>
-                            <li className="flex items-start gap-2"><span className="font-bold text-foreground mt-0.5">2.</span> Отправьте боту: <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-xs">/link {tgOtp.otp}</code></li>
-                            <li className="flex items-start gap-2"><span className="font-bold text-foreground mt-0.5">3.</span> Бот подтвердит привязку — перезагрузите страницу</li>
-                          </ol>
+                          {tgBotUsername ? (
+                            <a href={`https://t.me/${tgBotUsername}?start=${tgOtp.otp}`}
+                              target="_blank" rel="noopener noreferrer"
+                              className="btn-primary flex items-center justify-center gap-2 px-5 py-3 rounded-xl text-sm font-semibold">
+                              <Send className="w-4 h-4" /> Открыть бота и привязать
+                            </a>
+                          ) : (
+                            <p className="text-sm text-muted-foreground">Найдите бота платформы в Telegram и отправьте: <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-xs">/link {tgOtp.otp}</code></p>
+                          )}
+                          <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                            <Loader2 className="w-3 h-3 animate-spin" /> Ожидаем подтверждения от бота...
+                          </p>
                           <button type="button" onClick={tgGenerateOtp} disabled={tgBusy}
                             className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
                             <RefreshCw className="w-3.5 h-3.5" /> Обновить код
