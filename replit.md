@@ -233,6 +233,7 @@ Marketplace-style sticky header (Avito/Wildberries pattern) — visible on all p
 - Submitting navigates to `/catalog?search=<query>` while preserving other URL params (region, category)
 - Header search input syncs with URL `?search=` on every route change (so opening `/catalog?search=дрель` pre-fills the input)
 - The `HeaderSearchBar` is a stable component declared outside `Header()` so React preserves the input DOM node — mobile keyboards do NOT close after each character
+- **Autocomplete dropdown (Stage UI-1):** при вводе ≥2 символов появляется выпадающий список — до 4 листингов + до 2 совпадающих категорий. Дебаунс 250мс, `AnimatePresence` анимация, закрытие по Escape/клику вовне, иконка-спиннер во время загрузки. Клик → переход на листинг или `/catalog?category=<slug>`. «Найти в каталоге» всегда последний пункт.
 
 **Region selector:** Persists across pages via `useRegion` context. On `/catalog`, changing the region updates the URL `?region=` param.
 

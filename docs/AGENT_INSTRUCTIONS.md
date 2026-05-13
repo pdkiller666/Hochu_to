@@ -14,16 +14,21 @@
 - **Бот**: `@Helper251223_bot` — онлайн, токен в секрете `TELEGRAM_BOT_TOKEN`
 - **API**: порт 8080 · **Фронт**: порт 5000 (workflow `Start application`)
 
-### 🔜 BACKLOG — Мобильный UX (приоритет, зафиксировано 13.05.2026)
-Анализ топовых маркетплейсов (AliExpress, Ozon, Avito) показал 5 ключевых улучшений:
+### ✅ BACKLOG — Мобильный UX (ВЫПОЛНЕНО 13.05.2026 — Stage UI-1)
+Анализ топовых маркетплейсов (AliExpress, Ozon, Avito) показал 5 ключевых улучшений. **Все реализованы.**
 
-| # | Что | Приоритет | Файлы |
-|---|-----|-----------|-------|
-| **M-1** | **Нижняя навигация (Bottom Tab Bar)** — Поиск/Каталог/Избранное/Чаты/Профиль. Самое критичное для мобиля | 🔥🔥🔥 | Новый компонент `BottomNav.tsx`, `App.tsx` (layout) |
-| **M-2** | **Бейдж доступности на карточке** — «Свободно сегодня», «Занято до 20 мая» | 🔥🔥🔥 | `ListingCard.tsx`, API `/listings` |
-| **M-3** | **Категории-иконки горизонтальный скролл** под поиском на главной и каталоге (как Avito) | 🔥🔥 | `Home.tsx`, `Catalog.tsx` |
-| **M-4** | **Кнопка «Арендовать» прямо на карточке** — без перехода внутрь | 🔥🔥 | `ListingCard.tsx` |
-| **M-5** | **Район/локация на карточке** — «р-н Центральный» без клика | 🔥🔥 | `ListingCard.tsx`, `listings` API |
+| # | Что | Статус | Файлы |
+|---|-----|--------|-------|
+| **M-1** | **Нижняя навигация (Bottom Tab Bar)** — Главная/Каталог/Избранное/Чаты/Профиль | ✅ Done | `BottomNav.tsx` (новый), `Layout.tsx` |
+| **M-2** | **Бейдж доступности на карточке** — «Свободно» / «Занято» | ✅ Done | `ListingCard.tsx` |
+| **M-3** | **Категории горизонтальный скролл** под поиском на главной и в каталоге | ✅ Done | `Home.tsx`, `Catalog.tsx` |
+| **M-4** | **Кнопка «Арендовать» прямо на карточке** | ✅ Done | `ListingCard.tsx` |
+| **M-5** | **Город/локация чипом на карточке** | ✅ Done | `ListingCard.tsx` |
+
+Дополнительно реализованы в Stage UI-1:
+- **Поиск-дропдаун** в хедере (автодополнение: листинги + категории, 250мс дебаунс)
+- **Полноэкранная подпись** в DigitalActUpload + `userRole` логика (правильная сторона сделки)
+- **Picker позиции кадра** в ListingForm (3×3 grid, кодируется как `#pos=top_left` в URL фото)
 
 ### Что НЕЛЬЗЯ ломать (критические инварианты)
 | Инвариант | Где |
@@ -71,6 +76,7 @@ pnpm monorepo
 - **Stage 38-UE — Universal SMS Adapter** (**✅ 02.05.2026**) — горячесменный SMS-провайдер (MTS Exolve / SMSC / Stream Telecom), circuit breaker (Telegram 60s → SMS fallback), OTP верификация телефона. Таб «Интеграции» в AdminPage. Секция «Верификация телефона» в Dashboard.
 - **Stage 39 — Fintech Core & Escrow Engine** (**✅ 02.05.2026**) — атомарные кошельки с SELECT FOR UPDATE, escrow hold/release/payout, комиссия Math.ceil. Таб «Кошелёк» в Dashboard. WalletStatsCard в AdminPage → Выплаты. API `/wallet/*`.
 - **Telegram debug-fix** (**✅ 13.05.2026**) — 4 бага продакшна: (1) `.trim()` на токене в `initTelegramBot()`, (2) `launch({ dropPendingUpdates: true })` + retry 15s при 409 Conflict, (3) поле `telegramEnv` в ответе `/admin/telegram/status` (было `env` → фронт читал неверно), (4) `botUsername` в `/api/telegram/status` + кликабельная ссылка на бота в Dashboard OTP-инструкциях. **Важно для Amvera**: задать `TELEGRAM_BOT_TOKEN` в Variables и в AdminPage → Telegram-бот переключить env Dev → Prod.
+- **Stage UI-1 — Мобильный UX + Search + Photo** (**✅ 13.05.2026**) — M-1..M-5 + поиск-дропдаун + фуллскрин подпись + picker кадра. Подробности в секции ниже.
 
 ### Следующие кандидаты Stage 40+
 - Stage 21b: контакты через ЮKassa (real-branching в `contacts.ts`)
@@ -3572,4 +3578,52 @@ feat(stage38): Telegram bot integration — OTP linking, hot-swap, broadcast, no
 
 ```bash
 feat(stage39): Fintech Core & Escrow Engine — atomic wallets, escrow hold/release/payout, paymentProvider toggle, WalletSection UI, WalletStatsCard admin
+```
+
+---
+
+## Stage UI-1 — Мобильный UX + Search + Photo Position (13.05.2026) ✅
+
+### Цель
+5 мобильных UX-улучшений (M-1..M-5) по образцу Avito/Ozon/AliExpress + поиск-дропдаун в хедере + полноэкранная подпись в Цифровом Акте + picker позиции кадра в форме объявления.
+
+### Изменённые файлы
+| Файл | Что изменено |
+|------|-------------|
+| `artifacts/hochu-to/src/components/BottomNav.tsx` | **НОВЫЙ** — 5-кнопочная нижняя навигация (Главная/Каталог/Избранное/Чаты/Профиль), только мобильные (`md:hidden`), активный таб подсвечивается primary-цветом, бейдж непрочитанных чатов |
+| `artifacts/hochu-to/src/components/layout/Layout.tsx` | Подключён `<BottomNav>`, добавлен `pb-14 md:pb-0` для основного контента, `<Footer>` скрыт на мобильных |
+| `artifacts/hochu-to/src/components/layout/Header.tsx` | Поиск-дропдаун: `HeaderSearchBar` → `DropdownItem[]` тип, fetch `/api/listings?search=&limit=5` + `/api/categories`, дебаунс 250мс, `AnimatePresence`, закрытие по Escape/click-outside. Убран `overflow-hidden` с родительского div |
+| `artifacts/hochu-to/src/components/ui/ListingCard.tsx` | M-2: бейдж «Свободно» (emerald) / «Занято» (stone). M-4: кнопка «Арендовать». M-5: city-чип под названием. `parsePhotoUrl()` для `#pos=` → CSS `object-position` |
+| `artifacts/hochu-to/src/components/DigitalActUpload.tsx` | `userRole` prop (`"owner" \| "renter"`), блокировка кнопки для неправильной стороны, баннер «Этот акт подписывает [другая_сторона]», fullscreen SignaturePad overlay |
+| `artifacts/hochu-to/src/pages/Dashboard.tsx` | Тип `digitalActModal` расширен `userRole`, все 4 кнопки `setDigitalActModal` получили корректный `userRole`, `<DigitalActUpload userRole=…>` |
+| `artifacts/hochu-to/src/pages/Home.tsx` | M-3: горизонтальный скролл категорий-пилюль (с иконками из `POPULAR_CATEGORIES`), sticky под хедером |
+| `artifacts/hochu-to/src/pages/Catalog.tsx` | M-3: горизонтальный скролл категорий (API-данные с кол-вом объявлений), активная подсвечена primary, клик меняет URL `?category=` |
+| `artifacts/hochu-to/src/pages/ListingForm.tsx` | `photoPositions: string[]` state + `pickerIdx` state; 3×3 picker overlay на каждом фото (↖↑↗ ←○→ ↙↓↘); позиция кодируется в URL как `#pos=top_left`; decode при загрузке существующего объявления |
+
+### Логика `userRole` в DigitalActUpload
+- `type="check_in"` + `userRole="owner"` → owner передаёт вещь → кнопка активна для него
+- `type="check_in"` + `userRole="renter"` → рентер открыл не свой акт → баннер-предупреждение
+- `type="check_out"` + `userRole="renter"` → рентер возвращает → кнопка активна
+- `type="check_out"` + `userRole="owner"` → владелец открыл не свой акт → баннер-предупреждение
+
+### Логика photo position
+- Позиции хранятся в `photoPositions: string[]` (параллельный массив с `photos`)
+- При сохранении кодируются: `url + "#pos=top_left"` (если не `"center"`)
+- `parsePhotoUrl(url)` в `ListingCard.tsx`: `url.split("#pos=")` → `{ src, position }`
+- CSS: `<img style={{ objectPosition: position }}>` — точный кадр фото
+
+### Инварианты, которые нельзя нарушать
+- `photos` и `photoPositions` всегда одной длины — обновляются синхронно во всех операциях (upload/remove/setMain/addByUrl)
+- `#pos=` суффикс стрипается перед передачей в `<img src>` через `getPhotoSrc(url)`
+- `userRole` — обязательный prop DigitalActUpload (TypeScript)
+
+### Тест-сьют (ручная проверка)
+- ✅ Каталог: категории-скролл, фильтр по категории, бейдж «Свободно», кнопка «Арендовать», city-чип
+- ✅ Главная: категории-скролл sticky под хедером
+- ✅ Хедер: дропдаун при вводе ≥2 символов, Escape закрывает, клик на листинг переходит
+- ✅ ListingForm: кнопка ⛶ на фото → picker → позиция применяется сразу в превью
+- ✅ Мобиль: BottomNav видна, Footer скрыт, pb-14 предотвращает перекрытие
+
+```bash
+feat(stage-ui1): Mobile UX M1-M5 + search dropdown + fullscreen signature + photo position picker
 ```
