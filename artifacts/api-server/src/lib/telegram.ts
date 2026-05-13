@@ -1,17 +1,18 @@
 /**
  * Stage 38 — Telegram Bot Integration (lib/telegram.ts)
+ * Migrated to grammy (native fetch, Node.js v22/v24 compatible)
  *
  * Возможности:
  *  - Динамическая инициализация бота из platform_settings.telegramBotToken
  *  - Hot-swap токена без перезапуска сервера
- *  - OTP-привязка аккаунта через /start или /link <code>
- *  - Ролевая рассылка персоналу (notifyStaffByRole)
+ *  - OTP-привязка аккаунта через /start <otp> или /link <otp>
+ *  - Ролевая рассылка (notifyStaffByRole)
  *  - Массовая рассылка (broadcastToAll) с логированием в audit_events
  *  - Dev-режим: рассылка только superadmin'ам (telegramEnv = 'dev')
  *  - 3 попытки повторной отправки, truncate до 4096 символов
  */
 
-import { Telegraf } from "telegraf";
+import { Bot } from "grammy";
 import { db, usersTable } from "@workspace/db";
 import { eq, inArray } from "drizzle-orm";
 import { getPlatformSettings } from "./platform-settings.js";
@@ -25,7 +26,7 @@ const TG_RETRY_BASE_MS = 800;
 type NotifPrefs = { bookings: boolean; system: boolean; chats: boolean };
 const DEFAULT_PREFS: NotifPrefs = { bookings: true, system: true, chats: true };
 
-let bot: Telegraf | null = null;
+let bot: Bot | null = null;
 let activeToken: string | null = null;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -49,10 +50,10 @@ async function sendMsg(
     try {
       const extra: any = { parse_mode: "HTML" };
       if (link) extra.reply_markup = { inline_keyboard: [[{ text: "Открыть →", url: link }]] };
-      await bot.telegram.sendMessage(chatId, body, extra);
+      await bot.api.sendMessage(Number(chatId), body, extra);
       return true;
     } catch (err: any) {
-      const code: number = err?.response?.error_code ?? 0;
+      const code: number = err?.error_code ?? 0;
       const retryable = err?.code === "ETIMEOUT" || err?.code === "ECONNREFUSED" || [429, 500, 502, 503].includes(code);
       if (i < TG_RETRIES && retryable) {
         await sleep(TG_RETRY_BASE_MS * 2 ** i);
@@ -107,53 +108,60 @@ async function handleOtp(ctx: any, otp: string) {
 // ── Bot lifecycle ──────────────────────────────────────────────────────────────
 
 async function startBot(token: string): Promise<void> {
-  // Stop existing bot gracefully
   if (bot) {
-    try { await (bot as any).stop("new_token"); } catch {}
+    try { bot.stop(); } catch {}
     bot = null; activeToken = null;
+    await sleep(1000);
   }
 
-  const b = new Telegraf(token);
+  const b = new Bot(token);
 
-  // Validate token
-  const me = await b.telegram.getMe(); // throws if invalid
+  const me = await b.api.getMe();
   logger.info({ username: me.username }, "[tg] bot connected");
 
-  // /start <otp>
-  b.start(async (ctx) => {
-    const parts = (ctx.message?.text ?? "").split(" ");
-    if (parts[1]) { await handleOtp(ctx, parts[1]); return; }
+  b.command("start", async (ctx) => {
+    const payload = (ctx.match ?? "").trim();
+    if (payload) { await handleOtp(ctx, payload); return; }
     await ctx.reply("👋 Привет! Чтобы привязать аккаунт Хочу_То, напиши:\n/link 123456\n\nКод получи в настройках профиля на сайте.");
   });
 
-  // /link <otp>
   b.command("link", async (ctx) => {
-    const otp = (ctx.message?.text ?? "").split(" ")[1] ?? "";
+    const otp = (ctx.match ?? "").trim();
     if (!otp) { await ctx.reply("❌ Укажи код: /link 123456\n\nКод можно получить в настройках профиля."); return; }
     await handleOtp(ctx, otp);
   });
 
-  b.launch({ dropPendingUpdates: true }).catch((err: any) => {
-    if (err?.message?.includes("new_token") || err?.message?.includes("graceful_shutdown")) return;
-    // 409 Conflict: старый экземпляр ещё поллит — ждём и пробуем снова
-    const is409 = err?.response?.error_code === 409 || (err?.message ?? "").toLowerCase().includes("conflict");
+  b.catch((err: any) => {
+    const is409 = err?.error?.error_code === 409 || (err?.message ?? "").toLowerCase().includes("conflict");
     if (is409) {
       logger.warn("[tg] polling conflict (409), retry in 15s");
       setTimeout(() => {
-        if (activeToken) startBot(activeToken).catch(e => logger.error({ e }, "[tg] conflict-retry failed"));
+        if (activeToken === token) startBot(activeToken).catch(e => logger.error({ e }, "[tg] conflict-retry failed"));
       }, 15_000);
       return;
     }
-    logger.error({ err }, "[tg] polling error");
+    logger.error({ err: err?.message ?? err }, "[tg] polling error");
   });
 
   bot = b;
   activeToken = token;
+
+  b.start({ drop_pending_updates: true }).catch((err: any) => {
+    if (err?.message?.includes("Bot is being stopped")) return;
+    const is409 = err?.error_code === 409 || (err?.message ?? "").toLowerCase().includes("conflict");
+    if (is409) {
+      logger.warn("[tg] launch conflict (409), retry in 15s");
+      setTimeout(() => {
+        if (activeToken === token) startBot(activeToken).catch(e => logger.error({ e }, "[tg] conflict-retry failed"));
+      }, 15_000);
+      return;
+    }
+    logger.error({ err }, "[tg] launch error");
+  });
 }
 
 // ── Public API ─────────────────────────────────────────────────────────────────
 
-/** Инициализация при старте сервера — читает токен из platform_settings, fallback на env. */
 export async function initTelegramBot(): Promise<void> {
   try {
     const s = await getPlatformSettings();
@@ -165,14 +173,13 @@ export async function initTelegramBot(): Promise<void> {
   }
 }
 
-/** Горячая смена токена через AdminPage. */
 export async function hotSwapToken(
   newToken: string,
   adminId?: number,
 ): Promise<{ ok: true; username: string } | { ok: false; error: string }> {
   try {
     await startBot(newToken);
-    const me = await bot!.telegram.getMe();
+    const me = await bot!.api.getMe();
     logger.info({ username: me.username, adminId }, "[tg] hot-swap success");
     return { ok: true, username: me.username ?? "" };
   } catch (err: any) {
@@ -185,22 +192,16 @@ export async function hotSwapToken(
   }
 }
 
-/** Статус бота для AdminPage (Online / Offline). */
 export async function getBotStatus(): Promise<{ online: true; username: string } | { online: false; error?: string }> {
   if (!bot || !activeToken) return { online: false };
   try {
-    const me = await bot.telegram.getMe();
+    const me = await bot.api.getMe();
     return { online: true, username: me.username ?? "" };
   } catch (err: any) {
     return { online: false, error: err?.message };
   }
 }
 
-/**
- * Отправить уведомление конкретному пользователю.
- * В режиме dev — только superadmin'ам.
- * Учитывает preferences.
- */
 export async function sendTelegramToUser(
   userId: number,
   category: keyof NotifPrefs,
@@ -231,9 +232,6 @@ export async function sendTelegramToUser(
   }
 }
 
-/**
- * Ролевая рассылка сотрудникам (arbiter, moderator, support, …).
- */
 export async function notifyStaffByRole(
   roles: string[],
   text: string,
@@ -266,11 +264,6 @@ export function isValidBroadcastRole(r: string): r is TgBroadcastRole {
   return (VALID_ROLES as readonly string[]).includes(r);
 }
 
-/**
- * Массовая рассылка всем пользователям с привязанным Telegram.
- * Если role указана — только пользователи с этой ролью.
- * Логирует событие в audit_events (тип: notification_broadcast_sent).
- */
 export async function broadcastToAll(
   text: string,
   link?: string,
@@ -291,7 +284,7 @@ export async function broadcastToAll(
       if (role && u.role !== role) continue;
       const ok = await sendMsg(u.telegramChatId, text, link);
       ok ? sent++ : failed++;
-      await sleep(50); // ~20 msg/sec — safe Telegram rate
+      await sleep(50);
     }
 
     await recordAuditEvent({
@@ -309,7 +302,7 @@ export async function broadcastToAll(
 
 export function stopBot() {
   if (bot) {
-    (bot as any).stop("graceful_shutdown").catch(() => {});
+    try { bot.stop(); } catch {}
     bot = null; activeToken = null;
   }
 }
