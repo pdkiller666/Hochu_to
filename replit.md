@@ -611,6 +611,8 @@ DB поле `boosted_until` (timestamp). Сортировка `?sort=new` уже
 
 ### ✅ Закрытые этапы (последние)
 
+- **Telegram prod-fix** (**✅ 13.05.2026**) — Отладка Telegram на деплое Amvera. 4 бага: (1) добавлен `.trim()` к токену в `initTelegramBot()` (env с `\n` → 401), (2) `launch({ dropPendingUpdates: true })` + retry 15s при 409 Conflict при рестарте контейнера, (3) исправлен field mismatch в `GET /admin/telegram/status` (`env` → `telegramEnv`), (4) добавлен `botUsername` в `GET /api/telegram/status` — Dashboard показывает кликабельную ссылку `@username` в OTP-инструкциях. Обновлены инварианты в AGENT_INSTRUCTIONS.md. **После деплоя**: задать `TELEGRAM_BOT_TOKEN` в Amvera Variables + AdminPage → Telegram-бот → переключить env Dev → Prod.
+
 - **Stage 38-UE — Universal SMS Adapter** (**✅ 02.05.2026**) — Горячесменный SMS-адаптер с circuit breaker и верификацией телефона.
   - **DB:** `platform_settings` +6 SMS-полей (`sms_enabled`, `sms_provider`, `sms_api_key`, `sms_api_secret`, `sms_sender_name`, `sms_api_url`). `users` +3 полей (`phone_verified`, `phone_otp`, `phone_otp_expires_at`).
   - **SMS Library (`lib/sms/`):** `types.ts` (SmsProvider интерфейс), `mts-exolve.ts` (Bearer-токен, REST), `smsc.ts` (логин/пароль, GET), `stream-telecom.ts` (Basic Auth, REST), `factory.ts` (singleton `initSmsProvider`/`hotSwapSmsProvider`/`getSmsProvider`, `PROVIDER_LABELS`, `PROVIDER_FIELDS` для динамического UI).

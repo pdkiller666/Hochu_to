@@ -20,10 +20,12 @@
 | Gemini хедер авторизации: **НЕ** `Authorization`, а `X-Auth-Token: Bearer …` | `lib/ai-service.ts` |
 | Gemini model: `gemini-flash-latest` (не `gemini-1.5-flash` — 404) | `lib/ai-service.ts` |
 | Amvera messages field: `text` (не `content`) | `lib/ai-service.ts` |
-| `.trim()` на всех API-ключах (хвостовой `\n` → загадочный 401) | `lib/ai-service.ts` |
+| `.trim()` на всех API-ключах (хвостовой `\n` → загадочный 401) | `lib/ai-service.ts`, `lib/telegram.ts` |
 | `sharp` в `dependencies` (не `devDependencies`) — иначе prod-сборка падает | `artifacts/api-server/package.json` |
 | `seedDefaultAdmin` делает роль `superadmin` (не `admin`) — идемпотентно | `index.ts` |
 | Hot-swap telegram токена: **await** + DB rollback при 401 | `lib/telegram.ts:hotSwapToken` |
+| Telegram `launch({ dropPendingUpdates: true })` — обязательно при prod-деплое | `lib/telegram.ts:startBot` |
+| `telegramEnv` по умолчанию `"dev"` в БД — на проде вручную ставить `"prod"` | AdminPage → Telegram-бот |
 | Broadcast валидирует роль через `isValidBroadcastRole()` → 400 при невалидной | `routes/admin.ts` |
 | Буллеты инфографики ≤32 символа (`BULLET_MAX_CHARS=16`) | `lib/image-service.ts` |
 | Webhook ЮKassa: HMAC-SHA256 обязателен в production | `routes/webhooks.ts` |
@@ -52,6 +54,7 @@ pnpm monorepo
 ### Последние закрытые этапы
 - **Stage 38-UE — Universal SMS Adapter** (**✅ 02.05.2026**) — горячесменный SMS-провайдер (MTS Exolve / SMSC / Stream Telecom), circuit breaker (Telegram 60s → SMS fallback), OTP верификация телефона. Таб «Интеграции» в AdminPage. Секция «Верификация телефона» в Dashboard.
 - **Stage 39 — Fintech Core & Escrow Engine** (**✅ 02.05.2026**) — атомарные кошельки с SELECT FOR UPDATE, escrow hold/release/payout, комиссия Math.ceil. Таб «Кошелёк» в Dashboard. WalletStatsCard в AdminPage → Выплаты. API `/wallet/*`.
+- **Telegram debug-fix** (**✅ 13.05.2026**) — 4 бага продакшна: (1) `.trim()` на токене в `initTelegramBot()`, (2) `launch({ dropPendingUpdates: true })` + retry 15s при 409 Conflict, (3) поле `telegramEnv` в ответе `/admin/telegram/status` (было `env` → фронт читал неверно), (4) `botUsername` в `/api/telegram/status` + кликабельная ссылка на бота в Dashboard OTP-инструкциях. **Важно для Amvera**: задать `TELEGRAM_BOT_TOKEN` в Variables и в AdminPage → Telegram-бот переключить env Dev → Prod.
 
 ### Следующие кандидаты Stage 40+
 - Stage 21b: контакты через ЮKassa (real-branching в `contacts.ts`)
