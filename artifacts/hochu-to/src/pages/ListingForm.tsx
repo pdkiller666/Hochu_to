@@ -108,12 +108,29 @@ export default function ListingForm() {
         const saved = localStorage.getItem(DRAFT_KEY);
         if (saved) {
           const parsed = JSON.parse(saved);
-          return parsed.photos ?? [];
+          return (parsed.photos ?? []).map((p: string) => p.split("#pos=")[0] || p);
         }
       } catch {}
     }
     return [];
   });
+
+  const [photoPositions, setPhotoPositions] = useState<string[]>(() => {
+    if (!isEditing) {
+      try {
+        const saved = localStorage.getItem(DRAFT_KEY);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          return (parsed.photos ?? []).map((p: string) => {
+            const pos = (p.split("#pos=")[1] || "").replace(/_/g, " ");
+            return pos || "center";
+          });
+        }
+      } catch {}
+    }
+    return [];
+  });
+  const [pickerIdx, setPickerIdx] = useState<number | null>(null);
 
   const [uploading, setUploading] = useState(false);
   const uploadInputId = "photo-upload-input";
@@ -239,7 +256,13 @@ export default function ListingForm() {
         meetingAddress: (listingData as any).meetingAddress || "",
         isAvailable: listingData.isAvailable,
       });
-      setPhotos(listingData.photos ?? []);
+      const rawPhotos = (listingData.photos ?? []).map((p: string) => p.split("#pos=")[0] || p);
+      const positions = (listingData.photos ?? []).map((p: string) => {
+        const pos = (p.split("#pos=")[1] || "").replace(/_/g, " ");
+        return pos || "center";
+      });
+      setPhotos(rawPhotos);
+      setPhotoPositions(positions);
     }
   }, [isEditing, listingData]);
 
@@ -277,6 +300,7 @@ export default function ListingForm() {
 
       const { urls } = await res.json() as { urls: string[] };
       setPhotos(prev => [...prev, ...urls]);
+      setPhotoPositions(prev => [...prev, ...urls.map(() => "center")]);
     } catch {
       toast({ title: "Не удалось загрузить фото", variant: "destructive" });
     } finally {
@@ -287,6 +311,7 @@ export default function ListingForm() {
 
   const removePhoto = (index: number) => {
     setPhotos(prev => prev.filter((_, i) => i !== index));
+    setPhotoPositions(prev => prev.filter((_, i) => i !== index));
   };
 
   const [urlInputOpen, setUrlInputOpen] = useState(false);
@@ -314,6 +339,7 @@ export default function ListingForm() {
         img.src = url;
       });
       setPhotos(prev => [...prev, url]);
+      setPhotoPositions(prev => [...prev, "center"]);
       setUrlValue("");
       setUrlInputOpen(false);
       toast({ title: "Фото добавлено по ссылке" });
@@ -330,10 +356,18 @@ export default function ListingForm() {
       const [picked] = next.splice(index, 1);
       return [picked, ...next];
     });
+    setPhotoPositions(prev => {
+      const next = [...prev];
+      const [picked] = next.splice(index, 1);
+      return [picked ?? "center", ...next];
+    });
   };
 
-  const getPhotoSrc = (url: string) =>
-    url.startsWith("http") ? url : `${API_BASE}${url}`;
+  const getPhotoSrc = (url: string) => {
+    const [src] = url.split("#pos=");
+    const s = src || url;
+    return s.startsWith("http") ? s : `${API_BASE}${s}`;
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -377,7 +411,10 @@ export default function ListingForm() {
       ownerProtectionEnabled: ownerProtectionForSubmit,
       deposit: depositValue,
       isAvailable: formData.isAvailable,
-      photos,
+      photos: photos.map((url, i) => {
+        const pos = photoPositions[i];
+        return pos && pos !== "center" ? `${url}#pos=${pos.replace(/ /g, "_")}` : url;
+      }),
     };
 
     if (isEditing) {
@@ -1007,35 +1044,84 @@ export default function ListingForm() {
               </label>
             ) : (
               <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
-                {photos.map((url, i) => (
-                  <div key={url + i} className="relative aspect-square rounded-xl overflow-hidden bg-muted border-2 border-border group transition-all"
-                    style={i === 0 ? { borderColor: "var(--primary)" } : {}}>
-                    <img
-                      src={getPhotoSrc(url)}
-                      alt=""
-                      className="w-full h-full object-cover"
-                      onError={e => { (e.currentTarget as HTMLImageElement).src = "https://placehold.co/200x200?text=Фото"; }}
-                    />
-                    {i === 0 ? (
-                      <span className="absolute bottom-1 left-1 bg-primary text-white text-[10px] font-bold px-1.5 py-0.5 rounded-md">★ Главное</span>
-                    ) : (
+                {photos.map((url, i) => {
+                  const currentPos = photoPositions[i] ?? "center";
+                  return (
+                    <div key={url + i} className="relative aspect-square rounded-xl overflow-hidden bg-muted border-2 border-border group transition-all"
+                      style={i === 0 ? { borderColor: "var(--primary)" } : {}}>
+                      <img
+                        src={getPhotoSrc(url)}
+                        alt=""
+                        className="w-full h-full object-cover transition-all"
+                        style={{ objectPosition: currentPos }}
+                        onError={e => { (e.currentTarget as HTMLImageElement).src = "https://placehold.co/200x200?text=Фото"; }}
+                      />
+                      {i === 0 ? (
+                        <span className="absolute bottom-1 left-1 bg-primary text-white text-[10px] font-bold px-1.5 py-0.5 rounded-md">★ Главное</span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setMainPhoto(i)}
+                          className="absolute bottom-1 left-1 right-7 bg-black/60 hover:bg-primary text-white text-[10px] font-bold px-1.5 py-0.5 rounded-md opacity-0 group-hover:opacity-100 transition-opacity truncate"
+                        >
+                          Главным
+                        </button>
+                      )}
+                      {/* Position picker toggle */}
                       <button
                         type="button"
-                        onClick={() => setMainPhoto(i)}
-                        className="absolute bottom-1 left-1 right-7 bg-black/60 hover:bg-primary text-white text-[10px] font-bold px-1.5 py-0.5 rounded-md opacity-0 group-hover:opacity-100 transition-opacity truncate"
+                        onClick={(e) => { e.stopPropagation(); setPickerIdx(pickerIdx === i ? null : i); }}
+                        className="absolute top-1 left-1 w-5 h-5 bg-black/60 hover:bg-primary text-white rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-[9px] font-bold leading-none"
+                        title="Кадрирование"
                       >
-                        Сделать главным
+                        ⛶
                       </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => removePhoto(i)}
-                      className="absolute top-1 right-1 w-6 h-6 bg-black/60 hover:bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </div>
-                ))}
+                      <button
+                        type="button"
+                        onClick={() => removePhoto(i)}
+                        className="absolute top-1 right-1 w-6 h-6 bg-black/60 hover:bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                      {/* Position picker overlay */}
+                      {pickerIdx === i && (
+                        <div className="absolute inset-0 bg-black/70 flex items-center justify-center z-10"
+                          onClick={() => setPickerIdx(null)}>
+                          <div className="bg-white/95 rounded-xl p-2.5 shadow-xl" onClick={e => e.stopPropagation()}>
+                            <p className="text-[10px] font-bold text-center text-muted-foreground mb-1.5">Фокус кадра</p>
+                            <div className="grid grid-cols-3 gap-1">
+                              {([
+                                ["top left", "↖"], ["top", "↑"], ["top right", "↗"],
+                                ["left", "←"], ["center", "○"], ["right", "→"],
+                                ["bottom left", "↙"], ["bottom", "↓"], ["bottom right", "↘"],
+                              ] as [string, string][]).map(([pos, icon]) => (
+                                <button
+                                  key={pos}
+                                  type="button"
+                                  onClick={() => {
+                                    setPhotoPositions(prev => {
+                                      const next = [...prev];
+                                      while (next.length <= i) next.push("center");
+                                      next[i] = pos;
+                                      return next;
+                                    });
+                                    setPickerIdx(null);
+                                  }}
+                                  className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold transition-colors ${
+                                    currentPos === pos ? "bg-primary text-white" : "hover:bg-primary/20 text-foreground"
+                                  }`}
+                                  title={pos}
+                                >
+                                  {icon}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
                 {photos.length < 10 && (
                   <label
                     htmlFor={uploadInputId}

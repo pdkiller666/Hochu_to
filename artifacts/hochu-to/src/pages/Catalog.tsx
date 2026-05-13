@@ -212,6 +212,38 @@ export default function Catalog() {
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
 
+          {/* M-3: Горизонтальный скролл категорий */}
+          {categories && categories.length > 0 && (
+            <div className="flex gap-1.5 overflow-x-auto py-2 scrollbar-none [-ms-overflow-style:none] [scrollbar-width:none] border-b border-border/40">
+              <button
+                onClick={() => setCategory("")}
+                className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-semibold transition-colors border ${
+                  !category
+                    ? "bg-primary text-white border-primary"
+                    : "bg-white border-border hover:border-primary hover:text-primary text-foreground"
+                }`}
+              >
+                Все
+              </button>
+              {categories.map((cat) => (
+                <button
+                  key={cat.id}
+                  onClick={() => setCategory(cat.slug)}
+                  className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-semibold transition-colors border whitespace-nowrap ${
+                    category === cat.slug
+                      ? "bg-primary text-white border-primary"
+                      : "bg-white border-border hover:border-primary hover:text-primary text-foreground"
+                  }`}
+                >
+                  {cat.name}
+                  {(cat as any).listingCount > 0 && (
+                    <span className="ml-1 opacity-60">{(cat as any).listingCount}</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+
           {/* Toggle bar — всегда видим, открывает/скрывает панель */}
           <div className="pt-3 pb-2 flex items-center gap-2 flex-wrap">
             <button

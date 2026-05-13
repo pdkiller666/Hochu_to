@@ -1,5 +1,5 @@
 import { Link, useLocation, useSearch } from "wouter";
-import { MapPin, Menu, X, LogOut, Crosshair, Loader2, Bell, Heart, Shield, Search } from "lucide-react";
+import { MapPin, Menu, X, LogOut, Crosshair, Loader2, Bell, Heart, Shield, Search, ChevronRight, LayoutGrid } from "lucide-react";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuthState, getToken, getAuthHeaders } from "@/lib/auth";
@@ -79,6 +79,11 @@ interface SearchBarProps {
  * URL `?search=` is read on mount + on pathname changes (so navigating from
  * the header to /catalog?search=foo or vice versa pre-fills the input).
  */
+type DropdownItem =
+  | { kind: "listing"; id: number; title: string; photo?: string; pricePerDay: number; regionName?: string }
+  | { kind: "category"; slug: string; name: string; count: number }
+  | { kind: "search"; query: string };
+
 function HeaderSearchBar({ className, inputClassName }: SearchBarProps) {
   const [location, navigate] = useLocation();
   const searchStr = useSearch();
@@ -86,10 +91,13 @@ function HeaderSearchBar({ className, inputClassName }: SearchBarProps) {
     if (typeof window === "undefined") return "";
     return new URLSearchParams(window.location.search).get("search") || "";
   });
-  // Last value we navigated to — prevents re-triggering nav when URL was set by us
   const lastNavValue = useRef(value);
+  const [dropItems, setDropItems] = useState<DropdownItem[]>([]);
+  const [showDrop, setShowDrop] = useState(false);
+  const [loadingDrop, setLoadingDrop] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  // Pre-fill input when URL ?search= changes due to navigation
   useEffect(() => {
     const sp = new URLSearchParams(searchStr);
     const urlV = sp.get("search") || "";
@@ -97,7 +105,6 @@ function HeaderSearchBar({ className, inputClassName }: SearchBarProps) {
     lastNavValue.current = urlV;
   }, [searchStr, location]);
 
-  // Live debounced search on /catalog: auto-navigate ~350ms after user stops typing
   useEffect(() => {
     if (location !== "/catalog") return;
     const q = value.trim();
@@ -111,46 +118,165 @@ function HeaderSearchBar({ className, inputClassName }: SearchBarProps) {
     return () => clearTimeout(t);
   }, [value, location, navigate]);
 
+  // Autocomplete dropdown
+  useEffect(() => {
+    const q = value.trim();
+    if (q.length < 2) { setDropItems([]); setShowDrop(false); return; }
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      setLoadingDrop(true);
+      try {
+        const [listRes, catRes] = await Promise.all([
+          fetch(`${API_BASE}/api/listings?search=${encodeURIComponent(q)}&limit=5`).then(r => r.json()),
+          fetch(`${API_BASE}/api/categories`).then(r => r.json()),
+        ]);
+        if (cancelled) return;
+        const listings: DropdownItem[] = ((listRes.listings ?? listRes.data ?? listRes) as any[])
+          .slice(0, 4)
+          .map(l => ({ kind: "listing" as const, id: l.id, title: l.title, photo: l.photos?.[0], pricePerDay: Number(l.pricePerDay), regionName: l.regionName }));
+        const cats: DropdownItem[] = (catRes as any[])
+          .filter(c => c.name?.toLowerCase().includes(q.toLowerCase()))
+          .slice(0, 2)
+          .map(c => ({ kind: "category" as const, slug: c.slug, name: c.name, count: c.listingCount ?? 0 }));
+        const items: DropdownItem[] = [...cats, ...listings];
+        if (items.length > 0) items.push({ kind: "search", query: q });
+        setDropItems(items.length > 0 ? items : [{ kind: "search", query: q }]);
+        setShowDrop(true);
+      } catch {
+        setDropItems([{ kind: "search", query: value.trim() }]);
+        setShowDrop(true);
+      } finally {
+        if (!cancelled) setLoadingDrop(false);
+      }
+    }, 250);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [value]);
+
+  useEffect(() => {
+    function handler(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setShowDrop(false);
+    }
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const q = value.trim();
     const sp = new URLSearchParams(window.location.search);
     if (q) sp.set("search", q); else sp.delete("search");
     lastNavValue.current = q;
+    setShowDrop(false);
     navigate(`/catalog?${sp.toString()}`);
   };
 
+  const pick = (item: DropdownItem) => {
+    setShowDrop(false);
+    if (item.kind === "listing") { navigate(`/listings/${item.id}`); return; }
+    if (item.kind === "category") {
+      const sp = new URLSearchParams();
+      sp.set("category", item.slug);
+      navigate(`/catalog?${sp.toString()}`);
+      return;
+    }
+    lastNavValue.current = item.query;
+    navigate(`/catalog?search=${encodeURIComponent(item.query)}`);
+  };
+
   return (
-    <form onSubmit={handleSubmit} className={cn("flex items-center gap-2 group", className)} role="search">
-      <Search className="w-4 h-4 text-muted-foreground flex-shrink-0 group-focus-within:text-primary transition-colors" />
-      <input
-        type="search"
-        enterKeyHint="search"
-        autoComplete="off"
-        autoCorrect="off"
-        autoCapitalize="off"
-        spellCheck={false}
-        value={value}
-        onChange={e => setValue(e.target.value)}
-        placeholder="Найти вещь для аренды..."
-        className={cn("flex-1 bg-transparent outline-none text-sm placeholder:text-muted-foreground appearance-none [&::-webkit-search-cancel-button]:hidden", inputClassName)}
-      />
-      <button
-        type="button"
-        onClick={() => setValue("")}
-        aria-label="Очистить"
-        tabIndex={-1}
-        className={cn(
-          "text-muted-foreground hover:text-foreground transition-opacity flex-shrink-0",
-          value ? "opacity-100" : "opacity-0 pointer-events-none"
+    <div ref={wrapRef} className={cn("relative min-w-0", className)}>
+      <form onSubmit={handleSubmit} className="flex items-center gap-2 group w-full" role="search">
+        {loadingDrop
+          ? <Loader2 className="w-4 h-4 text-primary animate-spin flex-shrink-0" />
+          : <Search className="w-4 h-4 text-muted-foreground flex-shrink-0 group-focus-within:text-primary transition-colors" />
+        }
+        <input
+          ref={inputRef}
+          type="search"
+          enterKeyHint="search"
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
+          value={value}
+          onChange={e => setValue(e.target.value)}
+          onFocus={() => { if (dropItems.length > 0) setShowDrop(true); }}
+          onKeyDown={e => { if (e.key === "Escape") { setShowDrop(false); inputRef.current?.blur(); } }}
+          placeholder="Найти вещь для аренды..."
+          className={cn("flex-1 bg-transparent outline-none text-sm placeholder:text-muted-foreground appearance-none [&::-webkit-search-cancel-button]:hidden min-w-0", inputClassName)}
+        />
+        <button
+          type="button"
+          onClick={() => { setValue(""); setShowDrop(false); }}
+          aria-label="Очистить"
+          tabIndex={-1}
+          className={cn(
+            "text-muted-foreground hover:text-foreground transition-opacity flex-shrink-0",
+            value ? "opacity-100" : "opacity-0 pointer-events-none"
+          )}
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+        <button type="submit" className="hidden 2xl:block btn-primary py-1.5 px-4 text-xs rounded-lg flex-shrink-0">
+          Найти
+        </button>
+      </form>
+
+      <AnimatePresence>
+        {showDrop && dropItems.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.13 }}
+            className="absolute top-full left-0 right-0 mt-2 bg-white rounded-xl border border-border shadow-2xl z-[60] overflow-hidden"
+            style={{ minWidth: 260 }}
+          >
+            {dropItems.map((item, idx) => {
+              if (item.kind === "category") return (
+                <button key={`cat-${item.slug}`} onClick={() => pick(item)}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-muted/60 transition-colors text-left border-b border-border/40 last:border-0">
+                  <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+                    <LayoutGrid className="w-4 h-4 text-primary" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold truncate">{item.name}</p>
+                    <p className="text-xs text-muted-foreground">{item.count > 0 ? `${item.count} объявлений` : "Категория"}</p>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                </button>
+              );
+              if (item.kind === "listing") return (
+                <button key={`lst-${item.id}`} onClick={() => pick(item)}
+                  className="w-full flex items-center gap-3 px-4 py-2 hover:bg-muted/60 transition-colors text-left border-b border-border/40 last:border-0">
+                  <div className="w-10 h-10 rounded-lg overflow-hidden bg-muted flex-shrink-0">
+                    {item.photo
+                      ? <img src={item.photo.startsWith("http") ? item.photo : `${API_BASE}${item.photo.split("#")[0]}`} alt="" className="w-full h-full object-cover" />
+                      : <div className="w-full h-full bg-muted" />
+                    }
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold truncate">{item.title}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {Math.round(item.pricePerDay).toLocaleString("ru")} ₽/сут
+                      {item.regionName ? ` • ${item.regionName}` : ""}
+                    </p>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                </button>
+              );
+              return (
+                <button key="search-all" onClick={() => pick(item)}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-primary/5 transition-colors text-left border-t border-border/60">
+                  <Search className="w-4 h-4 text-primary flex-shrink-0" />
+                  <span className="text-sm text-primary font-medium">Найти «{item.query}» в каталоге</span>
+                </button>
+              );
+            })}
+          </motion.div>
         )}
-      >
-        <X className="w-3.5 h-3.5" />
-      </button>
-      <button type="submit" className="hidden 2xl:block btn-primary py-1.5 px-4 text-xs rounded-lg flex-shrink-0">
-        Найти
-      </button>
-    </form>
+      </AnimatePresence>
+    </div>
   );
 }
 
@@ -325,7 +451,7 @@ export function Header() {
           </Link>
 
           {/* Desktop Search Bar — center, takes most space */}
-          <div className="hidden md:flex flex-1 min-w-[160px] overflow-hidden mx-2 items-center bg-white border border-border rounded-xl px-3 py-2 shadow-sm focus-within:ring-2 focus-within:ring-primary/30 focus-within:border-primary/50 transition-all">
+          <div className="hidden md:flex flex-1 min-w-[160px] mx-2 items-center bg-white border border-border rounded-xl px-3 py-2 shadow-sm focus-within:ring-2 focus-within:ring-primary/30 focus-within:border-primary/50 transition-all">
             <HeaderSearchBar className="w-full min-w-0" />
           </div>
 

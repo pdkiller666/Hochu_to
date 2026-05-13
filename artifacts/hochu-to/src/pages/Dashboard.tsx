@@ -204,7 +204,7 @@ export default function Dashboard() {
   const [submitClaimBooking, setSubmitClaimBooking] = useState<{ id: number; bookingNumber?: string | null; listingTitle?: string | null; maxProtectionLimit?: number | null } | null>(null);
   const [claimRefreshNonce, setClaimRefreshNonce] = useState(0);
   // Stage 22a — модалка Цифрового акта (Check-in / Check-out)
-  const [digitalActModal, setDigitalActModal] = useState<{ bookingId: number; type: DigitalActKind } | null>(null);
+  const [digitalActModal, setDigitalActModal] = useState<{ bookingId: number; type: DigitalActKind; userRole: "owner" | "renter" } | null>(null);
   const [reviewedIds, setReviewedIds] = useState<Set<number>>(new Set());
   const [reviewRating, setReviewRating] = useState(0);
   const [reviewHover, setReviewHover] = useState(0);
@@ -798,7 +798,7 @@ export default function Dashboard() {
           description: "Загрузите минимум 4 фото вещи перед передачей.",
           variant: "destructive",
         });
-        setDigitalActModal({ bookingId, type: "check_in" });
+        setDigitalActModal({ bookingId, type: "check_in", userRole: "owner" });
       } else {
         toast({ title: "Не удалось изменить статус", description: msg ?? "Ошибка сервера", variant: "destructive" });
       }
@@ -1436,7 +1436,7 @@ export default function Dashboard() {
             {booking.status === "confirmed" && role === "owner" && (
               <div className="flex gap-2 flex-wrap pt-1 border-t border-border">
                 {/* Stage 22a — Цифровой акт приёмки. Backend блокирует переход active без него. */}
-                <button onClick={() => setDigitalActModal({ bookingId: booking.id, type: "check_in" })}
+                <button onClick={() => setDigitalActModal({ bookingId: booking.id, type: "check_in", userRole: "owner" })}
                   className="flex items-center gap-1.5 px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 text-sm font-semibold rounded-xl transition-colors">
                   <ShieldCheck className="w-4 h-4" />
                   Цифровой акт приёмки
@@ -1461,7 +1461,7 @@ export default function Dashboard() {
                   Ожидайте: владелец подтвердит передачу вещи
                 </div>
                 {/* Stage 22a — арендатор тоже может подгрузить свой Check-in акт. */}
-                <button onClick={() => setDigitalActModal({ bookingId: booking.id, type: "check_in" })}
+                <button onClick={() => setDigitalActModal({ bookingId: booking.id, type: "check_in", userRole: "renter" })}
                   className="flex items-center gap-1.5 px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 text-sm font-semibold rounded-xl transition-colors">
                   <ShieldCheck className="w-4 h-4" />
                   Цифровой акт приёмки
@@ -1481,7 +1481,7 @@ export default function Dashboard() {
                   Аренда идёт
                 </div>
                 {/* Stage 22a — Check-out акт перед возвратом. */}
-                <button onClick={() => setDigitalActModal({ bookingId: booking.id, type: "check_out" })}
+                <button onClick={() => setDigitalActModal({ bookingId: booking.id, type: "check_out", userRole: "renter" })}
                   className="flex items-center gap-1.5 px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 text-sm font-semibold rounded-xl transition-colors">
                   <ShieldCheck className="w-4 h-4" />
                   Цифровой акт возврата
@@ -1505,7 +1505,7 @@ export default function Dashboard() {
                   <Clock className="w-4 h-4 shrink-0" />
                   Вещь у арендатора — аренда активна
                 </div>
-                <button onClick={() => setDigitalActModal({ bookingId: booking.id, type: "check_out" })}
+                <button onClick={() => setDigitalActModal({ bookingId: booking.id, type: "check_out", userRole: "owner" })}
                   className="flex items-center gap-1.5 px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 text-sm font-semibold rounded-xl transition-colors">
                   <ShieldCheck className="w-4 h-4" />
                   Цифровой акт возврата
@@ -3673,6 +3673,7 @@ export default function Dashboard() {
         <DigitalActUpload
           bookingId={digitalActModal.bookingId}
           type={digitalActModal.type}
+          userRole={digitalActModal.userRole}
           onClose={() => setDigitalActModal(null)}
           onSuccess={() => {
             toast({

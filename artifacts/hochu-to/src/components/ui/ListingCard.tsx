@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { MapPin, Star, Heart, Info, ShieldCheck, Sparkles, Award, Flame, Crown, Zap, Tag } from "lucide-react";
+import { MapPin, Star, Heart, Info, ShieldCheck, Sparkles, Award, Flame, Crown, Zap, CheckCircle2 } from "lucide-react";
 import { Listing } from "@workspace/api-client-react";
 import { formatPrice, calculateTotalPrice, calcDeposit, type ItemCategory } from "@/lib/utils";
 import { useState } from "react";
@@ -15,8 +15,17 @@ interface ListingCardProps {
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "";
 
+function parsePhotoUrl(url: string): { src: string; position: string } {
+  const [src, posRaw] = url.split("#pos=");
+  return {
+    src: src || url,
+    position: posRaw ? posRaw.replace(/_/g, " ") : "center",
+  };
+}
+
 function getPhotoSrc(url: string) {
-  return url.startsWith("http") ? url : `${API_BASE}${url}`;
+  const { src } = parsePhotoUrl(url);
+  return src.startsWith("http") ? src : `${API_BASE}${src}`;
 }
 
 type Badge = {
@@ -32,27 +41,18 @@ function getListingBadges(listing: Listing, isCommercialMode: boolean): Badge[] 
   const l = listing as any;
   const now = Date.now();
 
-  // ── Платные (приоритет в выдаче) ──────────────────────────────
-  // В Бета-режиме никаких платных продвижений нет, бейджи скрываем чтобы
-  // не вводить пользователя в заблуждение.
   if (isCommercialMode && l.isFeatured && (!l.featuredUntil || new Date(l.featuredUntil).getTime() > now)) {
     out.push({ key: "vip", icon: Crown, label: "VIP", className: "bg-amber-100 text-amber-800 border-amber-300", tier: "paid" });
   }
   if (isCommercialMode && l.isUrgent && (!l.urgentUntil || new Date(l.urgentUntil).getTime() > now)) {
     out.push({ key: "urgent", icon: Zap, label: "Срочно", className: "bg-red-100 text-red-700 border-red-300", tier: "paid" });
   }
-
-  // ── Тип сделки ────────────────────────────────────────────────
-  // Зелёный бейдж «Безопасная сделка» — только в коммерческом режиме.
-  // В Бета-режиме защита не работает и обещать её было бы враньём, поэтому бейдж скрыт.
   if (isCommercialMode && l.ownerProtectionEnabled !== false) {
     out.push({ key: "safe", icon: ShieldCheck, label: "Безопасная сделка", className: "bg-green-50 text-green-700 border-green-200", tier: "default" });
   }
   const rating = typeof l.rating === "number" ? l.rating : 0;
   const reviewCount = typeof l.reviewCount === "number" ? l.reviewCount : 0;
-  // Stage 19b: «Часто берут» теперь считается по реальным состоявшимся сделкам
-  // (bookingCount, денормализованная колонка), а не по числу отзывов.
-  const bookingCount = typeof (l as any).bookingCount === "number" ? (l as any).bookingCount : 0;
+  const bookingCount = typeof l.bookingCount === "number" ? l.bookingCount : 0;
   if (rating >= 4.5 && reviewCount >= 3) {
     out.push({ key: "rating", icon: Star, label: "Высокий рейтинг", className: "bg-amber-50 text-amber-700 border-amber-200", tier: "earned" });
   }
@@ -68,7 +68,6 @@ function getListingBadges(listing: Listing, isCommercialMode: boolean): Badge[] 
   if (l.ownerVerified || l.ownerIsVerified) {
     out.push({ key: "verified-owner", icon: Award, label: "Проверенный владелец", className: "bg-violet-50 text-violet-700 border-violet-200", tier: "earned" });
   }
-
   return out.slice(0, 3);
 }
 
@@ -76,21 +75,29 @@ export function ListingCard({ listing }: ListingCardProps) {
   const [imgError, setImgError] = useState(false);
   const [showTooltip, setShowTooltip] = useState(false);
   const settings = usePublicSettings();
-  // Tri-state: settings ещё не загружены → ведём себя как commercial (безопасный
-  // дефолт). Скрываем коммерческие фичи ТОЛЬКО при явном isCommercialMode=false.
   const isCommercialMode = settings?.isCommercialMode !== false;
   const badges = getListingBadges(listing, isCommercialMode);
   const hasPhoto = (listing.photos?.length ?? 0) > 0 && !imgError;
-  const photoUrl = listing.photos?.[0] ? getPhotoSrc(listing.photos[0]) : null;
+  const firstPhotoRaw = listing.photos?.[0] ?? "";
+  const { src: photoSrc, position: photoPosition } = parsePhotoUrl(firstPhotoRaw);
+  const photoUrl = hasPhoto ? (photoSrc.startsWith("http") ? photoSrc : `${API_BASE}${photoSrc}`) : null;
   const { isFavorite, toggle } = useFavorites();
   const [, navigate] = useLocation();
   const fav = isFavorite(listing.id);
+
+  const city = (listing as any).city as string | undefined;
+  const isAvailable = listing.isAvailable !== false;
 
   const handleFavoriteClick = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     if (!getToken()) { navigate("/auth"); return; }
     toggle(listing.id);
+  };
+
+  const handleRentClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    navigate(`/listings/${listing.id}`);
   };
 
   return (
@@ -100,6 +107,20 @@ export function ListingCard({ listing }: ListingCardProps) {
         <span className="px-3 py-1 bg-white/90 backdrop-blur-sm text-xs font-bold rounded-full text-foreground shadow-sm">
           {listing.categoryName || "Категория"}
         </span>
+      </div>
+
+      {/* M-2: Availability badge */}
+      <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10">
+        {isAvailable ? (
+          <span className="flex items-center gap-1 px-2 py-0.5 bg-emerald-500 text-white text-[10px] font-bold rounded-full shadow-sm">
+            <CheckCircle2 className="w-3 h-3" />
+            Свободно
+          </span>
+        ) : (
+          <span className="flex items-center gap-1 px-2 py-0.5 bg-stone-700/90 text-white text-[10px] font-bold rounded-full shadow-sm">
+            Занято
+          </span>
+        )}
       </div>
 
       {/* Favorite Button */}
@@ -122,6 +143,7 @@ export function ListingCard({ listing }: ListingCardProps) {
             src={photoUrl}
             alt={listing.title}
             className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+            style={{ objectPosition: photoPosition }}
             loading="lazy"
             onError={() => setImgError(true)}
           />
@@ -129,9 +151,9 @@ export function ListingCard({ listing }: ListingCardProps) {
           <ListingPlaceholder categoryName={listing.categoryName ?? undefined} />
         )}
 
-        {!listing.isAvailable && (
-          <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-            <span className="px-4 py-2 bg-white text-foreground font-bold rounded-xl shadow-lg">Сдано</span>
+        {!isAvailable && (
+          <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+            <span className="px-4 py-2 bg-white text-foreground font-bold rounded-xl shadow-lg">Занято</span>
           </div>
         )}
         {(listing.photos?.length ?? 0) > 1 && (
@@ -142,29 +164,39 @@ export function ListingCard({ listing }: ListingCardProps) {
       </div>
 
       {/* Content */}
-      <div className="p-3 sm:p-5 flex flex-col flex-grow">
-        <div className="flex justify-between items-start mb-1.5 gap-1.5">
-          <h3 className="font-bold text-sm sm:text-lg leading-tight line-clamp-2" title={listing.title}>
+      <div className="p-3 sm:p-4 flex flex-col flex-grow">
+        <div className="flex justify-between items-start mb-1 gap-1.5">
+          <h3 className="font-bold text-sm sm:text-base leading-tight line-clamp-2" title={listing.title}>
             {listing.title}
           </h3>
           {listing.rating ? (
-            <div className="flex items-center gap-0.5 text-xs sm:text-sm font-bold bg-amber-50 text-amber-600 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-md shrink-0">
-              <Star className="w-3 sm:w-3.5 h-3 sm:h-3.5 fill-current" />
+            <div className="flex items-center gap-0.5 text-xs font-bold bg-amber-50 text-amber-600 px-1.5 py-0.5 rounded-md shrink-0">
+              <Star className="w-3 h-3 fill-current" />
               {listing.rating.toFixed(1)}
             </div>
           ) : null}
         </div>
 
-        <div className="flex items-center gap-1 text-muted-foreground text-xs sm:text-sm mb-3">
-          <MapPin className="w-3 sm:w-3.5 h-3 sm:h-3.5 shrink-0" />
+        {/* M-5: City chip */}
+        {city && (
+          <div className="mb-1">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-muted text-muted-foreground text-[10px] font-semibold rounded-full">
+              <MapPin className="w-2.5 h-2.5 shrink-0" />
+              {city}
+            </span>
+          </div>
+        )}
+
+        <div className="flex items-center gap-1 text-muted-foreground text-xs mb-2">
+          <MapPin className="w-3 h-3 shrink-0" />
           <span className="truncate">
-            {(listing as any).city
-              ? `${(listing as any).city}, ${listing.regionName || ""}`
+            {city
+              ? listing.regionName || ""
               : listing.regionName || "Регион не указан"}
           </span>
         </div>
 
-        <div className="mt-auto pt-3 border-t border-border space-y-2">
+        <div className="mt-auto pt-2.5 border-t border-border space-y-2">
           {(() => {
             const cat = ((listing as any).itemCategory ?? "tools") as ItemCategory;
             const ownerProt = (listing as any).ownerProtectionEnabled !== false;
@@ -173,16 +205,15 @@ export function ListingCard({ listing }: ListingCardProps) {
             const deposit = calcDeposit(listing.pricePerDay);
             return (
               <>
-                {/* Base price */}
                 <div className="relative min-w-0">
                   <div
-                    className="font-display font-bold text-base sm:text-xl text-primary cursor-default flex items-baseline gap-1 flex-wrap"
+                    className="font-display font-bold text-base sm:text-lg text-primary cursor-default flex items-baseline gap-1 flex-wrap"
                     onMouseEnter={() => setShowTooltip(true)}
                     onMouseLeave={() => setShowTooltip(false)}
                   >
-                    <span className="text-[10px] sm:text-xs font-semibold text-muted-foreground">от</span>
+                    <span className="text-[10px] font-semibold text-muted-foreground">от</span>
                     <span>{formatPrice(total)}</span>
-                    <span className="text-[10px] sm:text-xs font-semibold text-muted-foreground">за сутки</span>
+                    <span className="text-[10px] font-semibold text-muted-foreground">за сутки</span>
                     <Info className="w-3 h-3 text-primary/50 shrink-0 mb-0.5" />
                   </div>
 
@@ -207,15 +238,14 @@ export function ListingCard({ listing }: ListingCardProps) {
                   )}
                 </div>
 
-                {/* Бейджи */}
                 {badges.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mt-1">
+                  <div className="flex flex-wrap gap-1">
                     {badges.map(b => {
                       const Icon = b.icon;
                       return (
                         <span
                           key={b.key}
-                          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[10px] sm:text-[11px] font-semibold ${b.className}`}
+                          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md border text-[10px] font-semibold ${b.className}`}
                           title={b.label}
                         >
                           <Icon className="w-3 h-3 shrink-0" />
@@ -224,6 +254,16 @@ export function ListingCard({ listing }: ListingCardProps) {
                       );
                     })}
                   </div>
+                )}
+
+                {/* M-4: Арендовать button */}
+                {isAvailable && (
+                  <button
+                    onClick={handleRentClick}
+                    className="w-full py-1.5 text-xs font-bold rounded-lg bg-primary text-white hover:bg-primary/90 transition-colors flex items-center justify-center gap-1.5 mt-1"
+                  >
+                    Арендовать
+                  </button>
                 )}
               </>
             );
