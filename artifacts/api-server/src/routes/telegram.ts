@@ -10,6 +10,7 @@ import { db, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { requireAuth } from "../middleware/auth.js";
 import type { AuthRequest } from "../middleware/auth.js";
+import { getBotStatus } from "../lib/telegram.js";
 
 const router = Router();
 
@@ -40,11 +41,15 @@ router.get("/status", requireAuth, async (req: AuthRequest, res) => {
     .where(eq(usersTable.id, req.userId!))
     .limit(1);
 
+  const botStatus = await getBotStatus();
+  const botUsername = botStatus.online ? botStatus.username : null;
+
   res.json({
     linked: !!u?.telegramChatId,
     preferences: u?.telegramNotifications ?? { bookings: true, system: true, chats: true },
     hasOtp: !!u?.telegramOtp && (!u.telegramOtpExpiresAt || new Date(u.telegramOtpExpiresAt) > new Date()),
     otpExpiresAt: u?.telegramOtpExpiresAt ?? null,
+    botUsername,
   });
 });
 

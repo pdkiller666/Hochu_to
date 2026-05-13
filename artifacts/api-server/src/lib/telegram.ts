@@ -133,8 +133,17 @@ async function startBot(token: string): Promise<void> {
     await handleOtp(ctx, otp);
   });
 
-  b.launch().catch((err: any) => {
+  b.launch({ dropPendingUpdates: true }).catch((err: any) => {
     if (err?.message?.includes("new_token") || err?.message?.includes("graceful_shutdown")) return;
+    // 409 Conflict: старый экземпляр ещё поллит — ждём и пробуем снова
+    const is409 = err?.response?.error_code === 409 || (err?.message ?? "").toLowerCase().includes("conflict");
+    if (is409) {
+      logger.warn("[tg] polling conflict (409), retry in 15s");
+      setTimeout(() => {
+        if (activeToken) startBot(activeToken).catch(e => logger.error({ e }, "[tg] conflict-retry failed"));
+      }, 15_000);
+      return;
+    }
     logger.error({ err }, "[tg] polling error");
   });
 
@@ -148,9 +157,9 @@ async function startBot(token: string): Promise<void> {
 export async function initTelegramBot(): Promise<void> {
   try {
     const s = await getPlatformSettings();
-    const token = s.telegramBotToken ?? process.env["TELEGRAM_BOT_TOKEN"] ?? null;
-    if (!token) { logger.info("[tg] no token configured"); return; }
-    await startBot(token);
+    const rawToken = (s.telegramBotToken ?? process.env["TELEGRAM_BOT_TOKEN"] ?? "").trim();
+    if (!rawToken) { logger.info("[tg] no token configured"); return; }
+    await startBot(rawToken);
   } catch (err) {
     logger.error({ err }, "[tg] init failed (non-fatal)");
   }

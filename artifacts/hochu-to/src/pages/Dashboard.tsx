@@ -261,6 +261,7 @@ export default function Dashboard() {
   const [tgOtp, setTgOtp] = useState<{ otp: string; expiresAt: string } | null>(null);
   const [tgPrefs, setTgPrefs] = useState({ bookings: true, system: true, chats: true });
   const [tgBusy, setTgBusy] = useState(false);
+  const [tgBotUsername, setTgBotUsername] = useState<string | null>(null);
   // Stage 38-UE — Phone Verification via SMS
   const [phoneVerified, setPhoneVerified] = useState(false);
   const [smsEnabled, setSmsEnabled] = useState(false);
@@ -526,6 +527,7 @@ export default function Dashboard() {
       .then(d => {
         setTgLinked(d.linked ?? false);
         if (d.preferences) setTgPrefs(d.preferences);
+        if (d.botUsername) setTgBotUsername(d.botUsername);
       })
       .catch(() => {});
   }, [user?.id, token]);
@@ -2902,7 +2904,10 @@ export default function Dashboard() {
                             <p className="text-xs text-blue-500 mt-2">Действителен 10 минут · истекает в {new Date(tgOtp.expiresAt).toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" })}</p>
                           </div>
                           <ol className="space-y-1.5 text-sm text-muted-foreground">
-                            <li className="flex items-start gap-2"><span className="font-bold text-foreground mt-0.5">1.</span> Откройте Telegram и найдите бота платформы</li>
+                            <li className="flex items-start gap-2">
+                              <span className="font-bold text-foreground mt-0.5">1.</span>
+                              <span>Откройте Telegram{tgBotUsername ? <> и найдите бота <a href={`https://t.me/${tgBotUsername}`} target="_blank" rel="noopener noreferrer" className="font-semibold text-[#2AABEE] hover:underline">@{tgBotUsername}</a></> : " и найдите бота платформы"}</span>
+                            </li>
                             <li className="flex items-start gap-2"><span className="font-bold text-foreground mt-0.5">2.</span> Отправьте боту: <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-xs">/link {tgOtp.otp}</code></li>
                             <li className="flex items-start gap-2"><span className="font-bold text-foreground mt-0.5">3.</span> Бот подтвердит привязку — перезагрузите страницу</li>
                           </ol>

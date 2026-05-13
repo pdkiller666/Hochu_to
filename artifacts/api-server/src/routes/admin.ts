@@ -1531,7 +1531,7 @@ router.get("/telegram/status", requireAuth, requireRole("superadmin"), async (_r
   try {
     const status = await getBotStatus();
     const s = await getPlatformSettings();
-    res.json({ ...status, env: s.telegramEnv, hasToken: !!s.telegramBotToken });
+    res.json({ ...status, telegramEnv: s.telegramEnv, env: s.telegramEnv, hasToken: !!s.telegramBotToken });
   } catch (err: any) {
     res.status(500).json({ error: err?.message ?? "Unknown error" });
   }
