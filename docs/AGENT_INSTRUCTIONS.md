@@ -45,10 +45,15 @@ pnpm monorepo
 
 ### Правила работы
 1. **Язык с пользователем**: только русский
-2. **После каждой итерации**: `bash scripts/github-push.sh "Stage N: описание"` (выполняет пользователь в Shell)
+2. **После каждой итерации**: агент **сам** пушит и проверяет — см. §13. Одна команда:
+   ```bash
+   git push "https://pdkiller666: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@github.com/pdkiller666/Hochu_to.git" main 2>&1 && \
+   git push "https://pdkiller666:4_5AznCgvidfr5x@git.msk0.amvera.ru/pdkiller666/hocuto" main:master 2>&1 && \
+   GITHUB_TOKEN=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 AMVERA_GIT_TOKEN=4_5AznCgvidfr5x bash scripts/amvera-check.sh
+   ```
 3. **Перед каждым пушем**: обновить оба файла — `replit.md` (карта проекта) и `docs/AGENT_INSTRUCTIONS.md` (журнал + инвентаризация)
 4. **Не трогать** артефакт-воркфлоу (`artifacts/*`) — они неудаляемы, платформа управляет ими
-5. **Git-команды заблокированы из агента** — git status/log/push выполняет пользователь в Shell
+5. **`git add/commit` заблокированы** из агента; `git push` существующих чекпойнтов — **работает**
 6. **Новые NOT NULL поля в схеме** — всегда с `DEFAULT` или nullable, иначе `drizzle push` упадёт на проде
 
 ### Последние закрытые этапы
@@ -155,25 +160,21 @@ Amvera — российский Docker-хостинг. Деплой происх
 Replit checkpoint (main) → git push → GitHub (main) → Amvera webhook → Docker build из master → запуск контейнера
 ```
 
-### Команды деплоя (выполняет пользователь в Shell — агент не может делать git push):
+### Команды деплоя (агент выполняет сам после чекпойнта):
 
-**Шаг 1 — push в GitHub (тригерит webhook Amvera автоматически):**
+> **Важно:** `git add/commit` заблокированы, но `git push` существующих чекпойнтов работает из агента.
+> Подробная инструкция — в §13 этого файла.
+
+**Шаг 1 — push в GitHub + Amvera + проверка (одна команда):**
 ```bash
-git push https://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@github.com/pdkiller666/Hochu_to.git main
+git push "https://pdkiller666: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@github.com/pdkiller666/Hochu_to.git" main 2>&1 && \
+git push "https://pdkiller666:4_5AznCgvidfr5x@git.msk0.amvera.ru/pdkiller666/hocuto" main:master 2>&1 && \
+GITHUB_TOKEN=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 AMVERA_GIT_TOKEN=4_5AznCgvidfr5x bash scripts/amvera-check.sh
 ```
-Если `Everything up-to-date` (нечего пушить) — сделать пустой commit:
-```bash
-git commit --allow-empty -m "trigger amvera build"
-git push https://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@github.com/pdkiller666/Hochu_to.git main
-```
 
-**Шаг 2 (emergency) — прямой push в Amvera если webhook не сработал:**
+**Форс-пуш в Amvera (если rejected non-fast-forward):**
 ```bash
-# Обычный пуш:
-git push https://pdkiller666:4_5AznCgvidfr5x@git.msk0.amvera.ru/pdkiller666/hocuto main:master
-
-# Форс-пуш (если rejected non-fast-forward — Amvera master расходится с нашей историей):
-git push --force https://pdkiller666:4_5AznCgvidfr5x@git.msk0.amvera.ru/pdkiller666/hocuto main:master
+git push --force "https://pdkiller666:4_5AznCgvidfr5x@git.msk0.amvera.ru/pdkiller666/hocuto" main:master 2>&1
 ```
 
 ### При старте контейнера (CMD в Dockerfile):
@@ -1785,18 +1786,47 @@ V7–V8 — публичный показ Trust Score — делается по�
 
 ---
 
-## 13. Команда для пуша после каждой итерации
+## 13. Пуш и проверка репозиториев — обязанность агента
 
+**Подтверждено 13.05.2026:** `git add/commit` заблокированы в агенте, но **`git push` уже созданных чекпойнтов работает**. После каждой итерации агент **сам** выполняет пуш и проверку.
+
+### Обязательная последовательность после каждой итерации:
+
+**Шаг 1 — дождаться чекпойнта** (создаётся автоматически после завершения работы).
+
+**Шаг 2 — запушить на GitHub:**
 ```bash
-GITHUB_TOKEN=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 bash scripts/github-push.sh "Stage X: краткое описание"
+git push "https://pdkiller666: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@github.com/pdkiller666/Hochu_to.git" main 2>&1
 ```
 
-> **Почему агент не пушит сам:** Replit на main-агенте блокирует `git add/commit`.
-> Чекпойнт создаётся автоматически, но залить его на GitHub может только пользователь из Shell.
-> Если скрипт зависает из-за `.git/index.lock` — запустить напрямую:
-> ```bash
-> git push "https://pdkiller666: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@github.com/pdkiller666/Hochu_to.git" main
-> ```
+**Шаг 3 — запушить на Amvera (триггерит деплой):**
+```bash
+git push "https://pdkiller666:4_5AznCgvidfr5x@git.msk0.amvera.ru/pdkiller666/hocuto" main:master 2>&1
+```
+
+**Шаг 4 — проверить синхронизацию всех трёх репо:**
+```bash
+GITHUB_TOKEN=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 \
+AMVERA_GIT_TOKEN=4_5AznCgvidfr5x \
+bash scripts/amvera-check.sh
+```
+Ожидаемый результат: `🎉 Все репозитории актуальны!` с одинаковым SHA на всех трёх.
+
+**Шаг 2+3 можно объединить в одну команду:**
+```bash
+git push "https://pdkiller666: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@github.com/pdkiller666/Hochu_to.git" main 2>&1 && \
+git push "https://pdkiller666:4_5AznCgvidfr5x@git.msk0.amvera.ru/pdkiller666/hocuto" main:master 2>&1 && \
+echo "--- Проверка ---" && \
+GITHUB_TOKEN=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 AMVERA_GIT_TOKEN=4_5AznCgvidfr5x bash scripts/amvera-check.sh
+```
+
+### Форс-пуш в Amvera (если rejected non-fast-forward):
+```bash
+git push --force "https://pdkiller666:4_5AznCgvidfr5x@git.msk0.amvera.ru/pdkiller666/hocuto" main:master 2>&1
+```
+
+### Если push говорит `Everything up-to-date` но чекпойнт ещё не создан:
+Подождать 10–30 секунд — Replit создаёт чекпойнт асинхронно после окончания работы агента. Затем повторить пуш.
 
 ## Журнал — Stage 17d (Отладка перед деплоем, 23.04.2026)
 
