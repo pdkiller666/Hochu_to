@@ -1,0 +1,98 @@
+13/05/26 23:13:56
+INFO[0002] Retrieving image manifest node:22-slim       
+
+13/05/26 23:13:56
+INFO[0002] Returning cached image manifest              
+
+13/05/26 23:13:56
+INFO[0002] Built cross stage deps: map[2:[/app/artifacts/hochu-to/dist/public/] 3:[/app/artifacts/api-server/dist/]] 
+
+13/05/26 23:13:56
+INFO[0002] Retrieving image manifest node:22-slim       
+
+13/05/26 23:13:56
+INFO[0002] Returning cached image manifest              
+
+13/05/26 23:13:56
+INFO[0002] Retrieving image manifest node:22-slim       
+
+13/05/26 23:13:56
+INFO[0002] Returning cached image manifest              
+
+13/05/26 23:13:56
+INFO[0002] Executing 0 build triggers                   
+
+13/05/26 23:13:56
+INFO[0002] Building stage 'node:22-slim' [idx: '0', base-idx: '-1'] 
+
+13/05/26 23:13:56
+INFO[0002] Checking for cached layer cr.yandex/crp2gf3gm8rv83kfkvet/amvera-pdkiller666-hocuto/cache:2f4b96df457d6a832fa08d14284f8f31e80bca8ec60f0adf127ebaee718d63a7... 
+
+13/05/26 23:13:56
+INFO[0002] No cached layer found for cmd RUN corepack enable && corepack prepare pnpm@9 --activate 
+
+13/05/26 23:13:56
+INFO[0002] Unpacking rootfs as cmd RUN corepack enable && corepack prepare pnpm@9 --activate requires it. 
+
+13/05/26 23:14:01
+INFO[0007] Initializing snapshotter ...                 
+
+13/05/26 23:14:01
+INFO[0007] Taking snapshot of full filesystem...        
+
+13/05/26 23:14:03
+Container builder is still running.
+
+13/05/26 23:14:11
+Container builder is still running.
+
+13/05/26 23:14:19
+Container builder is still running.
+
+13/05/26 23:14:19
+INFO[0025] RUN corepack enable && corepack prepare pnpm@9 --activate 
+
+13/05/26 23:14:19
+INFO[0025] Cmd: /bin/sh                                 
+
+13/05/26 23:14:19
+INFO[0025] Args: [-c corepack enable && corepack prepare pnpm@9 --activate] 
+
+13/05/26 23:14:19
+INFO[0025] Running: [/bin/sh -c corepack enable && corepack prepare pnpm@9 --activate] 
+
+13/05/26 23:14:20
+Preparing pnpm@9 for immediate activation...
+
+13/05/26 23:14:21
+INFO[0027] WORKDIR /app                                 
+
+13/05/26 23:14:21
+INFO[0027] Cmd: workdir                                 
+
+13/05/26 23:14:21
+INFO[0027] Changed working directory to /app            
+
+13/05/26 23:14:21
+INFO[0027] Creating directory /app with uid -1 and gid -1 
+
+13/05/26 23:14:21
+INFO[0027] Taking snapshot of full filesystem...        
+
+13/05/26 23:14:23
+INFO[0029] Storing source image from stage 0 at path /kaniko/stages/0 
+
+13/05/26 23:14:25
+error building image: Get "https://harbor.amvera.ru/v2/amvera-hub/library/node/blobs/sha256:5d4a3aa5a9ad18507bf18000f0280556365b57788f03aca635c4792a79799082": dial tcp 158.160.116.199:443: connect: connection refused
+
+13/05/26 23:14:27
+Container builder has completed with exit code: 1
+
+13/05/26 23:14:27
+Source size: 96.60 MB
+
+13/05/26 23:14:27
+Saved docker image build info. Exit code: 1
+
+13/05/26 23:14:27
+Docker build watcher application completed
