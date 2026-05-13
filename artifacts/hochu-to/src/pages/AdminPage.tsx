@@ -4387,8 +4387,18 @@ function TelegramBotTab() {
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.message || d.error || "Ошибка");
-      toast({ title: "Рассылка отправлена", description: `Доставлено: ${d.sent}, ошибок: ${d.failed}` });
-      setBroadcastText(""); setBroadcastLink("");
+      if (d.sent === 0) {
+        toast({
+          title: "0 получателей",
+          description: env === "dev"
+            ? "Dev-режим: убедитесь, что суперадмин привязал Telegram-аккаунт через OTP, или переключите бот на Prod."
+            : "Нет пользователей с привязанным Telegram-аккаунтом.",
+          variant: "destructive",
+        });
+      } else {
+        toast({ title: "Рассылка отправлена ✓", description: `Доставлено: ${d.sent}${d.failed ? `, ошибок: ${d.failed}` : ""}` });
+        setBroadcastText(""); setBroadcastLink("");
+      }
     } catch (e: any) {
       toast({ title: "Ошибка рассылки", description: e.message, variant: "destructive" });
     } finally {
@@ -4479,6 +4489,12 @@ function TelegramBotTab() {
         {!status?.online && (
           <div className="bg-amber-50 border border-amber-200 text-amber-700 text-sm rounded-lg p-3 mb-4">
             ⚠️ Бот не подключён. Настройте токен выше.
+          </div>
+        )}
+        {status?.online && env === "dev" && (
+          <div className="bg-blue-50 border border-blue-200 text-blue-700 text-sm rounded-lg p-3 mb-4">
+            🔒 <b>Dev-режим:</b> сообщения получит <b>только суперадмин</b> с привязанным Telegram-аккаунтом.
+            Для рассылки всем пользователям переключите на <b>Prod</b> в настройках выше и сохраните.
           </div>
         )}
         <div className="space-y-3">
