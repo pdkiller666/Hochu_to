@@ -2482,18 +2482,95 @@ export default function Dashboard() {
 
             {/* ── PROFILE / SETTINGS — ADMIN VARIANT ── */}
             {activeTab === "profile" && (user.role === "admin" || user.role === "superadmin") && (
-              <AdminAccountPanel
-                user={user}
-                avatarPreview={avatarPreview}
-                uploadingAvatar={uploadingAvatar}
-                onAvatarUpload={handleAvatarUpload}
-                profileForm={profileForm}
-                setProfileForm={setProfileForm}
-                handleProfileSave={handleProfileSave}
-                profileSaved={profileSaved}
-                isSaving={updateProfile.isPending}
-                authHeaders={authHeaders}
-              />
+              <div className="max-w-2xl w-full">
+                <AdminAccountPanel
+                  user={user}
+                  avatarPreview={avatarPreview}
+                  uploadingAvatar={uploadingAvatar}
+                  onAvatarUpload={handleAvatarUpload}
+                  profileForm={profileForm}
+                  setProfileForm={setProfileForm}
+                  handleProfileSave={handleProfileSave}
+                  profileSaved={profileSaved}
+                  isSaving={updateProfile.isPending}
+                  authHeaders={authHeaders}
+                />
+
+                {/* ── Stage 38: Telegram account linking (admin) ── */}
+                <div className="bg-white border border-border rounded-2xl p-6 shadow-sm mt-4">
+                  <h3 className="text-base font-bold flex items-center gap-2 mb-1">
+                    <Send className="w-4 h-4 text-[#2AABEE]" /> Telegram-уведомления
+                  </h3>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Привяжите Telegram-аккаунт, чтобы получать уведомления и массовые рассылки прямо в мессенджере.
+                  </p>
+
+                  {tgLinked ? (
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-xl px-4 py-3">
+                        <CheckCircle2 className="w-4 h-4 text-green-600 flex-shrink-0" />
+                        <span className="text-sm font-semibold text-green-700">Telegram привязан</span>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="block text-xs font-bold text-muted-foreground uppercase tracking-widest mb-2">Типы уведомлений</label>
+                        {([
+                          { key: "bookings" as const, label: "Бронирования", desc: "Новые заявки, статусы, напоминания" },
+                          { key: "system" as const, label: "Системные", desc: "Верификация, предупреждения, платежи" },
+                          { key: "chats" as const, label: "Совместные покупки", desc: "Обновления пулов и долей" },
+                        ]).map(({ key, label, desc }) => (
+                          <label key={key} className="flex items-center gap-3 p-3 rounded-xl border border-border hover:bg-muted/30 cursor-pointer transition-colors">
+                            <input
+                              type="checkbox"
+                              checked={tgPrefs[key]}
+                              onChange={e => tgUpdatePref(key, e.target.checked)}
+                              className="w-4 h-4 accent-primary rounded"
+                            />
+                            <div>
+                              <span className="text-sm font-semibold">{label}</span>
+                              <p className="text-xs text-muted-foreground">{desc}</p>
+                            </div>
+                          </label>
+                        ))}
+                      </div>
+                      <button type="button" onClick={tgUnlink} disabled={tgBusy}
+                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-border text-sm text-muted-foreground hover:bg-muted/50 transition-colors disabled:opacity-50">
+                        {tgBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <X className="w-4 h-4" />}
+                        Отвязать Telegram
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {tgOtp ? (
+                        <div className="space-y-3">
+                          <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                            <p className="text-sm text-blue-700 font-semibold mb-1">Ваш код привязки:</p>
+                            <p className="text-3xl font-mono font-bold text-blue-800 tracking-[0.3em]">{tgOtp.otp}</p>
+                            <p className="text-xs text-blue-500 mt-2">Действителен 10 минут · истекает в {new Date(tgOtp.expiresAt).toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" })}</p>
+                          </div>
+                          <ol className="space-y-1.5 text-sm text-muted-foreground">
+                            <li className="flex items-start gap-2">
+                              <span className="font-bold text-foreground mt-0.5">1.</span>
+                              <span>Откройте Telegram{tgBotUsername ? <> и найдите бота <a href={`https://t.me/${tgBotUsername}`} target="_blank" rel="noopener noreferrer" className="font-semibold text-[#2AABEE] hover:underline">@{tgBotUsername}</a></> : " и найдите бота платформы"}</span>
+                            </li>
+                            <li className="flex items-start gap-2"><span className="font-bold text-foreground mt-0.5">2.</span> Отправьте боту: <code className="bg-muted px-1.5 py-0.5 rounded font-mono text-xs">/link {tgOtp.otp}</code></li>
+                            <li className="flex items-start gap-2"><span className="font-bold text-foreground mt-0.5">3.</span> Бот подтвердит привязку — перезагрузите страницу</li>
+                          </ol>
+                          <button type="button" onClick={tgGenerateOtp} disabled={tgBusy}
+                            className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors">
+                            <RefreshCw className="w-3.5 h-3.5" /> Обновить код
+                          </button>
+                        </div>
+                      ) : (
+                        <button type="button" onClick={tgGenerateOtp} disabled={tgBusy}
+                          className="btn-primary flex items-center gap-2 px-5 py-2.5">
+                          {tgBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                          Получить код привязки
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
             )}
 
             {/* ── PROFILE / SETTINGS — RENTER/OWNER/STAFF ── */}
