@@ -94,7 +94,7 @@ export function ListingCard({ listing }: ListingCardProps) {
   };
 
   return (
-    <div className="card-hover group relative flex flex-col h-full">
+    <Link href={`/listings/${listing.id}`} className="card-hover group relative flex flex-col h-full">
       {/* Category Badge */}
       <div className="absolute top-4 left-4 z-10">
         <span className="px-3 py-1 bg-white/90 backdrop-blur-sm text-xs font-bold rounded-full text-foreground shadow-sm">
@@ -116,32 +116,30 @@ export function ListingCard({ listing }: ListingCardProps) {
       </button>
 
       {/* Image */}
-      <Link href={`/listings/${listing.id}`} className="block">
-        <div className="relative aspect-[4/3] overflow-hidden bg-muted">
-          {hasPhoto && photoUrl ? (
-            <img
-              src={photoUrl}
-              alt={listing.title}
-              className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-              loading="lazy"
-              onError={() => setImgError(true)}
-            />
-          ) : (
-            <ListingPlaceholder categoryName={listing.categoryName ?? undefined} />
-          )}
+      <div className="relative aspect-[4/3] overflow-hidden bg-muted">
+        {hasPhoto && photoUrl ? (
+          <img
+            src={photoUrl}
+            alt={listing.title}
+            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+            loading="lazy"
+            onError={() => setImgError(true)}
+          />
+        ) : (
+          <ListingPlaceholder categoryName={listing.categoryName ?? undefined} />
+        )}
 
-          {!listing.isAvailable && (
-            <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-              <span className="px-4 py-2 bg-white text-foreground font-bold rounded-xl shadow-lg">Сдано</span>
-            </div>
-          )}
-          {(listing.photos?.length ?? 0) > 1 && (
-            <span className="absolute bottom-2 right-2 bg-black/60 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
-              {listing.photos!.length} фото
-            </span>
-          )}
-        </div>
-      </Link>
+        {!listing.isAvailable && (
+          <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+            <span className="px-4 py-2 bg-white text-foreground font-bold rounded-xl shadow-lg">Сдано</span>
+          </div>
+        )}
+        {(listing.photos?.length ?? 0) > 1 && (
+          <span className="absolute bottom-2 right-2 bg-black/60 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+            {listing.photos!.length} фото
+          </span>
+        )}
+      </div>
 
       {/* Content */}
       <div className="p-3 sm:p-5 flex flex-col flex-grow">
@@ -170,57 +168,46 @@ export function ListingCard({ listing }: ListingCardProps) {
           {(() => {
             const cat = ((listing as any).itemCategory ?? "tools") as ItemCategory;
             const ownerProt = (listing as any).ownerProtectionEnabled !== false;
-            // В Бета-режиме комиссии и фонд отключены — итоговая цена для арендатора
-            // равна базовой цене аренды. Не вызываем calculateTotalPrice, чтобы
-            // случайно не «протекли» коммерческие надбавки.
             const { total: totalCommercial, combinedServiceFee } = calculateTotalPrice(listing.pricePerDay, cat, 1, ownerProt);
             const total = isCommercialMode ? totalCommercial : Number(listing.pricePerDay);
             const deposit = calcDeposit(listing.pricePerDay);
             return (
               <>
-                {/* Base price — реальный минимум за 1 сутки с учётом фонда */}
-                <div className="flex flex-wrap items-end justify-between gap-1.5">
-                  <div className="relative min-w-0">
-                    <div
-                      className="font-display font-bold text-base sm:text-xl text-primary cursor-default flex items-baseline gap-1 flex-wrap"
-                      onMouseEnter={() => setShowTooltip(true)}
-                      onMouseLeave={() => setShowTooltip(false)}
-                    >
-                      <span className="text-[10px] sm:text-xs font-semibold text-muted-foreground">от</span>
-                      <span>{formatPrice(total)}</span>
-                      <span className="text-[10px] sm:text-xs font-semibold text-muted-foreground">за сутки</span>
-                      <Info className="w-3 h-3 text-primary/50 shrink-0 mb-0.5" />
-                    </div>
-
-                    {showTooltip && (
-                      <div className="absolute bottom-full left-0 mb-2 z-30 bg-popover border border-border rounded-xl shadow-xl p-3 w-60 text-xs space-y-1 pointer-events-none">
-                        <p className="font-bold text-foreground mb-1.5">Минимум за 1 сутки:</p>
-                        <div className="flex justify-between text-muted-foreground">
-                          <span>Аренда</span><span>{formatPrice(listing.pricePerDay)}</span>
-                        </div>
-                        {isCommercialMode && ownerProt && combinedServiceFee > 0 && (
-                          <div className="flex justify-between text-muted-foreground">
-                            <span>Гарантийный фонд</span><span>{formatPrice(combinedServiceFee)}</span>
-                          </div>
-                        )}
-                        <div className="flex justify-between font-bold border-t border-border pt-1 text-foreground">
-                          <span>Итого</span><span>{formatPrice(total)}</span>
-                        </div>
-                        <div className="flex justify-between text-amber-600 border-t border-border pt-1">
-                          <span>+ залог (возвращается)</span><span>{formatPrice(deposit)}</span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                  <Link
-                    href={`/listings/${listing.id}`}
-                    className="btn-primary py-1.5 sm:py-2 px-3 sm:px-4 rounded-xl text-xs sm:text-sm whitespace-nowrap shrink-0 ml-auto"
+                {/* Base price */}
+                <div className="relative min-w-0">
+                  <div
+                    className="font-display font-bold text-base sm:text-xl text-primary cursor-default flex items-baseline gap-1 flex-wrap"
+                    onMouseEnter={() => setShowTooltip(true)}
+                    onMouseLeave={() => setShowTooltip(false)}
                   >
-                    Подробнее
-                  </Link>
+                    <span className="text-[10px] sm:text-xs font-semibold text-muted-foreground">от</span>
+                    <span>{formatPrice(total)}</span>
+                    <span className="text-[10px] sm:text-xs font-semibold text-muted-foreground">за сутки</span>
+                    <Info className="w-3 h-3 text-primary/50 shrink-0 mb-0.5" />
+                  </div>
+
+                  {showTooltip && (
+                    <div className="absolute bottom-full left-0 mb-2 z-30 bg-popover border border-border rounded-xl shadow-xl p-3 w-60 text-xs space-y-1 pointer-events-none">
+                      <p className="font-bold text-foreground mb-1.5">Минимум за 1 сутки:</p>
+                      <div className="flex justify-between text-muted-foreground">
+                        <span>Аренда</span><span>{formatPrice(listing.pricePerDay)}</span>
+                      </div>
+                      {isCommercialMode && ownerProt && combinedServiceFee > 0 && (
+                        <div className="flex justify-between text-muted-foreground">
+                          <span>Гарантийный фонд</span><span>{formatPrice(combinedServiceFee)}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between font-bold border-t border-border pt-1 text-foreground">
+                        <span>Итого</span><span>{formatPrice(total)}</span>
+                      </div>
+                      <div className="flex justify-between text-amber-600 border-t border-border pt-1">
+                        <span>+ залог (возвращается)</span><span>{formatPrice(deposit)}</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
-                {/* Бейджи — отличительные метки объявления */}
+                {/* Бейджи */}
                 {badges.length > 0 && (
                   <div className="flex flex-wrap gap-1 mt-1">
                     {badges.map(b => {
@@ -243,6 +230,6 @@ export function ListingCard({ listing }: ListingCardProps) {
           })()}
         </div>
       </div>
-    </div>
+    </Link>
   );
 }

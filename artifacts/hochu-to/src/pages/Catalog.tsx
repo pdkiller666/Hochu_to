@@ -3,7 +3,7 @@ import { useGetListings, useGetCategories, useGetRegions, useGetCurrentUser } fr
 import { ListingCard } from "@/components/ui/ListingCard";
 import { useLocation, useSearch } from "wouter";
 import { useState, useEffect, useRef } from "react";
-import { Search, X, SlidersHorizontal, MapPin, Loader2, ChevronDown, ChevronUp, ArrowUpDown, ShieldCheck } from "lucide-react";
+import { Search, X, SlidersHorizontal, MapPin, Loader2, ChevronDown, ChevronUp, ArrowUpDown, ShieldCheck, LayoutGrid, Rows3 } from "lucide-react";
 import { getToken, getAuthHeaders } from "@/lib/auth";
 import { getCachedGeoRegion, setCachedGeoRegion, detectRegionByServerGeoIP, useRegion } from "@/lib/region-context";
 import { readPersistedState, clearPersistedState } from "@/lib/use-persisted-state";
@@ -76,6 +76,8 @@ export default function Catalog() {
     title: "Каталог аренды",
     description: "Тысячи объявлений аренды вещей по всей России. Инструменты, техника, туристическое снаряжение, электроника и многое другое — безопасно и выгодно.",
   });
+
+  const [viewMode, setViewMode] = useState<"grid" | "mosaic">("grid");
 
   const [location] = useLocation();
   const searchStr = useSearch();
@@ -464,16 +466,35 @@ export default function Catalog() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
 
         {/* Page header */}
-        <div className="mb-5">
-          <h1 className="text-2xl sm:text-3xl font-bold mb-0.5">Каталог вещей</h1>
-          <p className="text-sm text-muted-foreground">
-            {data ? `Найдено ${data.total} предложений` : "Загрузка..."}
-            {selectedRegionName && (
-              <span className="ml-1">
-                · <span className="text-primary font-medium">{selectedRegionName}</span>
-              </span>
-            )}
-          </p>
+        <div className="mb-5 flex items-end justify-between gap-3">
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-bold mb-0.5">Каталог вещей</h1>
+            <p className="text-sm text-muted-foreground">
+              {data ? `Найдено ${data.total} предложений` : "Загрузка..."}
+              {selectedRegionName && (
+                <span className="ml-1">
+                  · <span className="text-primary font-medium">{selectedRegionName}</span>
+                </span>
+              )}
+            </p>
+          </div>
+          {/* View mode toggle */}
+          <div className="flex items-center gap-1 bg-white border border-border rounded-xl p-1 shadow-sm flex-shrink-0">
+            <button
+              onClick={() => setViewMode("grid")}
+              title="Обычная сетка"
+              className={`p-1.5 rounded-lg transition-all ${viewMode === "grid" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+            >
+              <LayoutGrid className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setViewMode("mosaic")}
+              title="Мозаика"
+              className={`p-1.5 rounded-lg transition-all ${viewMode === "mosaic" ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+            >
+              <Rows3 className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {/* Results */}
@@ -539,11 +560,29 @@ export default function Catalog() {
           </>
         ) : (
           <>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
-              {data.listings.map(listing => (
-                <ListingCard key={listing.id} listing={listing} />
-              ))}
-            </div>
+            {viewMode === "grid" ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 sm:gap-6">
+                {data.listings.map(listing => (
+                  <ListingCard key={listing.id} listing={listing} />
+                ))}
+              </div>
+            ) : (
+              /* Мозаика: каждая 1-я и 6-я карточки в группе по 6 занимают 2 колонки */
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+                {data.listings.map((listing, idx) => {
+                  const pos = idx % 6;
+                  const isWide = pos === 0 || pos === 5;
+                  return (
+                    <div
+                      key={listing.id}
+                      className={isWide ? "col-span-2" : "col-span-1"}
+                    >
+                      <ListingCard listing={listing} />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
 
             {data.totalPages > 1 && (
               <div className="mt-12 flex justify-center gap-2">

@@ -3,7 +3,7 @@ import { useRoute } from "wouter";
 import { useGetListingById, useGetListingUnavailableDates, useCreateBooking, useGetCurrentUser } from "@workspace/api-client-react";
 import { Loader2, MapPin, Star, Shield, ShieldOff, ShieldCheck, Info, User, ChevronLeft, CheckCircle2, AlertTriangle, Settings, CalendarDays, X, Expand, Hash, MessageSquare, Phone, Heart, Crown, Zap, Sparkles, Flame, Award } from "lucide-react";
 import { formatPrice, calculateTotalPrice, calcDeposit, calcMaxProtectionLimit, type ItemCategory } from "@/lib/utils";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuthState, getToken } from "@/lib/auth";
 import { Link, useLocation } from "wouter";
 import { useDocumentMeta } from "@/lib/use-document-meta";
@@ -127,6 +127,9 @@ export default function ListingDetail() {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [mainImgError, setMainImgError] = useState(false);
+  const [activePhotoIndex, setActivePhotoIndex] = useState(0);
+  const touchStartX = useRef<number>(0);
+  const touchEndX = useRef<number>(0);
   const [promoteOpen, setPromoteOpen] = useState(false);
   const [contactModalOpen, setContactModalOpen] = useState(false);
   const [showFeeDetails, setShowFeeDetails] = useState(false);
@@ -367,15 +370,24 @@ export default function ListingDetail() {
 
             {/* Photo Gallery */}
             <div className="space-y-2">
-              {/* Main photo */}
+              {/* Main photo with swipe support */}
               <div
-                className={`relative aspect-[4/3] lg:aspect-[16/10] lg:max-h-[420px] mx-auto w-full rounded-3xl overflow-hidden bg-muted border border-border shadow-sm group ${photos.length > 0 && !mainImgError ? "cursor-zoom-in" : ""}`}
-                onClick={() => photos.length > 0 && !mainImgError && openLightbox(0)}
+                className={`relative aspect-[4/3] lg:aspect-[16/10] lg:max-h-[420px] mx-auto w-full rounded-3xl overflow-hidden bg-muted border border-border shadow-sm group select-none ${photos.length > 0 && !mainImgError ? "cursor-zoom-in" : ""}`}
+                onClick={() => photos.length > 0 && !mainImgError && openLightbox(activePhotoIndex)}
+                onTouchStart={e => { touchStartX.current = e.changedTouches[0].screenX; }}
+                onTouchEnd={e => {
+                  touchEndX.current = e.changedTouches[0].screenX;
+                  const diff = touchStartX.current - touchEndX.current;
+                  if (Math.abs(diff) > 40) {
+                    if (diff > 0) setActivePhotoIndex(i => Math.min(i + 1, photos.length - 1));
+                    else setActivePhotoIndex(i => Math.max(i - 1, 0));
+                  }
+                }}
               >
                 {photos.length > 0 && !mainImgError ? (
                   <>
                     <img
-                      src={getPhotoSrc(photos[0])}
+                      src={getPhotoSrc(photos[activePhotoIndex])}
                       alt={listing.title}
                       className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                       onError={() => setMainImgError(true)}
@@ -387,8 +399,19 @@ export default function ListingDetail() {
                     </div>
                     {photos.length > 1 && (
                       <span className="absolute bottom-3 right-3 bg-black/60 text-white text-xs font-bold px-2.5 py-1 rounded-full">
-                        1 / {photos.length}
+                        {activePhotoIndex + 1} / {photos.length}
                       </span>
+                    )}
+                    {/* Dot indicators for mobile */}
+                    {photos.length > 1 && (
+                      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5 md:hidden">
+                        {photos.slice(0, 6).map((_, i) => (
+                          <span
+                            key={i}
+                            className={`w-1.5 h-1.5 rounded-full transition-all ${i === activePhotoIndex ? "bg-white w-3" : "bg-white/50"}`}
+                          />
+                        ))}
+                      </div>
                     )}
                   </>
                 ) : (
@@ -399,11 +422,13 @@ export default function ListingDetail() {
               {/* Thumbnails */}
               {photos.length > 1 && (
                 <div className="grid grid-cols-4 gap-2">
-                  {photos.slice(1, 5).map((url, i) => (
+                  {photos.slice(0, 5).map((url, i) => (
                     <div
                       key={i}
-                      className="relative aspect-square rounded-xl overflow-hidden bg-muted border border-border cursor-pointer group"
-                      onClick={() => openLightbox(i + 1)}
+                      className={`relative aspect-square rounded-xl overflow-hidden bg-muted border cursor-pointer group transition-all ${
+                        i === activePhotoIndex ? "border-primary ring-2 ring-primary/40" : "border-border hover:border-primary/50"
+                      }`}
+                      onClick={e => { e.stopPropagation(); setActivePhotoIndex(i); }}
                     >
                       <img
                         src={getPhotoSrc(url)}
@@ -411,8 +436,11 @@ export default function ListingDetail() {
                         className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                         onError={e => { (e.currentTarget as HTMLImageElement).src = "https://placehold.co/200x200?text=Фото"; }}
                       />
-                      {i === 3 && photos.length > 5 && (
-                        <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+                      {i === 4 && photos.length > 5 && (
+                        <div
+                          className="absolute inset-0 bg-black/60 flex items-center justify-center cursor-pointer"
+                          onClick={e => { e.stopPropagation(); openLightbox(4); }}
+                        >
                           <span className="text-white font-bold text-lg">+{photos.length - 5}</span>
                         </div>
                       )}
@@ -478,9 +506,9 @@ export default function ListingDetail() {
             </div>
 
             {/* Description */}
-            <section>
+            <section className="bg-white border border-border rounded-2xl p-5 sm:p-6 shadow-sm">
               <h3 className="text-2xl font-bold mb-4">Описание</h3>
-              <p className="text-lg text-muted-foreground leading-relaxed whitespace-pre-line">
+              <p className="text-base sm:text-lg text-foreground leading-relaxed whitespace-pre-line">
                 {listing.description || "Владелец не добавил описание."}
               </p>
             </section>

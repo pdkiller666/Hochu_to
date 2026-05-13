@@ -325,7 +325,7 @@ export function Header() {
           </Link>
 
           {/* Desktop Search Bar — center, takes most space */}
-          <div className="hidden md:flex flex-1 min-w-[160px] overflow-hidden mx-2 items-center bg-muted/50 border border-border rounded-xl px-3 py-2 focus-within:ring-2 focus-within:ring-primary/30 focus-within:border-primary/50 transition-all">
+          <div className="hidden md:flex flex-1 min-w-[160px] overflow-hidden mx-2 items-center bg-white border border-border rounded-xl px-3 py-2 shadow-sm focus-within:ring-2 focus-within:ring-primary/30 focus-within:border-primary/50 transition-all">
             <HeaderSearchBar className="w-full min-w-0" />
           </div>
 
@@ -565,7 +565,7 @@ export function Header() {
 
       {/* Mobile Search Row — always visible, part of sticky header */}
       <div className="md:hidden px-3 pb-2.5">
-        <div className="flex items-center bg-muted/50 border border-border rounded-xl px-3 py-2.5 focus-within:ring-2 focus-within:ring-primary/30 focus-within:border-primary/50 transition-all">
+        <div className="flex items-center bg-white border border-border rounded-xl px-3 py-2.5 shadow-sm focus-within:ring-2 focus-within:ring-primary/30 focus-within:border-primary/50 transition-all">
           <HeaderSearchBar className="w-full" />
         </div>
       </div>
