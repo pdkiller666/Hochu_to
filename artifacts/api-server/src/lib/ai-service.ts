@@ -357,7 +357,7 @@ export async function generateListingDescription(
 // (Stage 30G journal). Алиас "*-latest" — единственный стабильный вариант.
 
 const GEMINI_VISION_MODEL = process.env.GEMINI_VISION_MODEL || "gemini-flash-latest";
-const GEMINI_VISION_TIMEOUT_MS = 15_000;
+const GEMINI_VISION_TIMEOUT_MS = 40_000;
 
 const VISION_ARBITRATION_PROMPT =
   "You are an impartial rental damage arbitrator. " +
