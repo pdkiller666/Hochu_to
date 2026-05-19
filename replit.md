@@ -1433,4 +1433,16 @@ bash scripts/github-push.sh "fix(ai): restore working gemini-flash-latest model 
 - **paymentProvider** в `platform_settings` (mock|yookassa), переключается из AdminPage Settings
 - **API** `/wallet/*`: balance, history, admin stats/payouts (gated + auth)
 - **Dashboard WalletSection**: таб «Кошелёк» за флагом `isCommercialMode`
+
+## Stage 40 — Wallet Pro (19.05.2026)
+- **TS-fixes**: `wallet_topup` / `wallet_withdraw` в NotifType; `WalletPayoutMethod` (конфликт имён); `return` в admin-endpoint; SQL rows в `/admin/stats`
+- **Тест**: все 7 wallet-эндпоинтов проверены curl-ами, все 200
+
+## Stage 30-Refactoring — OpenRouter AI Gateway (19.05.2026)
+- **Единый SDK**: `openai` пакет с `baseURL=openrouter.ai` вместо 4 разных fetch-провайдеров
+- **Цепочка**: OpenRouter → Direct DeepSeek (fallback, Stage 33.0 сохранён) → mock
+- **Маппинг**: `openrouter`=deepseek/deepseek-chat, `openai`=openai/gpt-4o-mini, `gemini`=google/gemini-flash-1.5, `amvera`=deepseek/deepseek-chat (legacy alias)
+- **Vision-арбитратор**: изолирован, прямой Gemini API (base64), не тронут
+- **Удалить с Amvera**: `AMVERA_API_TOKEN`, `OPENAI_API_KEY` → добавить `OPENROUTER_API_KEY`
+- **AdminPage**: 5 карточек провайдеров; `openrouter` ⭐ Новый, `amvera` Legacy
 - **AdminPage PayoutsTab**: `WalletStatsCard` — агрегированная статистика кошельков

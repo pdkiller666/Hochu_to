@@ -3582,6 +3582,108 @@ feat(stage39): Fintech Core & Escrow Engine — atomic wallets, escrow hold/rele
 
 ---
 
+## Stage 40 — Wallet Pro: полный кошелёк пользователя (19.05.2026) ✅
+
+### Цель
+Довести кошелёк до production-ready состояния: исправить TypeScript-ошибки, закрыть конфликты типов, проверить все API-эндпоинты, подключить уведомления.
+
+### Что сделано
+- **`notifications.ts`** — добавлены два новых NotifType: `wallet_topup`, `wallet_withdraw`. Без них `createNotification()` отказывался компилироваться.
+- **`wallet.ts`** — исправлены все TS-ошибки: `type: "system"` → `"wallet_topup"` / `"wallet_withdraw"`; добавлен `return` в admin-endpoint `/admin/users/:userId/balance`; исправлен SQL-запрос в `/admin/stats` (`.rows` из Drizzle `execute` не деструктурировался).
+- **`Dashboard.tsx`** — устранён конфликт имён: тип `PayoutMethod` в WalletSection переименован в `WalletPayoutMethod` (иначе Babel падал с `Identifier 'PayoutMethod' has already been declared`).
+- **Тест API** — все эндпоинты прошли ручную проверку: `balance`, `history`, `topup` (mock +5000₽), `withdraw` (валидация метода), `escrow-summary`, `admin/stats`, `admin/users/:id/balance`.
+
+### Изменённые файлы
+| Файл | Что изменено |
+|------|-------------|
+| `artifacts/api-server/src/lib/notifications.ts` | +`wallet_topup`, `wallet_withdraw` в NotifType |
+| `artifacts/api-server/src/routes/wallet.ts` | fix NotifType, fix `return`, fix SQL rows extraction |
+| `artifacts/hochu-to/src/pages/Dashboard.tsx` | `PayoutMethod` → `WalletPayoutMethod` в WalletSection |
+
+### Проверенные API (все 200)
+| Метод | Путь | Результат |
+|-------|------|-----------|
+| GET | `/wallet/balance` | `{availableBalance:0, frozenBalance:0}` |
+| POST | `/wallet/topup` | mock +5000₽, уведомление создаётся |
+| POST | `/wallet/withdraw` | 400 `missing_method` без реквизитов (верно) |
+| GET | `/wallet/history` | `{items:[…], hasMore, nextBefore}` |
+| GET | `/wallet/escrow-summary` | `[]` |
+| GET | `/wallet/admin/stats` | `{walletsCount:1, totalAvailableBalance:5000, txBreakdown:[…]}` |
+| GET | `/wallet/admin/users/1/balance` | `{userId:1, availableBalance:5000, exists:true}` |
+
+---
+
+## Stage 30-Refactoring — OpenRouter AI Gateway (19.05.2026) ✅
+
+### Цель
+Масштабный рефакторинг AI-сервиса: замена самописного мульти-провайдерного роутера (отдельные fetch к OpenAI/Amvera/Gemini/DeepSeek) на единый SDK `openai` с `baseURL = "https://openrouter.ai/api/v1"`.
+
+### Архитектура ДО (Stage 30A / 33.0)
+```
+resolveProvider()
+  ├── mock           → generateMock()
+  ├── openai         → fetch("api.openai.com") ← OPENAI_API_KEY
+  ├── gemini         → fetch("generativelanguage.googleapis.com") ← GEMINI_API_KEY
+  └── amvera         → fetch("kong-proxy.yc.amvera.ru")  ← AMVERA_API_TOKEN
+                          └── fallback: fetch("api.deepseek.com") ← DEEPSEEK_API_KEY
+                              └── fallback: mock
+```
+
+### Архитектура ПОСЛЕ (Stage 30-Refactoring)
+```
+resolveProvider()
+  ├── mock           → generateMock()
+  └── openrouter     → OpenAI SDK (baseURL=openrouter.ai) ← OPENROUTER_API_KEY
+  └── openai         → openrouter.ai/openai/gpt-4o-mini   ← OPENROUTER_API_KEY
+  └── gemini         → openrouter.ai/google/gemini-flash-1.5 ← OPENROUTER_API_KEY
+  └── amvera (legacy)→ openrouter.ai/deepseek/deepseek-chat ← OPENROUTER_API_KEY
+      └── fallback: fetch("api.deepseek.com") ← DEEPSEEK_API_KEY (Stage 33.0 сохранён)
+          └── fallback: mock
+```
+Vision-арбитратор (`arbitrateWithGeminiVision`) — **не тронут**, прямой Gemini API с base64.
+
+### Изменённые файлы
+| Файл | Что изменено |
+|------|-------------|
+| `artifacts/api-server/src/lib/ai-service.ts` | Полный рефакторинг: убраны `generateOpenAi`, `generateAmvera`, `generateGemini`, `bulletsOpenAi`, `bulletsAmvera`, `bulletsGemini`; добавлены `generateViaOpenRouter`, `bulletsViaOpenRouter`, `getOpenRouterClient()`; `generateDirectDeepSeek` + `bulletsDirectDeepSeek` сохранены как промежуточный fallback |
+| `artifacts/api-server/src/routes/ai.ts` | fix `return` в generate-description handler |
+| `artifacts/api-server/src/routes/admin.ts` | валидация `activeAiProvider`: добавлены `"openrouter"`, `"gemini"` |
+| `artifacts/hochu-to/src/pages/AdminPage.tsx` | UI: 5 карточек провайдеров вместо 3; `openrouter` с бейджем ⭐ Новый; `amvera` помечен Legacy |
+| `artifacts/api-server/package.json` | +`"openai": "^6.38.0"` |
+
+### Маппинг провайдер → OpenRouter-модель
+| Значение в БД | OpenRouter-модель | Переопределяется через |
+|---|---|---|
+| `openrouter` | `deepseek/deepseek-chat` | `OPENROUTER_MODEL` env |
+| `openai` | `openai/gpt-4o-mini` | — |
+| `gemini` | `google/gemini-flash-1.5` | `OPENROUTER_GEMINI_MODEL` env |
+| `amvera` | `deepseek/deepseek-chat` | — (legacy alias) |
+
+### Переменные окружения — итог
+| Переменная | Статус | Зачем |
+|---|---|---|
+| `OPENROUTER_API_KEY` | 🆕 **добавить** | Основной ключ всей LLM-генерации |
+| `DEEPSEEK_API_KEY` | ✅ оставить | Промежуточный fallback перед mock |
+| `GEMINI_API_KEY` | ✅ оставить | Vision-арбитратор (только он, прямой API) |
+| `AMVERA_API_TOKEN` | ❌ **удалить** | Больше не используется |
+| `OPENAI_API_KEY` | ❌ **удалить** | Больше не используется (всё через OpenRouter) |
+| `OPENROUTER_MODEL` | опционально | Сменить дефолтную модель без деплоя |
+| `OPENROUTER_GEMINI_MODEL` | опционально | Сменить Gemini-модель без деплоя |
+
+### Инварианты Vision-арбитратора
+- `arbitrateWithGeminiVision()` — **изолирован** от OpenRouter SDK.
+- Использует прямой `fetch` к `generativelanguage.googleapis.com/v1beta`.
+- Требует `GEMINI_API_KEY`. Модель `GEMINI_VISION_MODEL` env (дефолт: `gemini-flash-latest`).
+- ⚠️ НЕ менять дефолт на `gemini-1.5-flash` — этот алиас мёртв на v1beta (Stage 30G).
+
+### Git-коммиты
+```
+b42d303  Stage 40: wallet NotifType + PayoutMethod conflict fix
+0ddc480  Stage 30-Refactoring: OpenRouter gateway + directDeepSeek fallback preserved
+```
+
+---
+
 ## Stage UI-1 — Мобильный UX + Search + Photo Position (13.05.2026) ✅
 
 ### Цель
