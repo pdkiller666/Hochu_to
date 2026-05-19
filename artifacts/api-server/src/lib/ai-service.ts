@@ -361,18 +361,30 @@ const GEMINI_VISION_MODEL = process.env.GEMINI_VISION_MODEL || "gemini-flash-lat
 const GEMINI_VISION_TIMEOUT_MS = 40_000;
 
 const VISION_ARBITRATION_PROMPT =
-  "You are an impartial rental damage arbitrator. " +
-  "The photos show the item BEFORE the rental (check-in) and AFTER (check-out). " +
-  "Analyze visible damage differences and assign fault to the renter. " +
-  "Output ONLY valid JSON with no markdown wrapping, no explanation outside the JSON:\n" +
-  '{"faultEstimatePercent":<0-100>,"confidence":"low|medium|high",' +
-  '"verdictDraft":"<1-3 neutral Russian sentences>",' +
-  '"evidenceCitations":["<observation 1>","<observation 2>"]}' +
-  "\nDo NOT calculate monetary amounts. Be objective and concise.";
+  "You are an impartial rental damage arbitrator analyzing rental item photos.\n" +
+  "You receive two sets of photos: BEFORE rental (check-in) and AFTER rental (check-out).\n\n" +
+  "STEP 1 — CONSISTENCY CHECK (mandatory):\n" +
+  "First, verify that both photo sets show THE SAME physical item/object type.\n" +
+  "If the photos show DIFFERENT objects, unrelated scenes, random images (people, animals, landscapes, screenshots), " +
+  "or if one set is clearly not a rental item — set photoConsistency='incompatible'.\n" +
+  "If photos are blurry, too dark, or impossible to analyze — set photoConsistency='unreadable'.\n" +
+  "If both sets clearly show the same item — set photoConsistency='ok'.\n\n" +
+  "STEP 2 — DAMAGE ANALYSIS (only if photoConsistency='ok'):\n" +
+  "Compare visible damage differences. Assign fault to the renter only for NEW damage " +
+  "that is present in check-out photos but absent in check-in photos.\n" +
+  "Natural wear does not count as renter fault.\n\n" +
+  "Output ONLY valid JSON, no markdown, no text outside JSON:\n" +
+  '{"photoConsistency":"ok|incompatible|unreadable",' +
+  '"faultEstimatePercent":<0-100, must be 0 if photoConsistency != ok>,' +
+  '"confidence":"low|medium|high",' +
+  '"verdictDraft":"<1-3 neutral Russian sentences, mention photo issues if any>",' +
+  '"evidenceCitations":["<observation 1>","<observation 2>"]}\n' +
+  "Do NOT calculate monetary amounts. Be objective and concise.";
 
 export interface AiVerdictResult {
   faultEstimatePercent: number;
   confidence: "low" | "medium" | "high";
+  photoConsistency?: "ok" | "incompatible" | "unreadable";
   verdictDraft: string;
   evidenceCitations: string[];
   error?: string;
@@ -536,18 +548,37 @@ export async function arbitrateWithGeminiVision(claimId: number): Promise<AiVerd
       const fault = cleaned.match(/"faultEstimatePercent"\s*:\s*(\d+)/);
       const conf = cleaned.match(/"confidence"\s*:\s*"(\w+)"/);
       const draft = cleaned.match(/"verdictDraft"\s*:\s*"([^"]{0,300})"/);
+      const cons = cleaned.match(/"photoConsistency"\s*:\s*"(\w+)"/);
       verdict = {
         faultEstimatePercent: fault ? Number(fault[1]) : 0,
         confidence: conf ? conf[1] : "low",
+        photoConsistency: cons ? cons[1] : undefined,
         verdictDraft: draft ? draft[1] : "",
         evidenceCitations: [],
       };
       logger.warn({ claimId, err: "truncated JSON, regex fallback applied" }, "ai-arbitrator: parse fallback");
     }
 
+    const photoConsistency = ["ok", "incompatible", "unreadable"].includes(verdict.photoConsistency)
+      ? verdict.photoConsistency as "ok" | "incompatible" | "unreadable"
+      : undefined;
+
+    // Если фото несовместимы — принудительно обнуляем вину и ставим low confidence
+    const faultPct = photoConsistency && photoConsistency !== "ok"
+      ? 0
+      : Math.min(100, Math.max(0, Number(verdict.faultEstimatePercent ?? 0)));
+    const confidence = photoConsistency && photoConsistency !== "ok"
+      ? "low" as const
+      : (["low", "medium", "high"].includes(verdict.confidence) ? verdict.confidence : "low") as "low" | "medium" | "high";
+
+    if (photoConsistency && photoConsistency !== "ok") {
+      logger.warn({ claimId, photoConsistency }, "ai-arbitrator: photo consistency issue");
+    }
+
     return {
-      faultEstimatePercent: Math.min(100, Math.max(0, Number(verdict.faultEstimatePercent ?? 0))),
-      confidence: ["low", "medium", "high"].includes(verdict.confidence) ? verdict.confidence : "low",
+      faultEstimatePercent: faultPct,
+      confidence,
+      photoConsistency,
       verdictDraft: String(verdict.verdictDraft ?? ""),
       evidenceCitations: Array.isArray(verdict.evidenceCitations)
         ? verdict.evidenceCitations.map(String)

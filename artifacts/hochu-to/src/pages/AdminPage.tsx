@@ -2134,7 +2134,20 @@ function ClaimAiVerdictBlock({ claim, onPrefillAmount }: { claim: any; onPrefill
           <div className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg p-2">{error}</div>
         )}
 
-        {hasResult && isLowConf && (
+        {hasResult && verdict.photoConsistency === "incompatible" && (
+          <div className="bg-rose-50 border border-rose-300 rounded-lg p-2 text-xs text-rose-800 space-y-1">
+            <div className="font-bold">🚨 Фото несовместимы</div>
+            <div>ИИ обнаружил разные предметы или посторонние изображения на фото до/после. Вина не присвоена — необходим ручной разбор.</div>
+            {verdict.verdictDraft && <div className="italic text-rose-700">«{verdict.verdictDraft}»</div>}
+          </div>
+        )}
+        {hasResult && verdict.photoConsistency === "unreadable" && (
+          <div className="bg-amber-50 border border-amber-300 rounded-lg p-2 text-xs text-amber-800 space-y-1">
+            <div className="font-bold">⚠️ Фото не читаются</div>
+            <div>Фотографии слишком тёмные, размытые или непригодны для анализа. Запросите повторную загрузку фото от сторон.</div>
+          </div>
+        )}
+        {hasResult && isLowConf && !verdict.photoConsistency && (
           <div className="bg-[#F2EEE3] border border-stone-300 rounded-lg p-2 text-xs text-stone-700">
             ⚠️ ИИ не смог уверенно распознать фото{verdict.error ? `: ${verdict.error}` : ", требуется ручной осмотр"}.
             {!loading && (
