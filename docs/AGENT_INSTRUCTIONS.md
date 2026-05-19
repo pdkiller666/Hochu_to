@@ -3729,3 +3729,107 @@ b42d303  Stage 40: wallet NotifType + PayoutMethod conflict fix
 ```bash
 feat(stage-ui1): Mobile UX M1-M5 + search dropdown + fullscreen signature + photo position picker
 ```
+
+---
+
+## Stage 40 — Wallet Pro (19.05.2026) ✅
+
+**Контекст.** Таб «Кошелёк» добавлен в Dashboard за флагом `isCommercialMode`. Реальные выводы → `payout_requests`.
+
+### Изменённые файлы
+| Файл | Что изменено |
+|------|-------------|
+| `artifacts/api-server/src/routes/wallet.ts` | 7 endpoints: balance, history, topup, withdraw, admin/stats, admin/users/:id, admin/payouts |
+| `artifacts/api-server/src/types/notifications.ts` | NotifType: добавлены `wallet_topup`, `wallet_withdraw` |
+| `artifacts/hochu-to/src/pages/Dashboard.tsx` | `WalletSection`: таб «Кошелёк», кошелёк за флагом, демо-баннер в beta, статус-бейджи, withdraw→payout_requests |
+| `artifacts/hochu-to/src/pages/AdminPage.tsx` | `WalletStatsCard` в PayoutsTab |
+
+### TS-fixes
+- `WalletPayoutMethod` — переименован (конфликт с `PayoutMethod` из schema)
+- `return` добавлен в admin-endpoint после `res.json()`
+- SQL `rows` → `result.rows` в `/admin/stats`
+
+```bash
+b42d303  Stage 40: wallet NotifType + PayoutMethod conflict fix
+```
+
+---
+
+## Stage 30-Refactoring — OpenRouter AI Gateway (19.05.2026) ✅
+
+**Контекст.** Единый OpenRouter SDK вместо 4 разных fetch-провайдеров. Vision-арбитратор изолирован (прямой Gemini API).
+
+### Архитектура ПОСЛЕ
+```
+resolveProvider()
+  ├── mock           → generateMock()
+  └── openrouter     → OpenAI SDK (baseURL=openrouter.ai) ← OPENROUTER_API_KEY
+  └── openai         → openrouter.ai/openai/gpt-4o-mini
+  └── gemini         → openrouter.ai/google/gemini-flash-1.5
+  └── amvera (legacy)→ openrouter.ai/deepseek/deepseek-chat
+      └── fallback: fetch("api.deepseek.com") ← DEEPSEEK_API_KEY
+          └── fallback: mock
+```
+
+Vision-арбитратор (`arbitrateWithGeminiVision`) — **не тронут**, прямой Gemini API с base64.
+
+```bash
+0ddc480  Stage 30-Refactoring: OpenRouter gateway + directDeepSeek fallback preserved
+```
+
+---
+
+## Stage 33 — AI-Arbitration Full Implementation + Hardening (19.05.2026) ✅
+
+**Контекст.** AI-арбитражор был реализован в Stage 33.0 (30.04.2026), но заблокирован отсутствием `GEMINI_API_KEY`. 19.05.2026 — полная разблокировка + hardening.
+
+### 33-A: Разблокировка и стабилизация (`ai-service.ts`)
+- `GEMINI_API_KEY` добавлен в Replit Secrets.
+- `sharp` (`pnpm add sharp --filter @workspace/api-server`): resize 1280×1280 JPEG 80%.
+- `GEMINI_VISION_TIMEOUT_MS`: 15_000 → 40_000.
+- Retry + fallback-цепочка моделей (4 модели × 3 попытки): `gemini-flash-latest` → `gemini-1.5-flash-latest` → `gemini-2.0-flash-lite` → `gemini-2.0-flash`. Backoff: `3000 + attempt*2000` мс при 503/429.
+- `maxOutputTokens`: 512 → 1024.
+- Устойчивый JSON-парсер: `try JSON.parse()`, `catch` → regex-fallback по ключевым полям.
+- `logger.info({ rawLen, rawSnippet })` для дебага raw-ответов.
+
+### 33-B: Photo Consistency Check (`ai-service.ts`)
+- **Промпт v2** — двухшаговый:
+  - STEP 1 (обязательный): проверить, что обе группы фото показывают **один и тот же предмет**.
+  - STEP 2: анализ повреждений (только при `photoConsistency='ok'`).
+- Новое поле ответа `photoConsistency: "ok" | "incompatible" | "unreadable"`.
+- Если `incompatible` или `unreadable` → `faultEstimatePercent` принудительно = 0, `confidence` = "low".
+- `AiVerdictResult` интерфейс: добавлено `photoConsistency?: "ok" | "incompatible" | "unreadable"`.
+- Regex-fallback парсер: добавлено извлечение `photoConsistency`.
+
+### 33-C: Новые endpoints (`claims.ts`)
+| Endpoint | Доступ | Описание |
+|---|---|---|
+| `GET /admin/claims/ai-verdicts-log` | superadmin, admin | История всех вердиктов (claims WHERE ai_verdict IS NOT NULL) |
+| `POST /claims/:id/accept-verdict` | superadmin, admin, arbiter | `ai_verdict.accepted=true` + `acceptedAt` + `acceptedBy`; audit `ai_verdict_accepted` |
+| `POST /claims/:id/manual-review` | superadmin, admin, arbiter | `status='admin_review'`; audit `status_changed (reason: manual_review_override)` |
+
+### 33-D: Admin UI (`AdminPage.tsx`)
+- `ClaimDigitalActsPhotos` — новый компонент (над блоком AI): side-by-side 3×3 сетки фото check_in / check_out; fetch из `GET /api/bookings/:id/digital-acts`; `onError` скрывает битые img.
+- `ClaimAiVerdictBlock` расширен:
+  - Spinner: «Анализируем фото… (до 40 сек)».
+  - 3 варианта предупреждения: `incompatible` → 🚨 красный баннер; `unreadable` → ⚠️ янтарный; generic low-conf → нейтральный.
+  - Кнопки «✓ Принять вердикт» (green) + «✎ Пересмотреть вручную» (stone); показываются только при `canAct`.
+  - Badge `✓ Принят` при `verdict.accepted`.
+  - `actionDone` state: feedback-баннеры после действия.
+
+### Инварианты
+- Кнопки Accept/Manual-Review видны только при `status ∈ {pending, admin_review}` и `!actionDone`.
+- `faultEstimatePercent` **никогда не может быть > 0** при `photoConsistency !== 'ok'` — принудительно в бэке.
+- Кэш: повторный `POST /claims/:id/ai-verdict` при заполненном `claims.ai_verdict` → 200 без перезапроса к Gemini.
+
+### Тесты (ручные)
+- ✅ Одинаковые фото → `confidence: high`, `photoConsistency: ok`, `faultEstimate: 0%`, вердикт на русском.
+- ✅ Разные фото (разные предметы каталога) → `photoConsistency: incompatible`, `faultEstimate: 0%`, цитаты с объяснением.
+- ✅ Новые endpoints: accept-verdict (200, `accepted: true` в БД), manual-review (200, `status: admin_review` в БД).
+
+### Git-коммиты
+```
+035cb45  Stage 33 hardening: photo consistency check, prompt v2, UI warnings
+8652775  Stage 33: sharp resize, retry/fallback models, side-by-side photos UI, new endpoints
+22d2862  Stage 33: increase AI analysis timeout, secure API key
+```

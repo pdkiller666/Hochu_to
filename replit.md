@@ -155,6 +155,11 @@ All routes prefixed with `/api`:
   - `GET /claims/fund-status` — баланс фонда + резерв + availableForClaims.
   - `GET /claims/payout-methods/:userId` — реквизиты получателя (admin).
 - **Fund analytics (Stage 17c)** — `GET /api/claims/analytics?days=7|30|90` (admin): daily inflow/outflow/balance, топ-получатели, флаги подозрительных пользователей.
+- **AI-Арбитраж (Stage 33):**
+  - `POST /claims/:id/ai-verdict` — запустить Gemini Vision-анализ (admin/arbiter); кэшируется в `claims.ai_verdict`.
+  - `POST /claims/:id/accept-verdict` — модератор принимает ИИ-вердикт (`ai_verdict.accepted=true` + audit).
+  - `POST /claims/:id/manual-review` — перевод в `admin_review` без ИИ-суммы + audit.
+  - `GET /admin/claims/ai-verdicts-log` — история всех вердиктов (admin only).
 
 ## Database Schema
 
@@ -1434,23 +1439,38 @@ bash scripts/github-push.sh "fix(ai): restore working gemini-flash-latest model 
 - **API** `/wallet/*`: balance, history, admin stats/payouts (gated + auth)
 - **Dashboard WalletSection**: таб «Кошелёк» за флагом `isCommercialMode`
 
-## Stage 33 — AI-Arbitration Full Implementation (19.05.2026)
+## Stage 33 — AI-Arbitration Full Implementation + Hardening (19.05.2026)
 
+### 33-A: Разблокировка и стабилизация
 - **GEMINI_API_KEY** добавлен в Replit Secrets — арбитратор разблокирован.
-- **sharp** установлен (`pnpm add sharp --filter @workspace/api-server`): resize 1280×1280 JPEG 80% перед отправкой в Gemini.
-- **Таймаут** увеличен с 15 до 40 секунд (`GEMINI_VISION_TIMEOUT_MS`).
-- **Retry + fallback-цепочка моделей**: `gemini-flash-latest` → `gemini-1.5-flash-latest` → `gemini-2.0-flash-lite` → `gemini-2.0-flash`; до 3 попыток на каждую модель при 503/429; паузы с backoff.
-- **maxOutputTokens** увеличен с 512 до 1024 (предотвращает обрезку JSON).
-- **Устойчивый JSON-парсер**: при обрезанном ответе — regex-fallback по полям `faultEstimatePercent`, `confidence`, `verdictDraft`.
+- **sharp** установлен: resize 1280×1280 JPEG 80% перед отправкой в Gemini (снижает payload в 10×).
+- **Таймаут** 15s → 40s (`GEMINI_VISION_TIMEOUT_MS`).
+- **Retry + fallback-цепочка**: `gemini-flash-latest` → `gemini-1.5-flash-latest` → `gemini-2.0-flash-lite` → `gemini-2.0-flash`; до 3 попыток каждая при 503/429 с backoff.
+- **maxOutputTokens** 512 → 1024 (предотвращает обрезку JSON).
+- **Устойчивый JSON-парсер**: при битом JSON — regex-fallback по полям `faultEstimatePercent`, `confidence`, `verdictDraft`, `photoConsistency`.
 - **Логирование**: `logger.info` с `rawLen` и `rawSnippet` для дебага вердиктов.
-- **3 новых endpoint** в `claims.ts`:
-  - `GET /admin/claims/ai-verdicts-log` — история всех вердиктов (admin only).
-  - `POST /claims/:id/accept-verdict` — модератор принимает вердикт (`ai_verdict.accepted=true` + audit).
-  - `POST /claims/:id/manual-review` — перевод в ручной разбор без ИИ-суммы.
-- **ClaimDigitalActsPhotos** — новый компонент в AdminPage: side-by-side сетка фото ДО (check_in) и ПОСЛЕ (check_out) поверх блока AI-вердикта.
-- **Кнопки "Принять вердикт" / "Пересмотреть вручную"** — badge `accepted`, feedback-баннеры.
-- **Тестовые данные**: claim id=1 (damage, 15 000 ₽) + 2 digital_acts (check_in/check_out, 4 фото каждый) для booking id=3.
-- **End-to-end тест**: `confidence: high`, вердикт на русском, ошибок нет ✅.
+
+### 33-B: Новые endpoints (claims.ts)
+- `GET /admin/claims/ai-verdicts-log` — история всех ИИ-вердиктов (admin only, для обучения модели).
+- `POST /claims/:id/accept-verdict` — модератор принимает вердикт (`ai_verdict.accepted=true` + audit `ai_verdict_accepted`).
+- `POST /claims/:id/manual-review` — перевод в `admin_review` без ИИ-суммы + audit `status_changed`.
+
+### 33-C: Admin UI (AdminPage.tsx)
+- **`ClaimDigitalActsPhotos`** — новый компонент: side-by-side сетка фото ДО (check_in) / ПОСЛЕ (check_out) над блоком AI-вердикта; данные из `GET /api/bookings/:id/digital-acts`.
+- **Кнопки «Принять вердикт» / «Пересмотреть вручную»** — зелёная/серая, badge `✓ Принят`, feedback-баннеры.
+
+### 33-D: Photo Consistency Check (Hardening)
+- **Промпт v2**: добавлен обязательный STEP 1 — проверка совместимости фото.
+- **`photoConsistency`** поле в ответе: `ok` | `incompatible` | `unreadable`.
+  - `incompatible` → разные предметы / посторонние изображения → `faultEstimate=0` принудительно, UI: 🚨 баннер.
+  - `unreadable` → тёмные/размытые фото → `faultEstimate=0`, UI: ⚠️ баннер с просьбой перезагрузить.
+- **Тест**: check-in ≠ check-out фото → `photoConsistency: incompatible`, `verdictDraft` объясняет по-русски.
+- **`AiVerdictResult`** интерфейс расширен: `photoConsistency?: "ok" | "incompatible" | "unreadable"`.
+
+### Статус (19.05.2026)
+- End-to-end тест одинаковых фото: `confidence: high`, `faultEstimate: 0%`, вердикт на русском ✅
+- End-to-end тест разных фото: `photoConsistency: incompatible`, `faultEstimate: 0%` ✅
+- Тестовые данные в БД: claim id=1 (damage, 15 000 ₽) + digital_acts для booking id=3 ✅
 
 ## Stage 40 — Wallet Pro (19.05.2026)
 - **TS-fixes**: `wallet_topup` / `wallet_withdraw` в NotifType; `WalletPayoutMethod` (конфликт имён); `return` в admin-endpoint; SQL rows в `/admin/stats`
