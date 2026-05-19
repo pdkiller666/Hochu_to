@@ -180,16 +180,16 @@ export default function Dashboard() {
   const isCommercialMode = !isBetaMode;
 
   type DashTab = "incoming" | "outgoing" | "listings" | "profile" | "history" | "support" | "contacts" | "finance" | "wallet";
-  // В Бета-режиме «finance», «contacts» и «wallet» выключены полностью.
+  // В Бета-режиме «finance» и «contacts» выключены; «wallet» доступен с демо-баннером.
   const baseTabs: DashTab[] = ["incoming", "outgoing", "listings", "profile", "history", "support"];
-  const validTabs: DashTab[] = isBetaMode ? baseTabs : [...baseTabs, "contacts", "finance", "wallet"];
+  const validTabs: DashTab[] = isBetaMode ? [...baseTabs, "wallet"] : [...baseTabs, "contacts", "finance", "wallet"];
   const urlTab = initialTab && validTabs.includes(initialTab as DashTab) ? (initialTab as DashTab) : null;
   const [activeTab, setActiveTab] = usePersistedState<DashTab>("dashboard_tab", urlTab ?? "incoming");
   // URL-параметр tab всегда берёт приоритет над сохранённым значением
   useEffect(() => { if (urlTab) setActiveTab(urlTab); }, []);
   // Если settings прилетели позже и пользователь сидит на коммерч. вкладке в beta — переключаем.
   useEffect(() => {
-    if (isBetaMode && (activeTab === "finance" || activeTab === "contacts" || activeTab === "wallet")) {
+    if (isBetaMode && (activeTab === "finance" || activeTab === "contacts")) {
       setActiveTab("incoming");
     }
   }, [isBetaMode, activeTab, setActiveTab]);
@@ -1652,10 +1652,10 @@ export default function Dashboard() {
       { id: "listings" as const, label: "Мои объявления", icon: LayoutGrid, badge: 0 },
     ] : []),
     { id: "history" as const, label: "История сделок", icon: BadgeCheck, badge: badgeHistory },
-    // В Бета-режиме скрываем «Финансы» (выплаты/комиссии) и «Баланс контактов»
-    // (платный доступ) — функциональности в beta нет.
+    // Кошелёк виден всегда (в beta — с демо-баннером)
+    { id: "wallet" as const, label: "Кошелёк", icon: Wallet, badge: 0 },
+    // В Бета-режиме скрываем «Финансы» и «Баланс контактов» (платный доступ).
     ...(isCommercialMode ? [
-      { id: "wallet" as const, label: "Кошелёк", icon: Wallet, badge: 0 },
       { id: "finance" as const, label: "Финансы", icon: Coins, badge: 0 },
       { id: "contacts" as const, label: "Баланс контактов", icon: Wallet, badge: 0 },
     ] : []),
@@ -2467,7 +2467,7 @@ export default function Dashboard() {
 
             {/* ── WALLET (Stage 40) ── */}
             {activeTab === "wallet" && (
-              <WalletSection token={token!} userId={user?.id} />
+              <WalletSection token={token!} userId={user?.id} isBetaMode={isBetaMode} />
             )}
 
             {/* ── CONTACTS BALANCE ── */}
@@ -3737,6 +3737,23 @@ interface WalletPayoutMethod {
 
 type TxType = "all" | "topup" | "hold" | "release" | "payout" | "commission" | "refund" | "withdraw";
 
+function formatTxDate(iso: string): string {
+  const d = new Date(iso);
+  const now = new Date();
+  const time = d.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfYesterday = new Date(startOfToday.getTime() - 86400000);
+  if (d >= startOfToday) return `Сегодня, ${time}`;
+  if (d >= startOfYesterday) return `Вчера, ${time}`;
+  return d.toLocaleString("ru-RU", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
+const TX_STATUS: Record<string, { label: string; cls: string }> = {
+  completed: { label: "Выполнено",  cls: "bg-emerald-100 text-emerald-700" },
+  pending:   { label: "Обработка",  cls: "bg-amber-100 text-amber-700" },
+  failed:    { label: "Ошибка",     cls: "bg-red-100 text-red-700" },
+};
+
 const TX_META: Record<string, { label: string; color: string; bg: string; icon: React.ReactNode; sign: "+" | "-" | "~" }> = {
   topup:      { label: "Пополнение",   color: "text-violet-700", bg: "bg-violet-50",  icon: <ArrowDownToLine className="w-4 h-4" />,  sign: "+" },
   hold:       { label: "Заморозка",    color: "text-amber-700",  bg: "bg-amber-50",   icon: <Shield className="w-4 h-4" />,           sign: "~" },
@@ -3753,7 +3770,7 @@ const STATUS_BOOKING: Record<string, string> = {
   return_pending: "Ожидает возврата",
 };
 
-function WalletSection({ token, userId }: { token: string; userId?: number }) {
+function WalletSection({ token, userId, isBetaMode }: { token: string; userId?: number; isBetaMode?: boolean }) {
   const API_BASE = import.meta.env.VITE_API_URL ?? "";
   const [balance, setBalance] = useState<WalletBalance | null>(null);
   const [history, setHistory] = useState<WalletTx[]>([]);
@@ -3884,13 +3901,24 @@ function WalletSection({ token, userId }: { token: string; userId?: number }) {
     setWithdrawLoading(true);
     setWithdrawMsg(null);
     try {
-      const res = await fetch(`${API_BASE}/api/wallet/withdraw`, {
+      // Шаг 1: списать с кошелька
+      const wRes = await fetch(`${API_BASE}/api/wallet/withdraw`, {
         method: "POST",
         headers: { ...authHeaders, "Content-Type": "application/json" },
         body: JSON.stringify({ amountRub: amt, payoutMethodId: withdrawMethodId }),
       });
-      const data = await res.json();
-      if (!res.ok) { setWithdrawMsg({ ok: false, text: data.message ?? "Ошибка" }); return; }
+      const wData = await wRes.json();
+      if (!wRes.ok) { setWithdrawMsg({ ok: false, text: wData.message ?? "Ошибка" }); return; }
+
+      // Шаг 2: создать заявку в очереди админа (payout_requests)
+      try {
+        await fetch(`${API_BASE}/api/me/payouts`, {
+          method: "POST",
+          headers: { ...authHeaders, "Content-Type": "application/json" },
+          body: JSON.stringify({ amountRub: amt, payoutMethodId: withdrawMethodId }),
+        });
+      } catch { /* не блокируем — кошелёк уже обновлён */ }
+
       setWithdrawMsg({ ok: true, text: "Заявка на вывод создана. Обработка до 3 рабочих дней." });
       setWithdrawAmount("");
       setShowWithdraw(false);
@@ -3920,6 +3948,17 @@ function WalletSection({ token, userId }: { token: string; userId?: number }) {
 
   return (
     <div className="max-w-2xl w-full space-y-5">
+
+      {/* ── Демо-баннер (только в бета-режиме) ── */}
+      {isBetaMode && (
+        <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3">
+          <span className="text-amber-500 mt-0.5 shrink-0">ℹ️</span>
+          <div>
+            <p className="text-sm font-semibold text-amber-800">Демонстрационный режим</p>
+            <p className="text-xs text-amber-700 mt-0.5">Платёжный модуль отключён. Пополнение и операции с кошельком работают как тестовые — реальные списания не происходят.</p>
+          </div>
+        </div>
+      )}
 
       {/* ── Hero-карточка кошелька ── */}
       <div className="bg-gradient-to-br from-[#C65D3B] to-[#a84d2f] rounded-2xl p-6 text-white shadow-lg">
@@ -4023,7 +4062,7 @@ function WalletSection({ token, userId }: { token: string; userId?: number }) {
             <div className="divide-y divide-border">
               {history.map((tx) => {
                 const meta = TX_META[tx.type] ?? { label: tx.type, color: "text-stone-600", bg: "bg-stone-50", icon: <Coins className="w-4 h-4" />, sign: "~" as const };
-                const isPending = tx.status === "pending";
+                const statusMeta = TX_STATUS[tx.status];
                 return (
                   <div key={tx.id} className="px-5 py-3.5 flex items-center gap-3">
                     <div className={`w-9 h-9 rounded-xl ${meta.bg} ${meta.color} flex items-center justify-center shrink-0`}>
@@ -4033,19 +4072,25 @@ function WalletSection({ token, userId }: { token: string; userId?: number }) {
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className={`text-sm font-semibold ${meta.color}`}>{meta.label}</span>
                         {tx.bookingNumber ? (
-                          <span className="text-[11px] font-mono text-stone-400">{tx.bookingNumber}</span>
+                          <a
+                            href={`/dashboard?tab=outgoing`}
+                            className="text-[11px] font-mono text-primary hover:underline"
+                            title="Перейти к брони"
+                          >{tx.bookingNumber}</a>
                         ) : tx.referenceId && tx.referenceType === "booking" ? (
                           <span className="text-[11px] text-stone-400">бронь #{tx.referenceId}</span>
                         ) : null}
-                        {isPending && (
-                          <span className="px-1.5 py-0.5 bg-amber-100 text-amber-700 text-[10px] font-semibold rounded-full">обработка</span>
+                        {statusMeta && (
+                          <span className={`px-1.5 py-0.5 text-[10px] font-semibold rounded-full ${statusMeta.cls}`}>
+                            {statusMeta.label}
+                          </span>
                         )}
                       </div>
                       {tx.description && (
                         <p className="text-xs text-stone-500 mt-0.5 truncate max-w-[280px]">{tx.description}</p>
                       )}
                       <p className="text-[11px] text-stone-400 mt-0.5">
-                        {new Date(tx.createdAt).toLocaleString("ru-RU", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+                        {formatTxDate(tx.createdAt)}
                       </p>
                     </div>
                     <div className="text-right shrink-0">
