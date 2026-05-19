@@ -1,52 +1,95 @@
 import { Link } from "wouter";
 import { motion } from "framer-motion";
-import { ArrowRight } from "lucide-react";
-
-const fadeUp = {
-  initial: { opacity: 0, y: 20 },
-  whileInView: { opacity: 1, y: 0 },
-  viewport: { once: true, margin: "-60px" },
-  transition: { duration: 0.65, ease: [0.22, 1, 0.36, 1] as const },
-};
+import { ArrowRight, Zap } from "lucide-react";
 
 export function FinalCTA() {
   return (
-    <section className="py-20 md:py-28 bg-white border-t border-border">
-      <div className="max-w-3xl mx-auto px-4 text-center">
-        <motion.h2
-          {...fadeUp}
-          className="font-display text-3xl md:text-5xl font-extrabold text-[#2B2B2B] leading-tight mb-6"
+    <section className="relative py-24 md:py-36 bg-[#C65D3B] overflow-hidden">
+      {/* Animated background blobs */}
+      <motion.div
+        animate={{ scale: [1, 1.2, 1], rotate: [0, 15, 0] }}
+        transition={{ duration: 12, repeat: Infinity, ease: "easeInOut" }}
+        className="absolute -top-20 -right-20 w-96 h-96 rounded-full bg-white/8 blur-2xl pointer-events-none"
+      />
+      <motion.div
+        animate={{ scale: [1, 1.3, 1], rotate: [0, -20, 0] }}
+        transition={{ duration: 10, repeat: Infinity, ease: "easeInOut", delay: 3 }}
+        className="absolute -bottom-20 -left-20 w-[500px] h-[500px] rounded-full bg-black/8 blur-2xl pointer-events-none"
+      />
+
+      {/* Dot grid pattern */}
+      <div
+        className="absolute inset-0 pointer-events-none opacity-10"
+        style={{
+          backgroundImage: "radial-gradient(circle, white 1px, transparent 1px)",
+          backgroundSize: "32px 32px",
+        }}
+      />
+
+      <div className="relative max-w-4xl mx-auto px-4 text-center">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          whileInView={{ opacity: 1, scale: 1 }}
+          viewport={{ once: true, margin: "-60px" }}
+          transition={{ duration: 0.6 }}
+          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-white/15 border border-white/25 text-white text-sm font-bold mb-8 backdrop-blur"
         >
-          Перестаньте откладывать{" "}
-          <span className="text-[#C65D3B]">дорогие вещи</span>{" "}
-          на потом.{" "}
-          <br className="hidden md:block" />
-          Начните пользоваться ими умнее.
+          <Zap className="w-4 h-4 fill-white" />
+          Начните прямо сейчас — это бесплатно
+        </motion.div>
+
+        <motion.h2
+          initial={{ opacity: 0, y: 30 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: "-60px" }}
+          transition={{ duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
+          className="font-display text-4xl md:text-6xl lg:text-7xl font-extrabold text-white leading-tight mb-6"
+        >
+          Перестаньте откладывать
+          <br />
+          <span className="text-white/60">дорогие вещи на потом.</span>
+          <br />
+          Начните пользоваться
+          <br />
+          <span
+            style={{
+              background: "linear-gradient(90deg, #fff 0%, #FBEDE7 100%)",
+              WebkitBackgroundClip: "text",
+              WebkitTextFillColor: "transparent",
+              backgroundClip: "text",
+            }}
+          >
+            ими умнее.
+          </span>
         </motion.h2>
 
         <motion.p
-          {...fadeUp}
-          transition={{ ...fadeUp.transition, delay: 0.1 }}
-          className="text-muted-foreground text-lg mb-10 leading-relaxed"
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.6, delay: 0.15 }}
+          className="text-white/70 text-lg md:text-xl mb-10 leading-relaxed"
         >
-          Регистрация — одна минута. Никаких подписок и скрытых платежей в режиме беты.
+          Регистрация — одна минута. Никаких подписок и скрытых платежей в бета-режиме.
         </motion.p>
 
         <motion.div
-          {...fadeUp}
-          transition={{ ...fadeUp.transition, delay: 0.2 }}
-          className="flex flex-col sm:flex-row gap-4 justify-center mb-12"
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.6, delay: 0.25 }}
+          className="flex flex-col sm:flex-row gap-4 justify-center mb-10"
         >
           <Link
             href="/pools/create"
-            className="inline-flex items-center justify-center gap-2 px-9 py-4 rounded-2xl bg-[#C65D3B] text-white font-semibold text-lg shadow-lg shadow-[#C65D3B]/25 hover:bg-[#a04829] hover:shadow-xl hover:-translate-y-0.5 transition-all"
+            className="inline-flex items-center justify-center gap-2 px-9 py-4 rounded-2xl bg-white text-[#C65D3B] font-extrabold text-lg shadow-2xl shadow-black/20 hover:bg-[#F2EEE3] hover:-translate-y-1 hover:shadow-2xl transition-all duration-200 group"
           >
             Собрать первую покупку
-            <ArrowRight className="w-5 h-5" />
+            <ArrowRight className="w-5 h-5 group-hover:translate-x-0.5 transition-transform" />
           </Link>
           <Link
             href="/catalog"
-            className="inline-flex items-center justify-center gap-2 px-9 py-4 rounded-2xl bg-white border-2 border-[#C65D3B] text-[#C65D3B] font-semibold text-lg hover:bg-[#C65D3B] hover:text-white hover:-translate-y-0.5 transition-all"
+            className="inline-flex items-center justify-center gap-2 px-9 py-4 rounded-2xl bg-white/10 border-2 border-white/30 text-white font-bold text-lg backdrop-blur hover:bg-white/20 hover:-translate-y-1 transition-all duration-200"
           >
             Смотреть каталог
           </Link>
@@ -56,11 +99,11 @@ export function FinalCTA() {
           initial={{ opacity: 0 }}
           whileInView={{ opacity: 1 }}
           viewport={{ once: true }}
-          transition={{ duration: 0.8, delay: 0.3 }}
-          className="text-sm text-muted-foreground"
+          transition={{ duration: 0.6, delay: 0.4 }}
+          className="text-white/40 text-sm"
         >
           Регистрируясь, вы соглашаетесь с{" "}
-          <Link href="/privacy" className="text-[#C65D3B] hover:underline font-medium">
+          <Link href="/privacy" className="text-white/70 hover:text-white underline underline-offset-2 font-medium">
             Политикой конфиденциальности
           </Link>
           .
