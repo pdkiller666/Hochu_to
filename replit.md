@@ -1434,6 +1434,24 @@ bash scripts/github-push.sh "fix(ai): restore working gemini-flash-latest model 
 - **API** `/wallet/*`: balance, history, admin stats/payouts (gated + auth)
 - **Dashboard WalletSection**: таб «Кошелёк» за флагом `isCommercialMode`
 
+## Stage 33 — AI-Arbitration Full Implementation (19.05.2026)
+
+- **GEMINI_API_KEY** добавлен в Replit Secrets — арбитратор разблокирован.
+- **sharp** установлен (`pnpm add sharp --filter @workspace/api-server`): resize 1280×1280 JPEG 80% перед отправкой в Gemini.
+- **Таймаут** увеличен с 15 до 40 секунд (`GEMINI_VISION_TIMEOUT_MS`).
+- **Retry + fallback-цепочка моделей**: `gemini-flash-latest` → `gemini-1.5-flash-latest` → `gemini-2.0-flash-lite` → `gemini-2.0-flash`; до 3 попыток на каждую модель при 503/429; паузы с backoff.
+- **maxOutputTokens** увеличен с 512 до 1024 (предотвращает обрезку JSON).
+- **Устойчивый JSON-парсер**: при обрезанном ответе — regex-fallback по полям `faultEstimatePercent`, `confidence`, `verdictDraft`.
+- **Логирование**: `logger.info` с `rawLen` и `rawSnippet` для дебага вердиктов.
+- **3 новых endpoint** в `claims.ts`:
+  - `GET /admin/claims/ai-verdicts-log` — история всех вердиктов (admin only).
+  - `POST /claims/:id/accept-verdict` — модератор принимает вердикт (`ai_verdict.accepted=true` + audit).
+  - `POST /claims/:id/manual-review` — перевод в ручной разбор без ИИ-суммы.
+- **ClaimDigitalActsPhotos** — новый компонент в AdminPage: side-by-side сетка фото ДО (check_in) и ПОСЛЕ (check_out) поверх блока AI-вердикта.
+- **Кнопки "Принять вердикт" / "Пересмотреть вручную"** — badge `accepted`, feedback-баннеры.
+- **Тестовые данные**: claim id=1 (damage, 15 000 ₽) + 2 digital_acts (check_in/check_out, 4 фото каждый) для booking id=3.
+- **End-to-end тест**: `confidence: high`, вердикт на русском, ошибок нет ✅.
+
 ## Stage 40 — Wallet Pro (19.05.2026)
 - **TS-fixes**: `wallet_topup` / `wallet_withdraw` в NotifType; `WalletPayoutMethod` (конфликт имён); `return` в admin-endpoint; SQL rows в `/admin/stats`
 - **Тест**: все 7 wallet-эндпоинтов проверены curl-ами, все 200

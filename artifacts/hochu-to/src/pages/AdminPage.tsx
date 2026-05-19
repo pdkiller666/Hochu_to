@@ -1968,11 +1968,75 @@ function ClaimsTab() {
 // ─── Claim modals ────────────────────────────────────────────────────────────
 
 // ─── Stage 33 — AI-Арбитражор блок ──────────────────────────────────────────
+function ClaimDigitalActsPhotos({ bookingId }: { bookingId: number }) {
+  const API = import.meta.env.VITE_API_URL ?? "";
+  const [acts, setActs] = useState<any[]>([]);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    if (!bookingId) return;
+    const token = localStorage.getItem("token");
+    fetch(`${API}/api/bookings/${bookingId}/digital-acts`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(j => { if (j?.items) setActs(j.items); })
+      .catch(() => {})
+      .finally(() => setLoaded(true));
+  }, [bookingId, API]);
+
+  if (!loaded) return null;
+
+  const checkIn = acts.find(a => a.type === "check_in");
+  const checkOut = acts.find(a => a.type === "check_out");
+  if (!checkIn && !checkOut) return null;
+
+  const PhotoGrid = ({ act, label, color }: { act: any; label: string; color: string }) => {
+    const photos: string[] = Array.isArray(act?.photos) ? act.photos : [];
+    return (
+      <div className="flex-1 min-w-0">
+        <div className={`text-[10px] font-bold uppercase mb-1 ${color}`}>{label}</div>
+        {photos.length === 0 ? (
+          <div className="text-[10px] text-stone-400 italic">нет фото</div>
+        ) : (
+          <div className="grid grid-cols-3 gap-0.5">
+            {photos.slice(0, 3).map((url: string, i: number) => (
+              <a key={i} href={`${API}${url}`} target="_blank" rel="noopener noreferrer">
+                <img
+                  src={`${API}${url}`}
+                  alt={`${label} ${i + 1}`}
+                  className="w-full aspect-square object-cover rounded-sm border border-stone-200 hover:opacity-80 transition-opacity"
+                  onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                />
+              </a>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="border border-stone-200 rounded-xl p-3 bg-white space-y-2">
+      <span className="text-[10px] font-bold text-stone-500 uppercase tracking-wide">📷 Фото ДО / ПОСЛЕ</span>
+      <div className="flex gap-2">
+        <PhotoGrid act={checkIn} label="До (Check-in)" color="text-emerald-700" />
+        <div className="w-px bg-stone-200 shrink-0" />
+        <PhotoGrid act={checkOut} label="После (Check-out)" color="text-rose-700" />
+      </div>
+    </div>
+  );
+}
+
 function ClaimAiVerdictBlock({ claim, onPrefillAmount }: { claim: any; onPrefillAmount: (amount: string) => void }) {
   const API = import.meta.env.VITE_API_URL ?? "";
   const [verdict, setVerdict] = useState<any | null>(claim.aiVerdict ?? null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [actionLoading, setActionLoading] = useState<"accept" | "manual" | null>(null);
+  const [actionDone, setActionDone] = useState<"accepted" | "manual" | null>(
+    (claim.aiVerdict as any)?.accepted ? "accepted" : null
+  );
 
   const requestVerdict = async () => {
     setLoading(true);
@@ -1993,89 +2057,162 @@ function ClaimAiVerdictBlock({ claim, onPrefillAmount }: { claim: any; onPrefill
     }
   };
 
+  const handleAcceptVerdict = async () => {
+    setActionLoading("accept");
+    try {
+      const token = localStorage.getItem("token");
+      const r = await fetch(`${API}/api/claims/${claim.id}/accept-verdict`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!r.ok) throw new Error("Ошибка");
+      setActionDone("accepted");
+      setVerdict((v: any) => ({ ...v, accepted: true }));
+    } catch {
+      setError("Не удалось принять вердикт");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleManualReview = async () => {
+    setActionLoading("manual");
+    try {
+      const token = localStorage.getItem("token");
+      const r = await fetch(`${API}/api/claims/${claim.id}/manual-review`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!r.ok) throw new Error("Ошибка");
+      setActionDone("manual");
+    } catch {
+      setError("Не удалось перевести в ручной разбор");
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   const isLowConf = !verdict || verdict.confidence === "low" || verdict.error;
   const hasResult = !!verdict;
+  const canAct = hasResult && !isLowConf && !actionDone && (claim.status === "pending" || claim.status === "admin_review");
 
   return (
-    <div className="border border-stone-200 rounded-xl p-3 space-y-2 bg-stone-50">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-bold text-stone-700">🤖 AI-помощник</span>
-        {hasResult && verdict.analyzedAt && (
-          <span className="text-[10px] text-stone-400">
-            {new Date(verdict.analyzedAt).toLocaleString("ru", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
-            {verdict.cached && " · кэш"}
-          </span>
-        )}
-      </div>
+    <div className="space-y-2">
+      {claim.bookingId && <ClaimDigitalActsPhotos bookingId={claim.bookingId} />}
 
-      {!hasResult && !loading && (
-        <button
-          onClick={requestVerdict}
-          className="px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white text-xs font-medium rounded-lg"
-        >
-          Запросить ИИ-анализ
-        </button>
-      )}
-
-      {loading && (
-        <div className="flex items-center gap-2 text-xs text-stone-500">
-          <svg className="animate-spin h-3 w-3 text-violet-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
-          </svg>
-          Анализируем фото…
-        </div>
-      )}
-
-      {error && (
-        <div className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg p-2">{error}</div>
-      )}
-
-      {hasResult && isLowConf && (
-        <div className="bg-[#F2EEE3] border border-stone-300 rounded-lg p-2 text-xs text-stone-700">
-          ⚠️ ИИ не смог уверенно распознать фото{verdict.error ? `: ${verdict.error}` : ", требуется ручной осмотр"}.
-          {!loading && (
-            <button onClick={requestVerdict} className="ml-2 underline text-violet-700">Повторить</button>
-          )}
-        </div>
-      )}
-
-      {hasResult && !isLowConf && (
-        <div className="space-y-2">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${verdict.confidence === "high" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
-              {verdict.confidence === "high" ? "Высокая уверенность" : "Средняя уверенность"}
+      <div className="border border-stone-200 rounded-xl p-3 space-y-2 bg-stone-50">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-xs font-bold text-stone-700">🤖 AI-помощник</span>
+          {hasResult && verdict.analyzedAt && (
+            <span className="text-[10px] text-stone-400">
+              {new Date(verdict.analyzedAt).toLocaleString("ru", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+              {verdict.cached && " · кэш"}
             </span>
-            <span className="text-xs text-stone-600">Вина арендатора: <strong>{verdict.faultEstimatePercent}%</strong></span>
+          )}
+        </div>
+
+        {!hasResult && !loading && (
+          <button
+            onClick={requestVerdict}
+            className="px-3 py-1.5 bg-violet-600 hover:bg-violet-700 text-white text-xs font-medium rounded-lg"
+          >
+            Запросить ИИ-анализ
+          </button>
+        )}
+
+        {loading && (
+          <div className="flex items-center gap-2 text-xs text-stone-500">
+            <svg className="animate-spin h-3 w-3 text-violet-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
+            </svg>
+            Анализируем фото… (до 40 сек)
           </div>
+        )}
 
-          {verdict.verdictDraft && (
-            <p className="text-xs text-stone-700 italic">«{verdict.verdictDraft}»</p>
-          )}
+        {error && (
+          <div className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg p-2">{error}</div>
+        )}
 
-          {Array.isArray(verdict.evidenceCitations) && verdict.evidenceCitations.length > 0 && (
-            <ul className="text-[11px] text-stone-500 space-y-0.5 list-disc list-inside">
-              {verdict.evidenceCitations.map((c: string, i: number) => <li key={i}>{c}</li>)}
-            </ul>
-          )}
+        {hasResult && isLowConf && (
+          <div className="bg-[#F2EEE3] border border-stone-300 rounded-lg p-2 text-xs text-stone-700">
+            ⚠️ ИИ не смог уверенно распознать фото{verdict.error ? `: ${verdict.error}` : ", требуется ручной осмотр"}.
+            {!loading && (
+              <button onClick={requestVerdict} className="ml-2 underline text-violet-700">Повторить</button>
+            )}
+          </div>
+        )}
 
-          {verdict.suggestedAmountRub != null && (
+        {hasResult && !isLowConf && (
+          <div className="space-y-2">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-xs text-stone-600">
-                Рекомендуемая сумма: <strong className="text-violet-700">{Number(verdict.suggestedAmountRub).toLocaleString("ru")} ₽</strong>
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${verdict.confidence === "high" ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
+                {verdict.confidence === "high" ? "Высокая уверенность" : "Средняя уверенность"}
               </span>
-              {(claim.status === "pending" || claim.status === "admin_review") && (
-                <button
-                  onClick={() => onPrefillAmount(String(verdict.suggestedAmountRub))}
-                  className="px-2 py-1 bg-violet-100 hover:bg-violet-200 text-violet-800 text-[11px] font-medium rounded-lg border border-violet-300"
-                >
-                  Применить рекомендуемую сумму
-                </button>
+              <span className="text-xs text-stone-600">Вина арендатора: <strong>{verdict.faultEstimatePercent}%</strong></span>
+              {verdict.accepted && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-green-50 text-green-700 border border-green-200">✓ Принят</span>
               )}
             </div>
-          )}
-        </div>
-      )}
+
+            {verdict.verdictDraft && (
+              <p className="text-xs text-stone-700 italic">«{verdict.verdictDraft}»</p>
+            )}
+
+            {Array.isArray(verdict.evidenceCitations) && verdict.evidenceCitations.length > 0 && (
+              <ul className="text-[11px] text-stone-500 space-y-0.5 list-disc list-inside">
+                {verdict.evidenceCitations.map((c: string, i: number) => <li key={i}>{c}</li>)}
+              </ul>
+            )}
+
+            {verdict.suggestedAmountRub != null && (
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs text-stone-600">
+                  Рекомендуемая сумма: <strong className="text-violet-700">{Number(verdict.suggestedAmountRub).toLocaleString("ru")} ₽</strong>
+                </span>
+                {canAct && (
+                  <button
+                    onClick={() => onPrefillAmount(String(verdict.suggestedAmountRub))}
+                    className="px-2 py-1 bg-violet-100 hover:bg-violet-200 text-violet-800 text-[11px] font-medium rounded-lg border border-violet-300"
+                  >
+                    Применить сумму
+                  </button>
+                )}
+              </div>
+            )}
+
+            {canAct && (
+              <div className="flex gap-2 pt-1">
+                <button
+                  onClick={handleAcceptVerdict}
+                  disabled={!!actionLoading}
+                  className="flex-1 px-3 py-1.5 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-xs font-medium rounded-lg"
+                >
+                  {actionLoading === "accept" ? "Сохраняем…" : "✓ Принять вердикт"}
+                </button>
+                <button
+                  onClick={handleManualReview}
+                  disabled={!!actionLoading}
+                  className="flex-1 px-3 py-1.5 bg-stone-200 hover:bg-stone-300 disabled:opacity-50 text-stone-700 text-xs font-medium rounded-lg"
+                >
+                  {actionLoading === "manual" ? "Переводим…" : "✎ Пересмотреть вручную"}
+                </button>
+              </div>
+            )}
+
+            {actionDone === "accepted" && (
+              <div className="text-[11px] text-green-700 bg-green-50 border border-green-200 rounded-lg p-2">
+                ✓ Вердикт принят и сохранён. Теперь можно одобрить выплату с рекомендуемой суммой.
+              </div>
+            )}
+            {actionDone === "manual" && (
+              <div className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
+                ✎ Заявка переведена в режим ручного разбора. ИИ-сумма не применяется.
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

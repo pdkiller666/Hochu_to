@@ -878,4 +878,86 @@ router.post("/:id/ai-verdict", requireAuth, requireRole("superadmin", "admin", "
   }
 });
 
+// ─── GET /admin/claims/ai-verdicts-log — история всех ИИ-вердиктов (только admin) ─
+router.get("/admin/ai-verdicts-log", requireAuth, requireRole("superadmin", "admin"), async (req: AuthRequest, res) => {
+  try {
+    const rows = await db
+      .select({
+        id: claimsTable.id,
+        bookingId: claimsTable.bookingId,
+        claimantId: claimsTable.claimantId,
+        status: claimsTable.status,
+        requestedAmount: claimsTable.requestedAmount,
+        aiVerdict: claimsTable.aiVerdict,
+        createdAt: claimsTable.createdAt,
+        updatedAt: claimsTable.updatedAt,
+      })
+      .from(claimsTable)
+      .where(sql`${claimsTable.aiVerdict} is not null`)
+      .orderBy(desc(claimsTable.updatedAt))
+      .limit(200);
+
+    res.json({ items: rows, total: rows.length });
+  } catch (err: any) {
+    res.status(500).json({ error: "internal", message: err?.message });
+  }
+});
+
+// ─── POST /claims/:id/accept-verdict — модератор принимает ИИ-вердикт ─────────
+router.post("/:id/accept-verdict", requireAuth, requireRole("superadmin", "admin", "arbiter"), async (req: AuthRequest, res) => {
+  const claimId = parseInt(req.params.id as string, 10);
+  if (!Number.isFinite(claimId)) { res.status(400).json({ error: "invalid_id" }); return; }
+
+  try {
+    const [claim] = await db.select().from(claimsTable).where(eq(claimsTable.id, claimId)).limit(1);
+    if (!claim) { res.status(404).json({ error: "not_found" }); return; }
+    if (!claim.aiVerdict) { res.status(409).json({ error: "no_verdict", message: "ИИ-вердикт ещё не запрошен" }); return; }
+
+    const updatedVerdict = { ...(claim.aiVerdict as Record<string, unknown>), accepted: true, acceptedAt: new Date().toISOString(), acceptedBy: req.userId };
+
+    await db.update(claimsTable)
+      .set({ aiVerdict: updatedVerdict, updatedAt: new Date() })
+      .where(eq(claimsTable.id, claimId));
+
+    void db.insert(auditEventsTable).values({
+      entityType: "claim",
+      entityId: claimId,
+      actorId: req.userId!,
+      eventType: "ai_verdict_accepted" as any,
+      metadata: { confidence: (claim.aiVerdict as any).confidence, faultEstimatePercent: (claim.aiVerdict as any).faultEstimatePercent },
+    }).catch(() => {});
+
+    res.json({ ok: true, verdict: updatedVerdict });
+  } catch (err: any) {
+    res.status(500).json({ error: "internal", message: err?.message });
+  }
+});
+
+// ─── POST /claims/:id/manual-review — перевести в ручной разбор (без ИИ-суммы) ─
+router.post("/:id/manual-review", requireAuth, requireRole("superadmin", "admin", "arbiter"), async (req: AuthRequest, res) => {
+  const claimId = parseInt(req.params.id as string, 10);
+  if (!Number.isFinite(claimId)) { res.status(400).json({ error: "invalid_id" }); return; }
+
+  try {
+    const [claim] = await db.select().from(claimsTable).where(eq(claimsTable.id, claimId)).limit(1);
+    if (!claim) { res.status(404).json({ error: "not_found" }); return; }
+
+    await db.update(claimsTable)
+      .set({ status: "admin_review", updatedAt: new Date() })
+      .where(eq(claimsTable.id, claimId));
+
+    void db.insert(auditEventsTable).values({
+      entityType: "claim",
+      entityId: claimId,
+      actorId: req.userId!,
+      eventType: "status_changed" as any,
+      metadata: { from: claim.status, to: "admin_review", reason: "manual_review_override" },
+    }).catch(() => {});
+
+    res.json({ ok: true, status: "admin_review" });
+  } catch (err: any) {
+    res.status(500).json({ error: "internal", message: err?.message });
+  }
+});
+
 export default router;

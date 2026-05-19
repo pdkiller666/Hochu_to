@@ -24,6 +24,7 @@
 import OpenAI from "openai";
 import fs from "fs/promises";
 import path from "path";
+import sharp from "sharp";
 import { logger } from "./logger.js";
 import { getPlatformSettings } from "./platform-settings.js";
 import { UPLOADS_DIR } from "./uploadsDir.js";
@@ -422,7 +423,7 @@ export async function arbitrateWithGeminiVision(claimId: number): Promise<AiVerd
       };
     }
 
-    // 4. Загружаем фото (до 3 из каждого акта) и конвертируем в base64
+    // 4. Загружаем фото (до 3 из каждого акта), ресайзим через sharp и конвертируем в base64
     async function loadPhotos(photos: string[]): Promise<Array<{ data: string; mimeType: string }>> {
       const result: Array<{ data: string; mimeType: string }> = [];
       for (const photoUrl of photos.slice(0, 3)) {
@@ -431,16 +432,15 @@ export async function arbitrateWithGeminiVision(claimId: number): Promise<AiVerd
           const filename = path.basename(photoUrl);
           if (!filename || filename.includes("..")) continue;
           const filePath = path.join(UPLOADS_DIR, filename);
-          const buf = await fs.readFile(filePath);
-          const ext = path.extname(filename).toLowerCase().replace(".", "");
-          const mimeMap: Record<string, string> = {
-            jpg: "image/jpeg", jpeg: "image/jpeg",
-            png: "image/png", webp: "image/webp",
-            heic: "image/heic", heif: "image/heif",
-          };
-          result.push({ data: buf.toString("base64"), mimeType: mimeMap[ext] ?? "image/jpeg" });
+          const rawBuf = await fs.readFile(filePath);
+          // Ресайз до 1280×1280, JPEG 80% — уменьшает payload и ускоряет Gemini
+          const resized = await sharp(rawBuf)
+            .resize(1280, 1280, { fit: "inside", withoutEnlargement: true })
+            .jpeg({ quality: 80 })
+            .toBuffer();
+          result.push({ data: resized.toString("base64"), mimeType: "image/jpeg" });
         } catch {
-          /* пропускаем недоступные фото */
+          /* пропускаем недоступные или битые фото */
         }
       }
       return result;
@@ -473,38 +473,77 @@ export async function arbitrateWithGeminiVision(claimId: number): Promise<AiVerd
       ...outImgs.map((img) => ({ inlineData: { mimeType: img.mimeType, data: img.data } })),
     ];
 
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), GEMINI_VISION_TIMEOUT_MS);
+    // Fallback-цепочка моделей — пробуем по очереди при 503/404
+    const MODEL_FALLBACKS = [
+      GEMINI_VISION_MODEL,
+      "gemini-1.5-flash-latest",
+      "gemini-2.0-flash-lite",
+      "gemini-2.0-flash",
+    ];
+    const BODY = JSON.stringify({
+      contents: [{ parts }],
+      generationConfig: { temperature: 0.2, maxOutputTokens: 1024 },
+    });
 
-    let raw: string;
-    try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_VISION_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ parts }],
-            generationConfig: { temperature: 0.2, maxOutputTokens: 512 },
-          }),
-          signal: ctrl.signal,
-        },
-      );
+    let raw: string | null = null;
+    let lastErr = "";
 
-      if (!res.ok) {
-        const txt = await res.text().catch(() => "");
-        throw new Error(`Gemini Vision HTTP ${res.status}: ${txt.slice(0, 200)}`);
+    outer: for (const model of MODEL_FALLBACKS) {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (attempt > 0) await new Promise(r => setTimeout(r, 2000 * attempt));
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), GEMINI_VISION_TIMEOUT_MS);
+        try {
+          const res = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
+            { method: "POST", headers: { "Content-Type": "application/json" }, body: BODY, signal: ctrl.signal },
+          );
+          clearTimeout(timer);
+          if (res.status === 503 || res.status === 429) {
+            lastErr = `HTTP ${res.status} (${model})`;
+            await new Promise(r => setTimeout(r, 3000 + attempt * 2000));
+            continue;
+          }
+          if (res.status === 404) { lastErr = `model ${model} not found`; break; }
+          if (!res.ok) {
+            const txt = await res.text().catch(() => "");
+            throw new Error(`Gemini Vision HTTP ${res.status}: ${txt.slice(0, 200)}`);
+          }
+          const data: any = await res.json();
+          raw = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+          if (!raw.trim()) throw new Error("Gemini Vision: empty response");
+          logger.info({ model, attempt }, "ai-arbitrator: success");
+          break outer;
+        } catch (e: any) {
+          clearTimeout(timer);
+          lastErr = e?.message || String(e);
+          if (e?.name === "AbortError") { lastErr = `timeout on ${model}`; break; }
+        }
       }
-      const data: any = await res.json();
-      raw = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-      if (!raw.trim()) throw new Error("Gemini Vision: empty response");
-    } finally {
-      clearTimeout(timer);
     }
 
-    // 6. Парсим JSON-ответ арбитратора
+    if (!raw) throw new Error(`Все модели недоступны: ${lastErr}`);
+
+    // 6. Парсим JSON-ответ арбитратора (устойчиво к обрезанным ответам)
+    logger.info({ claimId, rawLen: raw.length, rawSnippet: raw.slice(0, 120) }, "ai-arbitrator: raw response");
     const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
-    const verdict: any = JSON.parse(cleaned);
+
+    let verdict: any = {};
+    try {
+      verdict = JSON.parse(cleaned);
+    } catch {
+      // Gemini иногда обрезает JSON — пробуем извлечь поля регексами
+      const fault = cleaned.match(/"faultEstimatePercent"\s*:\s*(\d+)/);
+      const conf = cleaned.match(/"confidence"\s*:\s*"(\w+)"/);
+      const draft = cleaned.match(/"verdictDraft"\s*:\s*"([^"]{0,300})"/);
+      verdict = {
+        faultEstimatePercent: fault ? Number(fault[1]) : 0,
+        confidence: conf ? conf[1] : "low",
+        verdictDraft: draft ? draft[1] : "",
+        evidenceCitations: [],
+      };
+      logger.warn({ claimId, err: "truncated JSON, regex fallback applied" }, "ai-arbitrator: parse fallback");
+    }
 
     return {
       faultEstimatePercent: Math.min(100, Math.max(0, Number(verdict.faultEstimatePercent ?? 0))),
