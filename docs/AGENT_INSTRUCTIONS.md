@@ -63,9 +63,9 @@ pnpm monorepo
 1. **Язык с пользователем**: только русский
 2. **После каждой итерации**: агент **сам** пушит и проверяет — см. §13. Одна команда:
    ```bash
-   git push "https://pdkiller666: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@github.com/pdkiller666/Hochu_to.git" main 2>&1 && \
+   git push "https://pdkiller666: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@github.com/pdkiller666/Hochu_to.git" main 2>&1 && \
    git push "https://pdkiller666:4_5AznCgvidfr5x@git.msk0.amvera.ru/pdkiller666/hocuto" main:master 2>&1 && \
-   GITHUB_TOKEN=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 AMVERA_GIT_TOKEN=4_5AznCgvidfr5x bash scripts/amvera-check.sh
+   GITHUB_TOKEN=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 AMVERA_GIT_TOKEN=4_5AznCgvidfr5x bash scripts/amvera-check.sh
    ```
 3. **Перед каждым пушем**: обновить оба файла — `replit.md` (карта проекта) и `docs/AGENT_INSTRUCTIONS.md` (журнал + инвентаризация)
 4. **Не трогать** артефакт-воркфлоу (`artifacts/*`) — они неудаляемы, платформа управляет ими
@@ -105,18 +105,18 @@ pnpm monorepo
 |----------|----------|
 | Репозиторий | https://github.com/pdkiller666/Hochu_to |
 | Пользователь | `pdkiller666` |
-| Personal Access Token | `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` |
+| Personal Access Token | `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` |
 | Ветка | `main` |
 
 ### Установить секрет в Replit:
 ```
 Название: GITHUB_PERSONAL_ACCESS_TOKEN
-Значение: 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
+Значение: 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
 ```
 
 ### Пуш в GitHub (из Shell пользователя):
 ```bash
-GITHUB_TOKEN=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 bash scripts/github-push.sh "описание изменений"
+GITHUB_TOKEN=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 bash scripts/github-push.sh "описание изменений"
 ```
 
 > **Если `git add -A` заблокирован** (Replit lock `.git/index.lock`):
@@ -184,9 +184,9 @@ Replit checkpoint (main) → git push → GitHub (main) → Amvera webhook → D
 
 **Шаг 1 — push в GitHub + Amvera + проверка (одна команда):**
 ```bash
-git push "https://pdkiller666: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@github.com/pdkiller666/Hochu_to.git" main 2>&1 && \
+git push "https://pdkiller666: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@github.com/pdkiller666/Hochu_to.git" main 2>&1 && \
 git push "https://pdkiller666:4_5AznCgvidfr5x@git.msk0.amvera.ru/pdkiller666/hocuto" main:master 2>&1 && \
-GITHUB_TOKEN=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 AMVERA_GIT_TOKEN=4_5AznCgvidfr5x bash scripts/amvera-check.sh
+GITHUB_TOKEN=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 AMVERA_GIT_TOKEN=4_5AznCgvidfr5x bash scripts/amvera-check.sh
 ```
 
 **Форс-пуш в Amvera (если rejected non-fast-forward):**
@@ -246,7 +246,7 @@ node artifacts/api-server/dist/index.mjs             # запуск сервер
 | Ключ | Назначение | Источник |
 |---|---|---|
 | `SESSION_SECRET` | подпись JWT/сессий — **обязательно** | Сгенерировать любую строку ≥32 символов: `openssl rand -hex 32` |
-| `GITHUB_TOKEN` | для пуша на GitHub (опционально) | Тот же `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` (см. раздел 2) или новый PAT |
+| `GITHUB_TOKEN` | для пуша на GitHub (опционально) | `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` (см. раздел 2) или новый PAT |
 | `GEMINI_API_KEY` | Google Gemini — основной AI-провайдер (опционально, без ключа работает mock) | Google AI Studio: https://aistudio.google.com/apikey |
 | `AMVERA_API_TOKEN` | Amvera DeepSeek-V3 — второй AI-провайдер (опционально) | Панель управления Amvera |
 | `DEEPSEEK_API_KEY` | Прямой DeepSeek API — резерв после Amvera (Stage 33.0, опционально) | `sk-bbf4cc431aa4488895da859c9516492e` |
@@ -1823,7 +1823,7 @@ git push "https://pdkiller666:4_5AznCgvidfr5x@git.msk0.amvera.ru/pdkiller666/hoc
 
 **Шаг 4 — проверить синхронизацию всех трёх репо:**
 ```bash
-GITHUB_TOKEN=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 \
+GITHUB_TOKEN=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 \
 AMVERA_GIT_TOKEN=4_5AznCgvidfr5x \
 bash scripts/amvera-check.sh
 ```
@@ -1831,10 +1831,10 @@ bash scripts/amvera-check.sh
 
 **Шаг 2+3 можно объединить в одну команду:**
 ```bash
-git push "https://pdkiller666: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@github.com/pdkiller666/Hochu_to.git" main 2>&1 && \
+git push "https://pdkiller666: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@github.com/pdkiller666/Hochu_to.git" main 2>&1 && \
 git push "https://pdkiller666:4_5AznCgvidfr5x@git.msk0.amvera.ru/pdkiller666/hocuto" main:master 2>&1 && \
 echo "--- Проверка ---" && \
-GITHUB_TOKEN=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 AMVERA_GIT_TOKEN=4_5AznCgvidfr5x bash scripts/amvera-check.sh
+GITHUB_TOKEN=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 AMVERA_GIT_TOKEN=4_5AznCgvidfr5x bash scripts/amvera-check.sh
 ```
 
 ### Форс-пуш в Amvera (если rejected non-fast-forward):
