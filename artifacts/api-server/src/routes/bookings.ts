@@ -895,12 +895,14 @@ router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
       const isMock = escrowSettings.paymentProvider === "mock";
       const totalAmt = parseFloat(String(updated.totalPrice ?? "0"));
 
+      const bookingNum = updated.bookingNumber ?? undefined;
       if (status === "confirmed" && fromStatus === "pending" && totalAmt > 0) {
         // Владелец принял бронь → замораживаем средства арендатора
         void holdFunds({
           renterId: updated.renterId,
           ownerId: updated.ownerId,
           bookingId: updated.id,
+          bookingNumber: bookingNum,
           amount: totalAmt,
           isMock,
         });
@@ -909,6 +911,7 @@ router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
         void releaseFunds({
           renterId: updated.renterId,
           bookingId: updated.id,
+          bookingNumber: bookingNum,
           amount: totalAmt,
         });
       } else if (status === "completed" && totalAmt > 0) {
@@ -917,6 +920,7 @@ router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
           renterId: updated.renterId,
           ownerId: updated.ownerId,
           bookingId: updated.id,
+          bookingNumber: bookingNum,
           amount: totalAmt,
           commissionPercent: escrowSettings.serviceFeePercent,
         });

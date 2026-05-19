@@ -2,9 +2,7 @@ import { pgTable, serial, integer, numeric, text, timestamp, index } from "drizz
 import { usersTable } from "./users";
 
 /**
- * Транзакции кошельков (Stage 39 — Escrow Engine).
- *
- * Каждое изменение баланса фиксируется как отдельная строка — неизменяемый аудит-трейл.
+ * Транзакции кошельков (Stage 39 — Escrow Engine, Stage 40 — Wallet Pro).
  *
  * Типы транзакций:
  *  - `hold`       — заморозка суммы при бронировании (available → frozen)
@@ -13,9 +11,11 @@ import { usersTable } from "./users";
  *  - `payout`     — выплата владельцу после завершения аренды (frozen → available владельца)
  *  - `refund`     — возврат арендатору (cancel или claim)
  *  - `topup`      — пополнение кошелька (external payment → available)
+ *  - `withdraw`   — запрос на вывод средств (available → pending payout)
  *
- * `referenceId`  — booking.id или иной бизнес-объект, к которому привязана транзакция.
- * `referenceType`— тип объекта: 'booking' | 'claim' | 'manual'.
+ * `referenceId`   — booking.id или иной бизнес-объект.
+ * `referenceType` — 'booking' | 'claim' | 'manual' | 'topup' | 'withdraw'.
+ * `bookingNumber` — человекочитаемый номер брони (ХТ-2026-000001), денормализован для удобства.
  */
 export const walletTransactionsTable = pgTable("wallet_transactions", {
   id: serial("id").primaryKey(),
@@ -26,6 +26,7 @@ export const walletTransactionsTable = pgTable("wallet_transactions", {
   status: text("status").default("completed").notNull(),
   referenceId: integer("reference_id"),
   referenceType: text("reference_type"),
+  bookingNumber: text("booking_number"),
   description: text("description"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => ({

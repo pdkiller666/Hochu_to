@@ -1,19 +1,15 @@
 import { db } from "@workspace/db";
 import { walletsTable, walletTransactionsTable } from "@workspace/db/schema";
 import { eq, sql } from "drizzle-orm";
-import { createNotification } from "./notifications";
+import { createNotification } from "./notifications.js";
 
 /**
- * Escrow Engine — Stage 39.
+ * Escrow Engine — Stage 39 (updated Stage 40).
  *
  * Все операции с балансами выполняются в транзакции БД с SELECT ... FOR UPDATE
- * для исключения гонок данных. Комиссия округляется до 2 знаков в пользу платформы
- * (Math.ceil × 100 / 100).
+ * для исключения гонок данных. Комиссия округляется до 2 знаков в пользу платформы.
  */
 
-// ─── Утилиты ────────────────────────────────────────────────────────────────
-
-/** Получить или создать кошелёк пользователя */
 export async function getOrCreateWallet(userId: number) {
   const existing = await db
     .select()
@@ -29,39 +25,31 @@ export async function getOrCreateWallet(userId: number) {
   return created;
 }
 
-/** Округление комиссии — всегда в пользу платформы (ceiling до копейки) */
 export function calcCommission(amount: number, percentStr: string | number): number {
   const pct = typeof percentStr === "string" ? parseFloat(percentStr) : percentStr;
   return Math.ceil(amount * (pct / 100) * 100) / 100;
 }
 
-// ─── Escrow Operations ───────────────────────────────────────────────────────
+// ─── holdFunds ───────────────────────────────────────────────────────────────
 
-/**
- * HOLD: пополнение кошелька арендатора + заморозка суммы бронирования.
- * В mock-режиме виртуально зачисляем rentAmount на счёт арендатора,
- * затем сразу замораживаем — эмулируем внешний платёж.
- *
- * В production (yookassa) деньги приходят через webhook → используем topup + hold.
- */
 export async function holdFunds(params: {
   renterId: number;
   ownerId: number;
   bookingId: number;
+  bookingNumber?: string;
   amount: number;
   isMock?: boolean;
 }): Promise<void> {
-  const { renterId, bookingId, amount, isMock = true } = params;
+  const { renterId, bookingId, bookingNumber, amount, isMock = true } = params;
+  const ref = bookingNumber ?? `#${bookingId}`;
 
   await db.transaction(async (tx) => {
-    // SELECT ... FOR UPDATE — пессимистичная блокировка строки кошелька
     const rows = await tx.execute(
       sql`SELECT * FROM wallets WHERE user_id = ${renterId} FOR UPDATE`
     );
 
     let wallet = (rows.rows as any[])[0];
     if (!wallet) {
-      // создаём кошелёк внутри транзакции
       const [created] = await tx
         .insert(walletsTable)
         .values({ userId: renterId, availableBalance: "0", frozenBalance: "0" })
@@ -73,7 +61,6 @@ export async function holdFunds(params: {
     const frozen = parseFloat(wallet.frozen_balance ?? "0");
 
     if (isMock) {
-      // В mock-режиме: зачисляем виртуально, затем замораживаем
       await tx
         .update(walletsTable)
         .set({
@@ -83,7 +70,6 @@ export async function holdFunds(params: {
         })
         .where(eq(walletsTable.userId, renterId));
 
-      // Лог топапа (mock)
       await tx.insert(walletTransactionsTable).values({
         userId: renterId,
         amount: amount.toFixed(2),
@@ -92,10 +78,10 @@ export async function holdFunds(params: {
         status: "completed",
         referenceId: bookingId,
         referenceType: "booking",
-        description: `Мок-пополнение под бронь #${bookingId}`,
+        bookingNumber: bookingNumber ?? null,
+        description: `Мок-пополнение под бронь ${ref}`,
       });
     } else {
-      // Production: деньги уже на счёте (пришли через topup по webhook)
       if (available < amount) {
         throw new Error("insufficient_funds");
       }
@@ -109,7 +95,6 @@ export async function holdFunds(params: {
         .where(eq(walletsTable.userId, renterId));
     }
 
-    // Лог hold
     await tx.insert(walletTransactionsTable).values({
       userId: renterId,
       amount: amount.toFixed(2),
@@ -118,36 +103,37 @@ export async function holdFunds(params: {
       status: "completed",
       referenceId: bookingId,
       referenceType: "booking",
-      description: `Холд по брони #${bookingId}`,
+      bookingNumber: bookingNumber ?? null,
+      description: `Заморожено по брони ${ref}`,
     });
   });
 
-  // Уведомление арендатору
-  await createNotification(
-    renterId,
-    "booking",
-    `Средства ${amount.toFixed(2)} ₽ заморожены — ожидают передачи вещи по брони #${bookingId}`,
-    `/dashboard`,
-  ).catch(() => {});
+  await createNotification({
+    userId: renterId,
+    type: "booking_confirmed",
+    title: "Средства заморожены",
+    message: `${amount.toFixed(2)} ₽ заморожены — ожидают передачи вещи по брони ${ref}`,
+    link: "/dashboard",
+  }).catch(() => {});
 }
 
-/**
- * RELEASE (refund): возврат арендатору при отмене бронирования.
- * frozen → available арендатора.
- */
+// ─── releaseFunds ─────────────────────────────────────────────────────────────
+
 export async function releaseFunds(params: {
   renterId: number;
   bookingId: number;
+  bookingNumber?: string;
   amount: number;
 }): Promise<void> {
-  const { renterId, bookingId, amount } = params;
+  const { renterId, bookingId, bookingNumber, amount } = params;
+  const ref = bookingNumber ?? `#${bookingId}`;
 
   await db.transaction(async (tx) => {
     const rows = await tx.execute(
       sql`SELECT * FROM wallets WHERE user_id = ${renterId} FOR UPDATE`
     );
     const wallet = (rows.rows as any[])[0];
-    if (!wallet) return; // нечего размораживать
+    if (!wallet) return;
 
     const frozen = parseFloat(wallet.frozen_balance ?? "0");
     const available = parseFloat(wallet.available_balance ?? "0");
@@ -170,37 +156,36 @@ export async function releaseFunds(params: {
       status: "completed",
       referenceId: bookingId,
       referenceType: "booking",
-      description: `Разморозка (отмена брони #${bookingId})`,
+      bookingNumber: bookingNumber ?? null,
+      description: `Возврат средств — отмена брони ${ref}`,
     });
   });
 
-  await createNotification(
-    renterId,
-    "booking",
-    `Возврат ${amount.toFixed(2)} ₽ — средства разморожены по брони #${bookingId}`,
-    `/dashboard`,
-  ).catch(() => {});
+  await createNotification({
+    userId: renterId,
+    type: "booking_cancelled",
+    title: "Средства возвращены",
+    message: `${amount.toFixed(2)} ₽ разморожены по брони ${ref}`,
+    link: "/dashboard",
+  }).catch(() => {});
 }
 
-/**
- * PAYOUT: завершение аренды — разморозка + выплата владельцу (за вычетом комиссии).
- * frozen арендатора → available владельца (минус commission).
- *
- * @param commissionPercent — сервисная комиссия в % (из platform_settings)
- */
+// ─── payoutOwner ──────────────────────────────────────────────────────────────
+
 export async function payoutOwner(params: {
   renterId: number;
   ownerId: number;
   bookingId: number;
+  bookingNumber?: string;
   amount: number;
   commissionPercent: string | number;
 }): Promise<void> {
-  const { renterId, ownerId, bookingId, amount, commissionPercent } = params;
+  const { renterId, ownerId, bookingId, bookingNumber, amount, commissionPercent } = params;
+  const ref = bookingNumber ?? `#${bookingId}`;
   const commission = calcCommission(amount, commissionPercent);
   const ownerAmount = parseFloat((amount - commission).toFixed(2));
 
   await db.transaction(async (tx) => {
-    // Блокируем кошельки обоих участников
     const renterRows = await tx.execute(
       sql`SELECT * FROM wallets WHERE user_id = ${renterId} FOR UPDATE`
     );
@@ -210,7 +195,6 @@ export async function payoutOwner(params: {
 
     const renterWallet = (renterRows.rows as any[])[0];
 
-    // Разморозка у арендатора
     if (renterWallet) {
       const frozen = parseFloat(renterWallet.frozen_balance ?? "0");
       await tx
@@ -222,7 +206,6 @@ export async function payoutOwner(params: {
         .where(eq(walletsTable.userId, renterId));
     }
 
-    // Получаем или создаём кошелёк владельца
     const ownerWalletRows = await tx.select().from(walletsTable).where(eq(walletsTable.userId, ownerId)).limit(1);
     let ownerBalance = 0;
     if (ownerWalletRows.length > 0) {
@@ -231,7 +214,6 @@ export async function payoutOwner(params: {
       await tx.insert(walletsTable).values({ userId: ownerId, availableBalance: "0", frozenBalance: "0" });
     }
 
-    // Выплата владельцу
     await tx
       .update(walletsTable)
       .set({
@@ -240,7 +222,6 @@ export async function payoutOwner(params: {
       })
       .where(eq(walletsTable.userId, ownerId));
 
-    // Транзакция: комиссия (у арендатора)
     await tx.insert(walletTransactionsTable).values({
       userId: renterId,
       amount: commission.toFixed(2),
@@ -249,10 +230,10 @@ export async function payoutOwner(params: {
       status: "completed",
       referenceId: bookingId,
       referenceType: "booking",
-      description: `Комиссия платформы по брони #${bookingId}`,
+      bookingNumber: bookingNumber ?? null,
+      description: `Комиссия платформы по брони ${ref}`,
     });
 
-    // Транзакция: выплата (у владельца)
     await tx.insert(walletTransactionsTable).values({
       userId: ownerId,
       amount: ownerAmount.toFixed(2),
@@ -261,23 +242,25 @@ export async function payoutOwner(params: {
       status: "completed",
       referenceId: bookingId,
       referenceType: "booking",
-      description: `Выплата за аренду (бронь #${bookingId})`,
+      bookingNumber: bookingNumber ?? null,
+      description: `Выплата за аренду по брони ${ref}`,
     });
   });
 
-  // Уведомления обоим
   await Promise.all([
-    createNotification(
-      renterId,
-      "booking",
-      `Аренда завершена. Средства ${amount.toFixed(2)} ₽ переведены владельцу по брони #${bookingId}`,
-      `/dashboard`,
-    ).catch(() => {}),
-    createNotification(
-      ownerId,
-      "booking",
-      `Поступление ${ownerAmount.toFixed(2)} ₽ на кошелёк — аренда завершена (бронь #${bookingId})`,
-      `/dashboard`,
-    ).catch(() => {}),
+    createNotification({
+      userId: renterId,
+      type: "booking_completed",
+      title: "Аренда завершена",
+      message: `${amount.toFixed(2)} ₽ переведены владельцу по брони ${ref}`,
+      link: "/dashboard",
+    }).catch(() => {}),
+    createNotification({
+      userId: ownerId,
+      type: "booking_completed",
+      title: `Поступление ${ownerAmount.toFixed(2)} ₽`,
+      message: `Аренда завершена, средства зачислены (бронь ${ref})`,
+      link: "/dashboard",
+    }).catch(() => {}),
   ]);
 }

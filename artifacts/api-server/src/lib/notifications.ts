@@ -95,7 +95,10 @@ export type NotifType =
   | "pool_buyout_transferred"     // участник: «X пометил, что перевёл Y₽ — подтвердите получение»
   | "pool_buyout_confirmed"       // инициатор: «X подтвердил получение, его доля теперь у вас»
   | "pool_buyout_canceled"        // участник: «X отменил выкуп»
-  | "pool_buyout_completed";      // все участники: «Пул ликвидирован, X — единственный владелец»
+  | "pool_buyout_completed"       // все участники: «Пул ликвидирован, X — единственный владелец»
+  // Stage 40 — Wallet Pro
+  | "wallet_topup"               // пополнение кошелька
+  | "wallet_withdraw";           // вывод средств
 
 export async function createNotification(params: {
   userId: number;

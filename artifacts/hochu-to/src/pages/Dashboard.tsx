@@ -2465,9 +2465,9 @@ export default function Dashboard() {
               </div>
             )}
 
-            {/* ── WALLET (Stage 39) ── */}
+            {/* ── WALLET (Stage 40) ── */}
             {activeTab === "wallet" && (
-              <WalletSection token={token!} />
+              <WalletSection token={token!} userId={user?.id} />
             )}
 
             {/* ── CONTACTS BALANCE ── */}
@@ -3691,8 +3691,7 @@ export default function Dashboard() {
 }
 
 // ════════════════════════════════════════════════════════════════════
-// WalletSection — кошелёк пользователя (Stage 39 Escrow Engine)
-// Виден только в коммерческом режиме (isCommercialMode=true).
+// WalletSection — Stage 40: Кошелёк под ключ
 // ════════════════════════════════════════════════════════════════════
 
 interface WalletBalance {
@@ -3710,50 +3709,201 @@ interface WalletTx {
   status: string;
   referenceId: number | null;
   referenceType: string | null;
+  bookingNumber: string | null;
   description: string | null;
   createdAt: string;
 }
 
-const TX_LABELS: Record<string, { label: string; color: string }> = {
-  hold:       { label: "Заморозка",   color: "text-amber-700" },
-  release:    { label: "Разморозка",  color: "text-blue-700" },
-  commission: { label: "Комиссия",    color: "text-red-700" },
-  payout:     { label: "Выплата",     color: "text-emerald-700" },
-  refund:     { label: "Возврат",     color: "text-sky-700" },
-  topup:      { label: "Пополнение",  color: "text-violet-700" },
+interface EscrowItem {
+  bookingId: number;
+  bookingNumber: string | null;
+  status: string;
+  startDate: string;
+  endDate: string;
+  frozenAmount: number;
+  depositAmount: number;
+}
+
+interface WalletPayoutMethod {
+  id: number;
+  type: string;
+  cardLast4: string | null;
+  cardHolderName: string | null;
+  bankName: string | null;
+  sbpPhone: string | null;
+  sbpBank: string | null;
+  isDefault: boolean;
+}
+
+type TxType = "all" | "topup" | "hold" | "release" | "payout" | "commission" | "refund" | "withdraw";
+
+const TX_META: Record<string, { label: string; color: string; bg: string; icon: React.ReactNode; sign: "+" | "-" | "~" }> = {
+  topup:      { label: "Пополнение",   color: "text-violet-700", bg: "bg-violet-50",  icon: <ArrowDownToLine className="w-4 h-4" />,  sign: "+" },
+  hold:       { label: "Заморозка",    color: "text-amber-700",  bg: "bg-amber-50",   icon: <Shield className="w-4 h-4" />,           sign: "~" },
+  release:    { label: "Разморозка",   color: "text-blue-700",   bg: "bg-blue-50",    icon: <RefreshCw className="w-4 h-4" />,        sign: "+" },
+  commission: { label: "Комиссия",     color: "text-red-700",    bg: "bg-red-50",     icon: <Coins className="w-4 h-4" />,           sign: "-" },
+  payout:     { label: "Выплата",      color: "text-emerald-700",bg: "bg-emerald-50", icon: <ArrowUpFromLine className="w-4 h-4" />, sign: "+" },
+  refund:     { label: "Возврат",      color: "text-sky-700",    bg: "bg-sky-50",     icon: <ArrowDownCircle className="w-4 h-4" />, sign: "+" },
+  withdraw:   { label: "Вывод",        color: "text-rose-700",   bg: "bg-rose-50",    icon: <Banknote className="w-4 h-4" />,       sign: "-" },
 };
 
-function WalletSection({ token }: { token: string }) {
+const STATUS_BOOKING: Record<string, string> = {
+  confirmed: "Подтверждено",
+  active: "Активна",
+  return_pending: "Ожидает возврата",
+};
+
+function WalletSection({ token, userId }: { token: string; userId?: number }) {
   const API_BASE = import.meta.env.VITE_API_URL ?? "";
   const [balance, setBalance] = useState<WalletBalance | null>(null);
   const [history, setHistory] = useState<WalletTx[]>([]);
+  const [escrow, setEscrow] = useState<EscrowItem[]>([]);
+  const [payoutMethods, setPayoutMethods] = useState<WalletPayoutMethod[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [nextBefore, setNextBefore] = useState<number | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [typeFilter, setTypeFilter] = useState<TxType>("all");
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      try {
-        const [bRes, hRes] = await Promise.all([
-          fetch(`${API_BASE}/api/wallet/balance`, { headers: { Authorization: `Bearer ${token}` } }),
-          fetch(`${API_BASE}/api/wallet/history`, { headers: { Authorization: `Bearer ${token}` } }),
-        ]);
-        if (!bRes.ok) throw new Error(String(bRes.status));
-        const b: WalletBalance = await bRes.json();
-        const h: WalletTx[] = hRes.ok ? await hRes.json() : [];
-        if (!cancelled) { setBalance(b); setHistory(h); }
-      } catch (e: any) {
-        if (!cancelled) setError(e?.message === "403" ? "Кошелёк доступен только в коммерческом режиме" : "Не удалось загрузить данные");
-      } finally {
-        if (!cancelled) setLoading(false);
+  // Topup modal
+  const [showTopup, setShowTopup] = useState(false);
+  const [topupAmount, setTopupAmount] = useState("1000");
+  const [topupLoading, setTopupLoading] = useState(false);
+  const [topupMsg, setTopupMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  // Withdraw modal
+  const [showWithdraw, setShowWithdraw] = useState(false);
+  const [withdrawAmount, setWithdrawAmount] = useState("");
+  const [withdrawMethodId, setWithdrawMethodId] = useState<number | null>(null);
+  const [withdrawLoading, setWithdrawLoading] = useState(false);
+  const [withdrawMsg, setWithdrawMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const authHeaders = { Authorization: `Bearer ${token}` };
+
+  const loadBalance = async () => {
+    const res = await fetch(`${API_BASE}/api/wallet/balance`, { headers: authHeaders });
+    if (!res.ok) throw new Error(String(res.status));
+    return res.json() as Promise<WalletBalance>;
+  };
+
+  const loadHistory = async (before?: number, filter?: TxType) => {
+    const f = filter ?? typeFilter;
+    const params = new URLSearchParams({ limit: "20" });
+    if (before) params.set("before", String(before));
+    if (f && f !== "all") params.set("type", f);
+    const res = await fetch(`${API_BASE}/api/wallet/history?${params}`, { headers: authHeaders });
+    if (!res.ok) return { items: [], hasMore: false, nextBefore: null };
+    return res.json() as Promise<{ items: WalletTx[]; hasMore: boolean; nextBefore: number | null }>;
+  };
+
+  const loadAll = async (filter?: TxType) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [b, h, escRes, pmRes] = await Promise.all([
+        loadBalance(),
+        loadHistory(undefined, filter),
+        fetch(`${API_BASE}/api/wallet/escrow-summary`, { headers: authHeaders }).then(r => r.ok ? r.json() : []),
+        fetch(`${API_BASE}/api/me/payout-methods`, { headers: authHeaders }).then(r => r.ok ? r.json() : []),
+      ]);
+      setBalance(b);
+      setHistory(h.items);
+      setHasMore(h.hasMore);
+      setNextBefore(h.nextBefore);
+      setEscrow(escRes);
+      const methods = Array.isArray(pmRes) ? pmRes : (pmRes?.methods ?? []);
+      setPayoutMethods(methods);
+      if (methods.length > 0 && !withdrawMethodId) {
+        const def = methods.find((m: WalletPayoutMethod) => m.isDefault) ?? methods[0];
+        setWithdrawMethodId(def.id);
       }
-    })();
-    return () => { cancelled = true; };
-  }, [token, API_BASE]);
+    } catch (e: any) {
+      setError("Не удалось загрузить данные кошелька");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { loadAll(); }, [token]);
+
+  const handleFilterChange = (f: TxType) => {
+    setTypeFilter(f);
+    setHistory([]);
+    setHasMore(false);
+    setNextBefore(null);
+    loadHistory(undefined, f).then(h => {
+      setHistory(h.items);
+      setHasMore(h.hasMore);
+      setNextBefore(h.nextBefore);
+    });
+  };
+
+  const handleLoadMore = async () => {
+    if (!nextBefore || loadingMore) return;
+    setLoadingMore(true);
+    const h = await loadHistory(nextBefore);
+    setHistory(prev => [...prev, ...h.items]);
+    setHasMore(h.hasMore);
+    setNextBefore(h.nextBefore);
+    setLoadingMore(false);
+  };
+
+  const handleTopup = async () => {
+    const amt = parseFloat(topupAmount);
+    if (!amt || amt < 10) { setTopupMsg({ ok: false, text: "Минимум 10 ₽" }); return; }
+    setTopupLoading(true);
+    setTopupMsg(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/wallet/topup`, {
+        method: "POST",
+        headers: { ...authHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ amountRub: amt }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setTopupMsg({ ok: false, text: data.message ?? "Ошибка" }); return; }
+      if (data.confirmationUrl) {
+        window.location.href = data.confirmationUrl;
+        return;
+      }
+      setTopupMsg({ ok: true, text: `Кошелёк пополнен на ${amt.toLocaleString("ru-RU")} ₽` });
+      setShowTopup(false);
+      await loadAll();
+    } catch {
+      setTopupMsg({ ok: false, text: "Ошибка соединения" });
+    } finally {
+      setTopupLoading(false);
+    }
+  };
+
+  const handleWithdraw = async () => {
+    const amt = parseFloat(withdrawAmount);
+    if (!amt || amt < 100) { setWithdrawMsg({ ok: false, text: "Минимум 100 ₽" }); return; }
+    if (!withdrawMethodId) { setWithdrawMsg({ ok: false, text: "Выберите реквизиты" }); return; }
+    if (amt > (balance?.availableBalance ?? 0)) { setWithdrawMsg({ ok: false, text: "Недостаточно средств" }); return; }
+    setWithdrawLoading(true);
+    setWithdrawMsg(null);
+    try {
+      const res = await fetch(`${API_BASE}/api/wallet/withdraw`, {
+        method: "POST",
+        headers: { ...authHeaders, "Content-Type": "application/json" },
+        body: JSON.stringify({ amountRub: amt, payoutMethodId: withdrawMethodId }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setWithdrawMsg({ ok: false, text: data.message ?? "Ошибка" }); return; }
+      setWithdrawMsg({ ok: true, text: "Заявка на вывод создана. Обработка до 3 рабочих дней." });
+      setWithdrawAmount("");
+      setShowWithdraw(false);
+      await loadAll();
+    } catch {
+      setWithdrawMsg({ ok: false, text: "Ошибка соединения" });
+    } finally {
+      setWithdrawLoading(false);
+    }
+  };
 
   if (loading) return (
-    <div className="flex items-center justify-center py-16">
+    <div className="flex items-center justify-center py-20">
       <Loader2 className="w-6 h-6 animate-spin text-primary" />
     </div>
   );
@@ -3764,81 +3914,290 @@ function WalletSection({ token }: { token: string }) {
     </div>
   );
 
+  const available = balance?.availableBalance ?? 0;
+  const frozen = balance?.frozenBalance ?? 0;
+  const total = available + frozen;
+
   return (
-    <div className="max-w-2xl w-full space-y-6">
-      {/* ── Балансы ── */}
-      <div className="bg-white border border-border rounded-2xl p-6">
-        <h2 className="text-lg font-semibold text-stone-800 mb-4 flex items-center gap-2">
-          <Wallet className="w-5 h-5 text-primary" />
-          Кошелёк
-        </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
-            <p className="text-xs text-emerald-700 font-medium mb-1">Доступно</p>
-            <p className="text-2xl font-bold text-emerald-800">
-              {(balance?.availableBalance ?? 0).toLocaleString("ru-RU", { minimumFractionDigits: 2 })} ₽
-            </p>
+    <div className="max-w-2xl w-full space-y-5">
+
+      {/* ── Hero-карточка кошелька ── */}
+      <div className="bg-gradient-to-br from-[#C65D3B] to-[#a84d2f] rounded-2xl p-6 text-white shadow-lg">
+        <div className="flex items-center gap-2 mb-4 opacity-80">
+          <Wallet className="w-4 h-4" />
+          <span className="text-sm font-medium">Мой кошелёк Хочу_То</span>
+        </div>
+        <p className="text-4xl font-black tracking-tight mb-1">
+          {total.toLocaleString("ru-RU", { minimumFractionDigits: 2 })} ₽
+        </p>
+        <p className="text-xs opacity-70 mb-5">Общий баланс</p>
+
+        <div className="flex gap-3 mb-5">
+          <div className="flex-1 bg-white/15 rounded-xl p-3">
+            <p className="text-[10px] uppercase tracking-wider opacity-70 mb-0.5">Доступно</p>
+            <p className="text-lg font-bold">{available.toLocaleString("ru-RU", { minimumFractionDigits: 2 })} ₽</p>
           </div>
-          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
-            <p className="text-xs text-amber-700 font-medium mb-1">Заморожено (эскроу)</p>
-            <p className="text-2xl font-bold text-amber-800">
-              {(balance?.frozenBalance ?? 0).toLocaleString("ru-RU", { minimumFractionDigits: 2 })} ₽
-            </p>
+          <div className="flex-1 bg-white/15 rounded-xl p-3">
+            <p className="text-[10px] uppercase tracking-wider opacity-70 mb-0.5">Заморожено</p>
+            <p className="text-lg font-bold">{frozen.toLocaleString("ru-RU", { minimumFractionDigits: 2 })} ₽</p>
           </div>
         </div>
-        {balance?.updatedAt && (
-          <p className="text-xs text-stone-400 mt-3">
-            Обновлено: {new Date(balance.updatedAt).toLocaleString("ru-RU")}
-          </p>
-        )}
+
+        <div className="flex gap-2">
+          <button
+            onClick={() => { setShowTopup(true); setTopupMsg(null); }}
+            className="flex-1 flex items-center justify-center gap-2 bg-white text-[#C65D3B] font-semibold text-sm rounded-xl py-2.5 hover:bg-white/90 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            Пополнить
+          </button>
+          <button
+            onClick={() => { setShowWithdraw(true); setWithdrawMsg(null); }}
+            disabled={available < 100}
+            className="flex-1 flex items-center justify-center gap-2 bg-white/20 text-white font-semibold text-sm rounded-xl py-2.5 hover:bg-white/30 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <ArrowUpFromLine className="w-4 h-4" />
+            Вывести
+          </button>
+        </div>
       </div>
+
+      {/* ── Активные заморозки (эскроу) ── */}
+      {escrow.length > 0 && (
+        <div className="bg-white border border-border rounded-2xl overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-border flex items-center gap-2">
+            <Shield className="w-4 h-4 text-amber-500" />
+            <h3 className="text-sm font-semibold text-stone-800">Активные заморозки (эскроу)</h3>
+          </div>
+          <div className="divide-y divide-border">
+            {escrow.map((item) => (
+              <div key={item.bookingId} className="px-5 py-3 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-mono text-stone-500">{item.bookingNumber ?? `#${item.bookingId}`}</span>
+                    <span className="px-1.5 py-0.5 bg-amber-100 text-amber-700 text-[10px] font-semibold rounded-full">
+                      {STATUS_BOOKING[item.status] ?? item.status}
+                    </span>
+                  </div>
+                  <p className="text-xs text-stone-400 mt-0.5">
+                    {new Date(item.startDate).toLocaleDateString("ru-RU")} — {new Date(item.endDate).toLocaleDateString("ru-RU")}
+                  </p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="text-sm font-bold text-amber-700">{item.frozenAmount.toLocaleString("ru-RU", { minimumFractionDigits: 2 })} ₽</p>
+                  <p className="text-[10px] text-stone-400">заморожено</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── История транзакций ── */}
       <div className="bg-white border border-border rounded-2xl overflow-hidden">
-        <div className="px-6 py-4 border-b border-border">
-          <h3 className="text-base font-semibold text-stone-800">История транзакций</h3>
+        <div className="px-5 py-3.5 border-b border-border flex items-center justify-between gap-3">
+          <h3 className="text-sm font-semibold text-stone-800">История операций</h3>
+          <select
+            value={typeFilter}
+            onChange={e => handleFilterChange(e.target.value as TxType)}
+            className="text-xs border border-border rounded-lg px-2 py-1.5 bg-white text-stone-700 focus:outline-none focus:ring-2 focus:ring-primary/30"
+          >
+            <option value="all">Все</option>
+            <option value="topup">Пополнения</option>
+            <option value="hold">Заморозки</option>
+            <option value="release">Разморозки</option>
+            <option value="payout">Выплаты</option>
+            <option value="commission">Комиссии</option>
+            <option value="refund">Возвраты</option>
+            <option value="withdraw">Выводы</option>
+          </select>
         </div>
+
         {history.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-stone-400">
-            <Wallet className="w-10 h-10 mb-3 opacity-30" />
-            <p className="text-sm">Транзакций пока нет</p>
+            <Wallet className="w-10 h-10 mb-3 opacity-25" />
+            <p className="text-sm">Операций пока нет</p>
           </div>
         ) : (
-          <div className="divide-y divide-border">
-            {history.map((tx) => {
-              const info = TX_LABELS[tx.type] ?? { label: tx.type, color: "text-stone-600" };
-              return (
-                <div key={tx.id} className="px-6 py-4 flex items-start gap-4">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className={`text-sm font-semibold ${info.color}`}>{info.label}</span>
-                      {tx.referenceId && (
-                        <span className="text-xs text-stone-400">
-                          {tx.referenceType === "booking" ? `бронь #${tx.referenceId}` : `#${tx.referenceId}`}
-                        </span>
+          <>
+            <div className="divide-y divide-border">
+              {history.map((tx) => {
+                const meta = TX_META[tx.type] ?? { label: tx.type, color: "text-stone-600", bg: "bg-stone-50", icon: <Coins className="w-4 h-4" />, sign: "~" as const };
+                const isPending = tx.status === "pending";
+                return (
+                  <div key={tx.id} className="px-5 py-3.5 flex items-center gap-3">
+                    <div className={`w-9 h-9 rounded-xl ${meta.bg} ${meta.color} flex items-center justify-center shrink-0`}>
+                      {meta.icon}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className={`text-sm font-semibold ${meta.color}`}>{meta.label}</span>
+                        {tx.bookingNumber ? (
+                          <span className="text-[11px] font-mono text-stone-400">{tx.bookingNumber}</span>
+                        ) : tx.referenceId && tx.referenceType === "booking" ? (
+                          <span className="text-[11px] text-stone-400">бронь #{tx.referenceId}</span>
+                        ) : null}
+                        {isPending && (
+                          <span className="px-1.5 py-0.5 bg-amber-100 text-amber-700 text-[10px] font-semibold rounded-full">обработка</span>
+                        )}
+                      </div>
+                      {tx.description && (
+                        <p className="text-xs text-stone-500 mt-0.5 truncate max-w-[280px]">{tx.description}</p>
+                      )}
+                      <p className="text-[11px] text-stone-400 mt-0.5">
+                        {new Date(tx.createdAt).toLocaleString("ru-RU", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+                      </p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className={`font-bold text-sm ${meta.color}`}>
+                        {meta.sign !== "~" ? meta.sign : ""}{tx.amount.toLocaleString("ru-RU", { minimumFractionDigits: 2 })} ₽
+                      </p>
+                      {tx.platformCommission > 0 && (
+                        <p className="text-[10px] text-stone-400">−{tx.platformCommission.toFixed(2)} ₽ комиссия</p>
                       )}
                     </div>
-                    {tx.description && (
-                      <p className="text-xs text-stone-500 mt-0.5 truncate">{tx.description}</p>
-                    )}
-                    <p className="text-xs text-stone-400 mt-1">
-                      {new Date(tx.createdAt).toLocaleString("ru-RU")}
-                    </p>
                   </div>
-                  <div className="text-right shrink-0">
-                    <p className={`font-semibold text-sm ${info.color}`}>
-                      {tx.amount.toLocaleString("ru-RU", { minimumFractionDigits: 2 })} ₽
-                    </p>
-                    {tx.platformCommission > 0 && (
-                      <p className="text-xs text-stone-400">комиссия {tx.platformCommission.toFixed(2)} ₽</p>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+            {hasMore && (
+              <div className="px-5 py-3 border-t border-border">
+                <button
+                  onClick={handleLoadMore}
+                  disabled={loadingMore}
+                  className="w-full text-sm text-primary font-medium flex items-center justify-center gap-2 py-1.5 hover:underline disabled:opacity-50"
+                >
+                  {loadingMore ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                  {loadingMore ? "Загрузка..." : "Показать ещё"}
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
+
+      {/* ── Модалка: Пополнить ── */}
+      {showTopup && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => setShowTopup(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="text-base font-bold text-stone-800 flex items-center gap-2">
+                <Plus className="w-4 h-4 text-primary" /> Пополнение кошелька
+              </h3>
+              <button onClick={() => setShowTopup(false)} className="text-stone-400 hover:text-stone-700"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs font-medium text-stone-600 mb-1.5 block">Сумма пополнения</label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    value={topupAmount}
+                    onChange={e => setTopupAmount(e.target.value)}
+                    placeholder="1000"
+                    min={10}
+                    max={500000}
+                    className="w-full border border-border rounded-xl px-4 py-3 pr-8 text-lg font-bold focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 font-medium">₽</span>
+                </div>
+                <div className="flex gap-2 mt-2">
+                  {[500, 1000, 2000, 5000].map(v => (
+                    <button key={v} onClick={() => setTopupAmount(String(v))}
+                      className={`flex-1 text-xs py-1.5 rounded-lg border font-medium transition-colors ${topupAmount === String(v) ? "border-primary text-primary bg-primary/5" : "border-border text-stone-600 hover:border-primary/40"}`}>
+                      {v.toLocaleString("ru-RU")} ₽
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {topupMsg && (
+                <div className={`text-xs rounded-lg px-3 py-2 ${topupMsg.ok ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-red-50 text-red-700 border border-red-200"}`}>
+                  {topupMsg.text}
+                </div>
+              )}
+              <button
+                onClick={handleTopup}
+                disabled={topupLoading}
+                className="w-full bg-primary text-white font-semibold rounded-xl py-3 hover:bg-primary/90 transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
+              >
+                {topupLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                Пополнить
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Модалка: Вывести ── */}
+      {showWithdraw && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => setShowWithdraw(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="text-base font-bold text-stone-800 flex items-center gap-2">
+                <Banknote className="w-4 h-4 text-primary" /> Вывод средств
+              </h3>
+              <button onClick={() => setShowWithdraw(false)} className="text-stone-400 hover:text-stone-700"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="space-y-4">
+              <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 flex items-center justify-between">
+                <span className="text-xs text-emerald-700">Доступно для вывода</span>
+                <span className="text-base font-bold text-emerald-800">{available.toLocaleString("ru-RU", { minimumFractionDigits: 2 })} ₽</span>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-stone-600 mb-1.5 block">Сумма вывода</label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    value={withdrawAmount}
+                    onChange={e => setWithdrawAmount(e.target.value)}
+                    placeholder={`до ${available.toFixed(0)}`}
+                    min={100}
+                    max={available}
+                    className="w-full border border-border rounded-xl px-4 py-3 pr-8 text-lg font-bold focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-400 font-medium">₽</span>
+                </div>
+                <button onClick={() => setWithdrawAmount(available.toFixed(0))} className="mt-1 text-[11px] text-primary hover:underline">Вывести всё</button>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-stone-600 mb-1.5 block">Реквизиты для вывода</label>
+                {payoutMethods.length === 0 ? (
+                  <div className="text-xs text-stone-500 border border-border rounded-xl p-3">
+                    Реквизиты не добавлены. <Link href="/dashboard?tab=profile" className="text-primary underline">Добавить в профиле</Link>
+                  </div>
+                ) : (
+                  <select
+                    value={withdrawMethodId ?? ""}
+                    onChange={e => setWithdrawMethodId(Number(e.target.value))}
+                    className="w-full border border-border rounded-xl px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  >
+                    {payoutMethods.map(m => (
+                      <option key={m.id} value={m.id}>
+                        {m.type === "card" ? `Карта •••• ${m.cardLast4 ?? "????"}` : `СБП · ${m.sbpPhone ?? ""}`}
+                        {m.isDefault ? " (основной)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+              {withdrawMsg && (
+                <div className={`text-xs rounded-lg px-3 py-2 ${withdrawMsg.ok ? "bg-emerald-50 text-emerald-700 border border-emerald-200" : "bg-red-50 text-red-700 border border-red-200"}`}>
+                  {withdrawMsg.text}
+                </div>
+              )}
+              <button
+                onClick={handleWithdraw}
+                disabled={withdrawLoading || payoutMethods.length === 0 || available < 100}
+                className="w-full bg-primary text-white font-semibold rounded-xl py-3 hover:bg-primary/90 transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
+              >
+                {withdrawLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowUpFromLine className="w-4 h-4" />}
+                Подать заявку на вывод
+              </button>
+              <p className="text-[11px] text-stone-400 text-center">Минимум 100 ₽ · Обработка до 3 рабочих дней</p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
