@@ -3817,7 +3817,7 @@ function AnalyticsTab() {
 }
 
 // ─── Stage 30A: AI Settings Tab ────────────────────────────────────────────────
-type AiProvider = "mock" | "openai" | "amvera";
+type AiProvider = "mock" | "openrouter" | "openai" | "amvera" | "gemini";
 
 const AI_PROVIDERS: Array<{
   id: AiProvider;
@@ -3832,23 +3832,39 @@ const AI_PROVIDERS: Array<{
     title: "Mock — заглушка",
     badge: "Бесплатно",
     badgeCls: "bg-stone-200 text-stone-700",
-    desc: "Шаблонное продающее описание с эмодзи. Не использует сеть, не требует ключей. Безопасный fallback по умолчанию.",
+    desc: "Шаблонное продающее описание с эмодзи. Не использует сеть, не требует ключей. Безопасный kill-switch по умолчанию.",
+  },
+  {
+    id: "openrouter",
+    title: "OpenRouter (рекомендуется)",
+    badge: "⭐ Новый",
+    badgeCls: "bg-primary/10 text-primary",
+    desc: "Единый шлюз к сотням моделей (DeepSeek, GPT-4o, Gemini, Claude и др.). Модель задаётся через OPENROUTER_MODEL env (дефолт: deepseek/deepseek-chat). При ошибке — автоматический резерв на прямой DeepSeek API, затем mock.",
+    envHint: "Требуется секрет OPENROUTER_API_KEY",
   },
   {
     id: "openai",
-    title: "OpenAI (ChatGPT)",
+    title: "OpenAI (ChatGPT) via OpenRouter",
     badge: "Зарубежный",
     badgeCls: "bg-blue-100 text-blue-700",
-    desc: "GPT-4o-mini. Высокое качество, но геоблокировки и оплата в долларах.",
-    envHint: "Требуется секрет OPENAI_API_KEY",
+    desc: "GPT-4o-mini через OpenRouter. Высокое качество. Резерв: прямой DeepSeek → mock.",
+    envHint: "Требуется OPENROUTER_API_KEY",
+  },
+  {
+    id: "gemini",
+    title: "Google Gemini via OpenRouter",
+    badge: "Зарубежный",
+    badgeCls: "bg-violet-100 text-violet-700",
+    desc: "google/gemini-flash-1.5 через OpenRouter. Быстрый и дешёвый. Резерв: прямой DeepSeek → mock.",
+    envHint: "Требуется OPENROUTER_API_KEY",
   },
   {
     id: "amvera",
-    title: "Amvera AI (DeepSeek-V3)",
-    badge: "🇷🇺 Россия",
-    badgeCls: "bg-emerald-100 text-emerald-700",
-    desc: "Российский инференс на отечественных серверах. DeepSeek-V3 через /models/gpt. Без геоблокировок, оплата в рублях.",
-    envHint: "Требуется секрет AMVERA_API_TOKEN",
+    title: "Amvera → DeepSeek via OpenRouter",
+    badge: "Legacy",
+    badgeCls: "bg-stone-100 text-stone-600",
+    desc: "Алиас для deepseek/deepseek-chat через OpenRouter (прежний Amvera DeepSeek-V3). Совместимость со старыми настройками БД.",
+    envHint: "Требуется OPENROUTER_API_KEY",
   },
 ];
 
@@ -3872,7 +3888,7 @@ function AiSettingsTab() {
         const res = await fetch("/api/admin/settings", { headers: getAuthHeaders() });
         if (!res.ok) throw new Error("Не удалось загрузить настройки");
         const j = await res.json();
-        const p: AiProvider = (["mock", "openai", "amvera"] as const).includes(j.activeAiProvider)
+        const p: AiProvider = (["mock", "openrouter", "openai", "amvera", "gemini"] as const).includes(j.activeAiProvider)
           ? j.activeAiProvider
           : "mock";
         setProvider(p);

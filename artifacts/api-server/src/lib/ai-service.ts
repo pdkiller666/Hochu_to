@@ -1,35 +1,27 @@
 /**
- * Stage 30A — Multi-Provider AI Gateway
+ * Stage 30-Refactoring — OpenRouter AI Gateway
  *
- * Единая точка генерации продающих описаний для объявлений.
- * Активный провайдер хранится в platform_settings.activeAiProvider:
- *   - 'mock'   — формат-заглушка с эмодзи (без сети, без расходов; default);
- *   - 'openai' — ChatGPT через OPENAI_API_KEY;
- *   - 'amvera' — российский Amvera AI Inference (DeepSeek-V3 на /models/deepseek)
- *                через AMVERA_API_TOKEN.
+ * Единая точка генерации продающих описаний и буллетов инфографики.
+ * Весь реальный LLM-трафик идёт через OpenRouter (openrouter.ai) посредством
+ * стандартного SDK `openai` с переопределённым baseURL.
  *
- * При любой ошибке/отсутствии ключа провайдер мягко деградирует в 'mock',
+ * Поддерживаемые значения platform_settings.activeAiProvider:
+ *   - 'mock'       — format-заглушка, без сети (default / аварийный kill-switch)
+ *   - 'openrouter' — новый основной провайдер; модель = OPENROUTER_MODEL env
+ *                    (дефолт: "deepseek/deepseek-chat")
+ *
+ * Backward-compatible алиасы (старые значения в БД продолжают работать):
+ *   - 'openai'     → openai/gpt-4o-mini via OpenRouter
+ *   - 'gemini'     → google/gemini-flash-1.5 via OpenRouter
+ *   - 'amvera'     → deepseek/deepseek-chat via OpenRouter
+ *
+ * Vision-арбитратор (arbitrateWithGeminiVision) — работает через прямой
+ * Gemini API (нужен base64 multimodal), OpenRouter не задействован.
+ *
+ * При любой ошибке/отсутствии ключа сервис мягко деградирует в 'mock',
  * чтобы UX не сломался. Все ошибки логируются Pino-логгером.
- *
- * ВАЖНО про Amvera (отличия от OpenAI):
- *   - Эндпоинт:           POST https://kong-proxy.yc.amvera.ru/api/v1/models/deepseek
- *                         (Stage 30H: /models/llama помечен deprecated в openapi
- *                         Amvera + давал empty response на проде; перешли на семейство
- *                         /deepseek с моделью deepseek-V3 — см. официальную доку
- *                         https://docs.amvera.ru/LLM/doc-inference-ru.html, эндпоинт
- *                         /gpt предназначен ИСКЛЮЧИТЕЛЬНО для OpenAI gpt-4.1/gpt-5).
- *   - Имя модели:         "deepseek-V3" (с заглавной V — case-sensitive!).
- *   - Заголовок auth:     X-Auth-Token: Bearer <token>   (НЕ Authorization)
- *   - Поле сообщения:     "text"                         (НЕ "content" — общее правило
- *                         для всех Amvera-роутов; см. example в документации)
- *   - Парсинг ответа:     ВНИМАНИЕ — формат отличается между эндпоинтами!
- *                         /llama|/deepseek|/qwen → data.alternatives[0].message.text
- *                                                  (Yandex/Amvera-формат)
- *                         /gpt                   → data.choices[0].message.text
- *                                                  (OpenAI Chat Completions format)
- *                         Stage 30H-fix2 парсит ОБА поля с fallback,
- *                         см. подробности в generateAmvera/bulletsAmvera.
  */
+import OpenAI from "openai";
 import fs from "fs/promises";
 import path from "path";
 import { logger } from "./logger.js";
@@ -38,52 +30,55 @@ import { UPLOADS_DIR } from "./uploadsDir.js";
 import { db, claimsTable, bookingsTable, digitalActsTable } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 
+// ─── Константы ───────────────────────────────────────────────────────────────
+
 const MOCK_DELAY_MS = 1500;
-const OPENAI_TIMEOUT_MS = 20_000;
-const AMVERA_TIMEOUT_MS = 25_000;
-const GEMINI_TIMEOUT_MS = 25_000;
-// Stage 30J-revert2 (29.04.2026): возвращаем рабочую конфигурацию Stage 30G
-// (SHA d345122) — единственная константа GEMINI_MODEL = "gemini-flash-latest"
-// и простой прямой fetch к Generative Language API.
-//
-// ⚠️ КРИТИЧНО — НЕ менять обратно на "gemini-1.5-flash" / "gemini-1.5-pro"!
-// Google вычистил эти алиасы из v1beta endpoint, прод отдаёт 404 model not
-// found. Алиас "*-latest" — официальная страховка Google от ротации версий
-// (см. docs/AGENT_INSTRUCTIONS.md, журнал Stage 30G от 28.04.2026).
-//
-// Если модель/ключ дают ошибку — обычный throw, наверху ловит smart-mock
-// в generateListingDescription / generateInfographicBullets.
-const GEMINI_MODEL = "gemini-flash-latest";
-
-// Stage 30H (28.04.2026): пивот Amvera со старого /models/llama (deprecated, давал
-// "empty response" на проде) на /models/deepseek с моделью deepseek-V3.
-//
-// ВНИМАНИЕ: эндпоинт собирается как POST /models/<inference_name>, где
-// <inference_name> — СЕМЕЙСТВО, не модель. Согласно официальной документации
-// https://docs.amvera.ru/LLM/doc-inference-ru.html:
-//   /llama       → llama8b, llama70b
-//   /gpt         → gpt-4.1, gpt-5         (только OpenAI-модели!)
-//   /deepseek    → deepseek-R1, deepseek-V3
-//   /qwen        → qwen3_30b, qwen3_235b
-// Поэтому для DeepSeek-V3 используем именно /models/deepseek, а не /models/gpt
-// (как мог бы подсказать тэг GPT в swagger — он группирует только OpenAI-роут).
-//
-// Имя модели — РОВНО "deepseek-V3" с заглавной V (см. документацию). Lowercase
-// "deepseek-v3" Amvera не распознает и вернёт пустой ответ.
-//
-// Поле сообщений и ответа — "text" (НЕ "content"), общее правило для всех
-// Amvera-инференс-роутов; см. example в документации.
-const AMVERA_URL = "https://kong-proxy.yc.amvera.ru/api/v1/models/deepseek";
-const AMVERA_MODEL = "deepseek-V3";
-
-// Stage 33.0: прямой DeepSeek API (api.deepseek.com) — второй резерв после Amvera.
-// Используется только если Amvera вернул ошибку или пустой ответ.
-// Формат — OpenAI-совместимый Chat Completions.
-const DEEPSEEK_DIRECT_URL = "https://api.deepseek.com/v1/chat/completions";
-const DEEPSEEK_DIRECT_MODEL = "deepseek-chat";
+const OPENROUTER_TIMEOUT_MS = 30_000;
 const DEEPSEEK_DIRECT_TIMEOUT_MS = 30_000;
 
-export type AiProvider = "mock" | "openai" | "amvera" | "gemini";
+// Stage 33.0 (сохранён): прямой DeepSeek API — резервный провайдер перед mock.
+// Включается автоматически при ошибке OpenRouter (если ключ DEEPSEEK_API_KEY задан).
+const DEEPSEEK_DIRECT_URL = "https://api.deepseek.com/v1/chat/completions";
+const DEEPSEEK_DIRECT_MODEL = "deepseek-chat";
+
+/** Дефолтная модель OpenRouter (если OPENROUTER_MODEL не задан) */
+const OPENROUTER_DEFAULT_MODEL = "deepseek/deepseek-chat";
+
+/**
+ * Маппинг старых значений activeAiProvider → модель OpenRouter.
+ * Позволяет не делать DB-миграцию при переходе со Stage 30A на Refactoring.
+ */
+const PROVIDER_TO_MODEL: Record<string, string> = {
+  openrouter: process.env.OPENROUTER_MODEL ?? OPENROUTER_DEFAULT_MODEL,
+  openai:     "openai/gpt-4o-mini",
+  gemini:     process.env.OPENROUTER_GEMINI_MODEL ?? "google/gemini-flash-1.5",
+  amvera:     "deepseek/deepseek-chat", // DeepSeek-V3 — ближайший эквивалент Amvera
+};
+
+// ─── OpenRouter-клиент ────────────────────────────────────────────────────────
+
+/**
+ * Создаём клиент lazily — только когда реально нужен.
+ * Если OPENROUTER_API_KEY не задан, бросим ошибку при первом вызове
+ * (а не при загрузке модуля), чтобы mock-режим не требовал ключа.
+ */
+function getOpenRouterClient(): OpenAI {
+  const apiKey = process.env.OPENROUTER_API_KEY?.trim();
+  if (!apiKey) throw new Error("OPENROUTER_API_KEY is not set");
+  return new OpenAI({
+    baseURL: "https://openrouter.ai/api/v1",
+    apiKey,
+    defaultHeaders: {
+      "HTTP-Referer": "https://hochuto.ru",
+      "X-Title": "Hochu_To_Marketplace",
+    },
+    timeout: OPENROUTER_TIMEOUT_MS,
+  });
+}
+
+// ─── Типы ──────────────────────────────────────────────────────────────────────
+
+export type AiProvider = "mock" | "openrouter" | "openai" | "amvera" | "gemini";
 
 export interface GenerateInput {
   title: string;
@@ -94,12 +89,16 @@ export interface GenerateInput {
 export interface GenerateResult {
   text: string;
   provider: AiProvider;
-  /** Истинный провайдер, который реально сгенерировал текст (после возможного fallback) */
+  /** Истинный провайдер, реально сгенерировавший текст (после возможного fallback) */
   actualProvider: AiProvider;
   /** true, если случился graceful fallback в mock из-за ошибки реального API */
   fallback: boolean;
   fallbackReason?: string;
+  /** OpenRouter-модель, которая ответила (для диагностики в UI) */
+  model?: string;
 }
+
+// ─── Промпты ──────────────────────────────────────────────────────────────────
 
 const SYSTEM_PROMPT =
   "Ты крутой маркетолог. Напиши продающее описание для вещи, которую сдают в аренду. " +
@@ -112,7 +111,7 @@ function userPrompt({ title, category, condition }: GenerateInput): string {
   return parts.join("\n");
 }
 
-// ─── MOCK ──────────────────────────────────────────────────────────────────
+// ─── MOCK ─────────────────────────────────────────────────────────────────────
 
 async function generateMock(input: GenerateInput): Promise<string> {
   await new Promise((r) => setTimeout(r, MOCK_DELAY_MS));
@@ -142,120 +141,33 @@ async function generateMock(input: GenerateInput): Promise<string> {
   ].join("\n");
 }
 
-// ─── OPENAI ────────────────────────────────────────────────────────────────
+// ─── OpenRouter: генерация описания ──────────────────────────────────────────
 
-async function generateOpenAi(input: GenerateInput): Promise<string> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("OPENAI_API_KEY is not set");
-
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), OPENAI_TIMEOUT_MS);
-
-  try {
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        temperature: 0.8,
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: userPrompt(input) },
-        ],
-      }),
-      signal: ctrl.signal,
-    });
-
-    if (!res.ok) {
-      const txt = await res.text().catch(() => "");
-      throw new Error(`OpenAI HTTP ${res.status}: ${txt.slice(0, 200)}`);
-    }
-    const data: any = await res.json();
-    const text = data?.choices?.[0]?.message?.content;
-    if (typeof text !== "string" || !text.trim()) {
-      throw new Error("OpenAI: empty response");
-    }
-    return text.trim();
-  } finally {
-    clearTimeout(timer);
+async function generateViaOpenRouter(
+  input: GenerateInput,
+  model: string,
+): Promise<string> {
+  const client = getOpenRouterClient();
+  const completion = await client.chat.completions.create({
+    model,
+    temperature: 0.8,
+    messages: [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content: userPrompt(input) },
+    ],
+  });
+  const text = completion.choices?.[0]?.message?.content;
+  if (typeof text !== "string" || !text.trim()) {
+    throw new Error(`OpenRouter (${model}): empty response`);
   }
+  return text.trim();
 }
 
-// ─── AMVERA ────────────────────────────────────────────────────────────────
-
-async function generateAmvera(input: GenerateInput): Promise<string> {
-  // Stage 30F: .trim() — страховка от хвостового \n или пробела при копипасте
-  // ключа в панель Amvera (одна из самых частых причин ложного 401/400).
-  const token = process.env.AMVERA_API_TOKEN?.trim();
-  if (!token) throw new Error("AMVERA_API_TOKEN is missing");
-
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), AMVERA_TIMEOUT_MS);
-
-  try {
-    const res = await fetch(AMVERA_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        // Stage 30E (REVERT 30D): прод вернул HTTP 401 на стандартный
-        // Authorization: Bearer. Amvera-шлюз ожидает кастомный X-Auth-Token
-        // c префиксом Bearer — это и был исходный рабочий формат.
-        "X-Auth-Token": `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        model: AMVERA_MODEL,
-        messages: [
-          // Stage 30H: даже на /models/gpt Amvera использует поле "text",
-          // НЕ "content" (см. openapi.yaml — это не стандартная OpenAI-схема).
-          { role: "system", text: SYSTEM_PROMPT },
-          { role: "user", text: userPrompt(input) },
-        ],
-      }),
-      signal: ctrl.signal,
-    });
-
-    if (!res.ok) {
-      const fullText = await res.text().catch(() => "");
-      console.error(
-        "[AI Service Error][Amvera/description]: Response Status:",
-        res.status,
-        "Text:",
-        fullText,
-      );
-      throw new Error(`Amvera HTTP ${res.status}: ${fullText.slice(0, 200)}`);
-    }
-    const data: any = await res.json();
-    // Stage 30H-fix2 (29.04.2026): Amvera использует РАЗНЫЕ поля ответа на разных
-    // эндпоинтах (см. openapi.yaml https://lllm-swagger-amvera-services.amvera.io/openapi.yaml):
-    //   /models/llama (deprecated) → data.alternatives[0].message.text  (Yandex/Amvera-формат)
-    //   /models/gpt                → data.choices[0].message.text       (OpenAI Chat Completions)
-    //   /models/deepseek           → не описан в openapi, эмпирически alternatives
-    //   /models/qwen               → аналогично, не описан
-    // Парсим оба поля — какое первое не пустое, то и берём. Если в будущем
-    // добавится третий формат — увидим в диагностике ниже.
-    const text =
-      data?.alternatives?.[0]?.message?.text ??
-      data?.choices?.[0]?.message?.text ??
-      data?.choices?.[0]?.message?.content;
-    if (typeof text !== "string" || !text.trim()) {
-      console.error(
-        "[AI Service Error][Amvera/description]: Unexpected response shape, raw data slice:",
-        JSON.stringify(data).slice(0, 500),
-      );
-      throw new Error("Amvera: empty response");
-    }
-    return text.trim();
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-// ─── DIRECT DEEPSEEK (Stage 33.0) ─────────────────────────────────────────
-// Резервный провайдер: используется только когда Amvera недоступен или
-// вернул пустой ответ. Ключ — DEEPSEEK_API_KEY, OpenAI-совместимый формат.
+// ─── Direct DeepSeek (Stage 33.0 — резерв перед mock) ────────────────────────
+//
+// Используется как промежуточный fallback между OpenRouter и mock:
+//   OpenRouter ошибка → пробуем прямой DeepSeek → если нет ключа/ошибка → mock
+// OpenAI-совместимый формат (api.deepseek.com). Ключ: DEEPSEEK_API_KEY.
 
 async function generateDirectDeepSeek(input: GenerateInput): Promise<string> {
   const apiKey = process.env.DEEPSEEK_API_KEY?.trim();
@@ -281,103 +193,106 @@ async function generateDirectDeepSeek(input: GenerateInput): Promise<string> {
       }),
       signal: ctrl.signal,
     });
-
     if (!res.ok) {
       const txt = await res.text().catch(() => "");
       throw new Error(`DeepSeek HTTP ${res.status}: ${txt.slice(0, 200)}`);
     }
     const data: any = await res.json();
     const text = data?.choices?.[0]?.message?.content;
-    if (typeof text !== "string" || !text.trim()) {
-      throw new Error("DeepSeek: empty response");
-    }
+    if (typeof text !== "string" || !text.trim()) throw new Error("DeepSeek: empty response");
     return text.trim();
   } finally {
     clearTimeout(timer);
   }
 }
 
-// ─── GEMINI ────────────────────────────────────────────────────────────────
-
-async function generateGemini(input: GenerateInput): Promise<string> {
-  // Stage 30F: .trim() для защиты от \n/пробелов при копипасте ключа
-  // (типичная причина 400 "API key not valid" от Google).
-  const apiKey = process.env.GEMINI_API_KEY?.trim();
-  if (!apiKey) throw new Error("GEMINI_API_KEY is missing");
+async function bulletsDirectDeepSeek(
+  title: string,
+  category?: string | null,
+): Promise<string[]> {
+  const apiKey = process.env.DEEPSEEK_API_KEY?.trim();
+  if (!apiKey) throw new Error("DEEPSEEK_API_KEY is not set");
 
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), GEMINI_TIMEOUT_MS);
+  const timer = setTimeout(() => ctrl.abort(), DEEPSEEK_DIRECT_TIMEOUT_MS);
 
   try {
-    const promptText = `${SYSTEM_PROMPT}\n\n${userPrompt(input)}`;
-    // Stage 30J UX: maxOutputTokens=2048 хватает на полное описание
-    // (~1500-1700 русских символов с эмодзи). На 800 токенах Gemini обрезал
-    // продающие описания на середине списка преимуществ.
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: promptText }] }],
-          generationConfig: { temperature: 0.8, maxOutputTokens: 2048 },
-        }),
-        signal: ctrl.signal,
+    const res = await fetch(DEEPSEEK_DIRECT_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
       },
-    );
-
+      body: JSON.stringify({
+        model: DEEPSEEK_DIRECT_MODEL,
+        temperature: 0.6,
+        messages: [
+          { role: "system", content: INFOGRAPHIC_SYSTEM_PROMPT },
+          { role: "user", content: infographicUserPrompt(title, category) },
+        ],
+      }),
+      signal: ctrl.signal,
+    });
     if (!res.ok) {
-      const fullText = await res.text().catch(() => "");
-      console.error(
-        "[AI Service Error][Gemini/description]: Response Status:",
-        res.status,
-        "Text:",
-        fullText,
-      );
-      throw new Error(`Gemini HTTP ${res.status}: ${fullText.slice(0, 200)}`);
+      const txt = await res.text().catch(() => "");
+      throw new Error(`DeepSeek HTTP ${res.status}: ${txt.slice(0, 200)}`);
     }
     const data: any = await res.json();
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (typeof text !== "string" || !text.trim()) {
-      throw new Error("Gemini: empty response");
-    }
-    return text.trim();
+    const text = data?.choices?.[0]?.message?.content;
+    if (typeof text !== "string" || !text.trim()) throw new Error("DeepSeek: empty response");
+    const bullets = parseBulletsFromLLM(text);
+    if (bullets.length < 3) throw new Error("DeepSeek: less than 3 bullets parsed");
+    return bullets;
   } finally {
     clearTimeout(timer);
   }
 }
 
-// ─── ROUTER ────────────────────────────────────────────────────────────────
+// ─── Вспомогательные: резолвер провайдера ────────────────────────────────────
 
 function isValidProvider(p: string | undefined | null): p is AiProvider {
-  return p === "mock" || p === "openai" || p === "amvera" || p === "gemini";
+  return (
+    p === "mock" ||
+    p === "openrouter" ||
+    p === "openai" ||
+    p === "amvera" ||
+    p === "gemini"
+  );
 }
 
 /**
- * Stage 30C: разрешение провайдера с учётом kill-switch админа.
+ * Разрешает активный провайдер с учётом kill-switch админа.
  *
- * Поведение:
- *   1. Если админ выставил в DB activeAiProvider='mock' — форсим mock.
- *      Это аварийный «kill-switch» для контроля расходов на LLM.
- *   2. Иначе если запрос явно указал валидного реального провайдера — берём его.
- *      Так пользователь сам выбирает между Gemini и Amvera per-request.
- *   3. Иначе — fallback в DB-настройку (для обратной совместимости с прежним UX).
- *   4. Если и там пусто — 'amvera' как разумный дефолт (как просил CTO).
+ * Порядок приоритетов:
+ *  1. Если DB-настройка = 'mock' → форсируем mock (kill-switch расходов LLM).
+ *  2. Per-request провайдер (если валиден и не mock).
+ *  3. DB-настройка.
+ *  4. Дефолт — 'openrouter'.
  */
 async function resolveProvider(requested?: string | null): Promise<AiProvider> {
   const settings = await getPlatformSettings();
   const dbProvider: AiProvider = isValidProvider(settings.activeAiProvider)
     ? (settings.activeAiProvider as AiProvider)
-    : "mock";
+    : "openrouter";
 
   if (dbProvider === "mock") return "mock";
   if (isValidProvider(requested) && requested !== "mock") return requested;
-  return dbProvider || "amvera";
+  return dbProvider;
 }
 
 /**
- * Главная точка входа. Учитывает per-request выбор провайдера; при ошибке
- * реального провайдера мягко падает в mock, чтобы UX не сломался.
+ * Возвращает OpenRouter-модель для провайдера.
+ * Если провайдер "openrouter" — читает OPENROUTER_MODEL из env.
+ */
+function resolveModel(provider: AiProvider): string {
+  return PROVIDER_TO_MODEL[provider] ?? OPENROUTER_DEFAULT_MODEL;
+}
+
+// ─── Главная точка: описание объявления ──────────────────────────────────────
+
+/**
+ * Генерирует продающее описание для объявления.
+ * При ошибке реального провайдера мягко падает в mock.
  */
 export async function generateListingDescription(
   input: GenerateInput,
@@ -387,50 +302,42 @@ export async function generateListingDescription(
     throw new Error("title is required");
   }
 
-  const requested = await resolveProvider(requestedProvider);
+  const provider = await resolveProvider(requestedProvider);
 
-  if (requested === "mock") {
+  if (provider === "mock") {
     const text = await generateMock(input);
     return { text, provider: "mock", actualProvider: "mock", fallback: false };
   }
 
+  const model = resolveModel(provider);
+
   try {
     let text: string;
-    if (requested === "openai") text = await generateOpenAi(input);
-    else if (requested === "gemini") text = await generateGemini(input);
-    else {
-      // Stage 33.0: Amvera → Direct DeepSeek (промежуточный резерв перед mock)
-      try {
-        text = await generateAmvera(input);
-      } catch (amveraErr: any) {
-        logger.warn(
-          { err: amveraErr?.message },
-          "ai-service: Amvera failed, trying direct DeepSeek API",
-        );
-        text = await generateDirectDeepSeek(input);
-      }
+    try {
+      text = await generateViaOpenRouter(input, model);
+    } catch (openRouterErr: any) {
+      // OpenRouter недоступен → пробуем прямой DeepSeek (Stage 33.0 резерв)
+      logger.warn(
+        { provider, model, err: openRouterErr?.message },
+        "ai-service: OpenRouter failed, trying direct DeepSeek API",
+      );
+      text = await generateDirectDeepSeek(input);
     }
-
     logger.info(
-      { provider: requested, title: input.title.slice(0, 60) },
-      "ai-service: generation success",
+      { provider, model, title: input.title.slice(0, 60) },
+      "ai-service: description generation success",
     );
-    return {
-      text,
-      provider: requested,
-      actualProvider: requested,
-      fallback: false,
-    };
+    return { text, provider, actualProvider: provider, fallback: false, model };
   } catch (err: any) {
     const reason = err?.message || String(err);
     logger.error(
-      { provider: requested, err: reason },
-      "ai-service: real provider failed, falling back to mock",
+      { provider, model, err: reason },
+      "ai-service: all providers failed, falling back to mock",
     );
     const text = await generateMock(input);
     return {
       text,
-      provider: requested,
+      provider,
       actualProvider: "mock",
       fallback: true,
       fallbackReason: reason,
@@ -440,8 +347,10 @@ export async function generateListingDescription(
 
 // ─── Stage 33 — AI Арбитражор (Vision Analysis) ──────────────────────────────
 //
-// ИЗОЛИРОВАНО от текстовых функций. НЕ использует GEMINI_MODEL, generateGemini,
-// bulletsGemini. Отдельная константа, отдельный таймаут, отдельный промпт.
+// ИЗОЛИРОВАНО от текстовых функций. НЕ использует OpenRouter SDK.
+// Отдельная константа, отдельный таймаут, отдельный промпт.
+// Прямой Gemini API через fetch (multimodal base64 — OpenRouter не поддерживает
+// произвольные файлы base64 в том же интерфейсе).
 //
 // Модель берётся из env GEMINI_VISION_MODEL; дефолт — "gemini-flash-latest".
 // ⚠️ НЕ менять дефолт на "gemini-1.5-flash" — этот алиас даёт 404 на v1beta endpoint
@@ -471,9 +380,9 @@ export interface AiVerdictResult {
 /**
  * Stage 33 — запросить AI-анализ фото из Цифровых Актов для заявки.
  * Читает digital_acts (check_in + check_out) из БД, загружает фото с диска,
- * конвертирует в base64, отправляет в Gemini Vision.
+ * конвертирует в base64, отправляет в Gemini Vision напрямую.
  *
- * КРИТИЧНО: не трогает GEMINI_MODEL, generateGemini, bulletsGemini.
+ * КРИТИЧНО: не трогает generateViaOpenRouter. Прямой fetch к Google API.
  */
 export async function arbitrateWithGeminiVision(claimId: number): Promise<AiVerdictResult> {
   const apiKey = process.env.GEMINI_API_KEY?.trim();
@@ -490,59 +399,80 @@ export async function arbitrateWithGeminiVision(claimId: number): Promise<AiVerd
 
     // 2. Получаем бронь для поиска актов
     const [booking] = await db.select().from(bookingsTable).where(eq(bookingsTable.id, claim.bookingId)).limit(1);
-
-    // 3. Получаем Цифровые Акты
-    let acts: { type: string; photos: string[] }[] = [];
-    if (booking) {
-      const rows = await db.select({ type: digitalActsTable.type, photos: digitalActsTable.photos })
-        .from(digitalActsTable)
-        .where(and(
-          eq(digitalActsTable.bookingId, booking.id),
-        ));
-      acts = rows.filter((r) => ["check_in", "check_out"].includes(r.type));
+    if (!booking) {
+      return { faultEstimatePercent: 0, confidence: "low", verdictDraft: "", evidenceCitations: [], error: "Бронирование не найдено" };
     }
 
-    // Если пул-заявка: ищем pool_handover акты
-    if (acts.length === 0 && !booking) {
-      acts = [];
+    // 3. Получаем оба цифровых акта (check_in + check_out)
+    const acts = await db
+      .select()
+      .from(digitalActsTable)
+      .where(eq(digitalActsTable.bookingId, claim.bookingId));
+
+    const checkInAct = acts.find((a) => a.type === "check_in");
+    const checkOutAct = acts.find((a) => a.type === "check_out");
+
+    if (!checkInAct || !checkOutAct) {
+      return {
+        faultEstimatePercent: 0,
+        confidence: "low",
+        verdictDraft: "",
+        evidenceCitations: [],
+        error: `Отсутствуют акты: ${!checkInAct ? "приёмки" : ""}${!checkOutAct ? " возврата" : ""}`.trim(),
+      };
     }
 
-    // Собираем фото: до 2 из check_in + до 2 из check_out (итого ≤ 4)
-    const checkIn = acts.find((a) => a.type === "check_in");
-    const checkOut = acts.find((a) => a.type === "check_out") ?? acts.find((a) => a.type === "pool_handover");
-
-    if (!checkIn || !checkOut) {
-      return { faultEstimatePercent: 0, confidence: "low", verdictDraft: "", evidenceCitations: [], error: "Недостаточно фото для анализа" };
+    // 4. Загружаем фото (до 3 из каждого акта) и конвертируем в base64
+    async function loadPhotos(photos: string[]): Promise<Array<{ data: string; mimeType: string }>> {
+      const result: Array<{ data: string; mimeType: string }> = [];
+      for (const photoUrl of photos.slice(0, 3)) {
+        try {
+          // photoUrl вида /uploads/filename.jpg
+          const filename = path.basename(photoUrl);
+          if (!filename || filename.includes("..")) continue;
+          const filePath = path.join(UPLOADS_DIR, filename);
+          const buf = await fs.readFile(filePath);
+          const ext = path.extname(filename).toLowerCase().replace(".", "");
+          const mimeMap: Record<string, string> = {
+            jpg: "image/jpeg", jpeg: "image/jpeg",
+            png: "image/png", webp: "image/webp",
+            heic: "image/heic", heif: "image/heif",
+          };
+          result.push({ data: buf.toString("base64"), mimeType: mimeMap[ext] ?? "image/jpeg" });
+        } catch {
+          /* пропускаем недоступные фото */
+        }
+      }
+      return result;
     }
 
-    const photoUrls: string[] = [
-      ...((checkIn?.photos ?? []).slice(0, 2)),
-      ...((checkOut?.photos ?? []).slice(0, 2)),
+    const checkInPhotos = Array.isArray(checkInAct.photos) ? checkInAct.photos as string[] : [];
+    const checkOutPhotos = Array.isArray(checkOutAct.photos) ? checkOutAct.photos as string[] : [];
+
+    const [inImgs, outImgs] = await Promise.all([
+      loadPhotos(checkInPhotos),
+      loadPhotos(checkOutPhotos),
+    ]);
+
+    if (inImgs.length === 0 || outImgs.length === 0) {
+      return {
+        faultEstimatePercent: 0,
+        confidence: "low",
+        verdictDraft: "",
+        evidenceCitations: [],
+        error: "Не удалось загрузить фото с диска для анализа",
+      };
+    }
+
+    // 5. Строим multimodal-запрос для Gemini Vision
+    const parts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> = [
+      { text: VISION_ARBITRATION_PROMPT },
+      { text: "=== ФОТО ДО (CHECK-IN) ===" },
+      ...inImgs.map((img) => ({ inlineData: { mimeType: img.mimeType, data: img.data } })),
+      { text: "=== ФОТО ПОСЛЕ (CHECK-OUT) ===" },
+      ...outImgs.map((img) => ({ inlineData: { mimeType: img.mimeType, data: img.data } })),
     ];
 
-    if (photoUrls.length < 2) {
-      return { faultEstimatePercent: 0, confidence: "low", verdictDraft: "", evidenceCitations: [], error: "Недостаточно фото (нужно минимум 2)" };
-    }
-
-    // 4. Читаем файлы с диска и конвертируем в base64
-    const photoParts: { inlineData: { mimeType: string; data: string } }[] = [];
-    for (const photoUrl of photoUrls) {
-      try {
-        const filename = path.basename(photoUrl);
-        const filePath = path.join(UPLOADS_DIR, filename);
-        const buffer = await fs.readFile(filePath);
-        const mimeType = filename.toLowerCase().endsWith(".png") ? "image/png" : "image/jpeg";
-        photoParts.push({ inlineData: { mimeType, data: buffer.toString("base64") } });
-      } catch (readErr: any) {
-        logger.warn({ photoUrl, err: readErr?.message }, "ai-arbitrator: failed to read photo, skipping");
-      }
-    }
-
-    if (photoParts.length < 2) {
-      return { faultEstimatePercent: 0, confidence: "low", verdictDraft: "", evidenceCitations: [], error: "Не удалось прочитать фото с диска" };
-    }
-
-    // 5. Вызов Gemini Vision с таймаутом 15 сек
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), GEMINI_VISION_TIMEOUT_MS);
 
@@ -554,13 +484,8 @@ export async function arbitrateWithGeminiVision(claimId: number): Promise<AiVerd
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            contents: [{
-              parts: [
-                ...photoParts,
-                { text: VISION_ARBITRATION_PROMPT },
-              ],
-            }],
-            generationConfig: { temperature: 0.2, maxOutputTokens: 1024 },
+            contents: [{ parts }],
+            generationConfig: { temperature: 0.2, maxOutputTokens: 512 },
           }),
           signal: ctrl.signal,
         },
@@ -570,45 +495,45 @@ export async function arbitrateWithGeminiVision(claimId: number): Promise<AiVerd
         const txt = await res.text().catch(() => "");
         throw new Error(`Gemini Vision HTTP ${res.status}: ${txt.slice(0, 200)}`);
       }
-
       const data: any = await res.json();
       raw = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-      if (!raw.trim()) throw new Error("Gemini Vision: пустой ответ");
-    } catch (fetchErr: any) {
-      clearTimeout(timer);
-      if (fetchErr?.name === "AbortError" || ctrl.signal.aborted) {
-        return { faultEstimatePercent: 0, confidence: "low", verdictDraft: "", evidenceCitations: [], error: "AI service timeout" };
-      }
-      throw fetchErr;
+      if (!raw.trim()) throw new Error("Gemini Vision: empty response");
     } finally {
       clearTimeout(timer);
     }
 
-    // 6. Парсим JSON из ответа (убираем возможные markdown-обёртки)
-    const jsonMatch = raw.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error("Gemini Vision: JSON не найден в ответе");
-    const verdict = JSON.parse(jsonMatch[0]) as AiVerdictResult;
+    // 6. Парсим JSON-ответ арбитратора
+    const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
+    const verdict: any = JSON.parse(cleaned);
 
-    // Базовая валидация
-    if (typeof verdict.faultEstimatePercent !== "number") verdict.faultEstimatePercent = 0;
-    if (!["low", "medium", "high"].includes(verdict.confidence)) verdict.confidence = "low";
-    if (!Array.isArray(verdict.evidenceCitations)) verdict.evidenceCitations = [];
-
-    logger.info({ claimId, confidence: verdict.confidence, fault: verdict.faultEstimatePercent }, "ai-arbitrator: verdict generated");
-    return verdict;
-
+    return {
+      faultEstimatePercent: Math.min(100, Math.max(0, Number(verdict.faultEstimatePercent ?? 0))),
+      confidence: ["low", "medium", "high"].includes(verdict.confidence) ? verdict.confidence : "low",
+      verdictDraft: String(verdict.verdictDraft ?? ""),
+      evidenceCitations: Array.isArray(verdict.evidenceCitations)
+        ? verdict.evidenceCitations.map(String)
+        : [],
+    };
   } catch (err: any) {
     const message = err?.message || String(err);
     logger.error({ claimId, err: message }, "ai-arbitrator: failed");
-    return { faultEstimatePercent: 0, confidence: "low", verdictDraft: "", evidenceCitations: [], error: `Сервис недоступен или таймаут: ${message.slice(0, 120)}` };
+    return {
+      faultEstimatePercent: 0,
+      confidence: "low",
+      verdictDraft: "",
+      evidenceCitations: [],
+      error: `Сервис недоступен или таймаут: ${message.slice(0, 120)}`,
+    };
   }
 }
 
-// ─── Stage 30B: AI Visual Magic — буллеты для инфографики ──────────────────
+// ─── Stage 30B: AI Visual Magic — буллеты для инфографики ────────────────────
 //
-// generateInfographicBullets(title) → ровно 3 коротких буллета (≤5 слов каждый)
-// с ключевыми преимуществами вещи, которые накладываются на фото.
-// Использует тот же multi-provider gateway (mock/openai/amvera).
+// generateInfographicBullets(title, category?, requestedProvider?)
+//   → { bullets: string[3], provider, actualProvider, fallback, fallbackReason? }
+//
+// Использует тот же OpenRouter gateway (mock/openrouter/openai/amvera/gemini).
+// Stage 33.1: in-memory кэш буллетов TTL 24ч — повторные запросы бесплатны.
 
 export interface InfographicBulletsResult {
   bullets: string[];
@@ -616,6 +541,7 @@ export interface InfographicBulletsResult {
   actualProvider: AiProvider;
   fallback: boolean;
   fallbackReason?: string;
+  model?: string;
 }
 
 const INFOGRAPHIC_SYSTEM_PROMPT = [
@@ -644,25 +570,30 @@ const INFOGRAPHIC_SYSTEM_PROMPT = [
   "  Дрон:        «4К-камера 60 fps» / «Полёт до 30 минут» / «Радиус 5 км»",
 ].join("\n");
 
+/**
+ * Premium-промпт для инфографики (Gemini-style с эмодзи и JSON-массивом).
+ * Используется, если провайдер 'gemini' (т.е. OpenRouter google/*).
+ */
+const PREMIUM_INFOGRAPHIC_SYSTEM_PROMPT = [
+  "You are a top-tier marketing copywriter for a premium marketplace.",
+  "Analyze the item and extract exactly 3 absolute best selling points.",
+  "Each point MUST be ultra-short (maximum 3-5 words), extremely punchy,",
+  "and include 1 highly relevant emoji at the start.",
+  "Do NOT use markdown code blocks.",
+  "Return ONLY a valid JSON array of 3 strings.",
+  "The strings themselves MUST be in Russian.",
+  'Example of valid output: ["⚡ Мощность 800 Вт","🧰 Кейс с битами","🏗 Бьёт бетон"]',
+].join("\n");
+
 function infographicUserPrompt(title: string, category?: string | null): string {
   const parts = [`Название вещи: ${title}`];
   if (category) parts.push(`Категория: ${category}`);
-  parts.push(
-    "Сгенерируй 3 буллета, опираясь на название и категорию. Без воды.",
-  );
+  parts.push("Сгенерируй 3 буллета, опираясь на название и категорию. Без воды.");
   return parts.join("\n");
 }
 
-/**
- * Stage 30B-Fix v2 — пул живых буллетов по категориям.
- *
- * Подбирается по нормализованной категории (точное совпадение или вхождение
- * ключевого слова). Внутри категории — 3 готовых набора, конкретный набор
- * выбирается детерминированно по хешу title: одинаковое объявление всегда
- * получит одну и ту же инфографику, разные объявления — разную.
- *
- * Если категория не распознана — берём DEFAULT_BULLETS.
- */
+// ─── Bullet bank: mock-данные по категориям ──────────────────────────────────
+
 const BULLET_BANK: Record<string, string[][]> = {
   туризм: [
     ["Лёгкий и компактный", "Полная комплектация", "Готов к выезду"],
@@ -727,14 +658,13 @@ const DEFAULT_BULLETS: string[][] = [
   ["Свежее обслуживание", "Подходит новичкам", "Возможна доставка"],
 ];
 
-/** djb2 — стабильный неотрицательный хеш строки. Нужен для детерминированной выборки. */
+/** djb2 — стабильный неотрицательный хеш строки. */
 function djb2Hash(s: string): number {
   let h = 5381;
   for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
   return Math.abs(h);
 }
 
-/** Нормализуем категорию и пытаемся попасть в ключ BULLET_BANK по вхождению. */
 function pickBulletBank(category: string | null | undefined): string[][] {
   const norm = (category || "").toLowerCase().trim();
   if (!norm) return DEFAULT_BULLETS;
@@ -756,308 +686,111 @@ function parseBullets(raw: string): string[] {
     .split(/\r?\n/)
     .map((s) =>
       s
-        // Срезаем "1.", "1)", "- ", "• ", "* " в начале строки
         .replace(/^\s*(?:[-*•]|\d+[.)])\s*/, "")
         .trim(),
     )
     .filter((s) => s.length > 0 && s.length <= 60);
 
-  // Берём первые 3, обрезаем до 5 слов на всякий случай
   return lines.slice(0, 3).map((line) => {
     const words = line.split(/\s+/).slice(0, 5);
     return words.join(" ");
   });
 }
 
-async function bulletsOpenAi(
-  title: string,
-  category?: string | null,
-): Promise<string[]> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("OPENAI_API_KEY is not set");
-
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), OPENAI_TIMEOUT_MS);
-
-  try {
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        temperature: 0.6,
-        messages: [
-          { role: "system", content: INFOGRAPHIC_SYSTEM_PROMPT },
-          { role: "user", content: infographicUserPrompt(title, category) },
-        ],
-      }),
-      signal: ctrl.signal,
-    });
-    if (!res.ok) {
-      const txt = await res.text().catch(() => "");
-      throw new Error(`OpenAI HTTP ${res.status}: ${txt.slice(0, 200)}`);
-    }
-    const data: any = await res.json();
-    const text = data?.choices?.[0]?.message?.content;
-    if (typeof text !== "string" || !text.trim()) {
-      throw new Error("OpenAI: empty response");
-    }
-    const bullets = parseBullets(text);
-    if (bullets.length < 3) throw new Error("OpenAI: less than 3 bullets parsed");
-    return bullets;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-async function bulletsAmvera(
-  title: string,
-  category?: string | null,
-): Promise<string[]> {
-  // Stage 30F: trim — защита от хвостового \n/пробела в env (см. generateAmvera).
-  const token = process.env.AMVERA_API_TOKEN?.trim();
-  if (!token) throw new Error("AMVERA_API_TOKEN is missing");
-
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), AMVERA_TIMEOUT_MS);
-
-  try {
-    const res = await fetch(AMVERA_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        // Stage 30E (REVERT 30D): прод вернул 401 на Authorization: Bearer.
-        // Возвращаем X-Auth-Token: Bearer ... — исходный рабочий формат Amvera.
-        "X-Auth-Token": `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        model: AMVERA_MODEL,
-        // Stage 30H: на /models/gpt поле остаётся "text" (см. openapi.yaml).
-        messages: [
-          { role: "system", text: INFOGRAPHIC_SYSTEM_PROMPT },
-          { role: "user", text: infographicUserPrompt(title, category) },
-        ],
-      }),
-      signal: ctrl.signal,
-    });
-    if (!res.ok) {
-      const fullText = await res.text().catch(() => "");
-      console.error(
-        "[AI Service Error][Amvera/bullets]: Response Status:",
-        res.status,
-        "Text:",
-        fullText,
-      );
-      throw new Error(`Amvera HTTP ${res.status}: ${fullText.slice(0, 200)}`);
-    }
-    const data: any = await res.json();
-    // Stage 30H-fix2: см. подробный комментарий в generateAmvera про два формата
-    // ответа Amvera (alternatives на /llama|/deepseek vs choices на /gpt).
-    const text =
-      data?.alternatives?.[0]?.message?.text ??
-      data?.choices?.[0]?.message?.text ??
-      data?.choices?.[0]?.message?.content;
-    if (typeof text !== "string" || !text.trim()) {
-      console.error(
-        "[AI Service Error][Amvera/bullets]: Unexpected response shape, raw data slice:",
-        JSON.stringify(data).slice(0, 500),
-      );
-      throw new Error("Amvera: empty response");
-    }
-    const bullets = parseBullets(text);
-    if (bullets.length < 3) throw new Error("Amvera: less than 3 bullets parsed");
-    return bullets;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-// ─── DIRECT DEEPSEEK bullets (Stage 33.0) ─────────────────────────────────
-
-async function bulletsDirectDeepSeek(
-  title: string,
-  category?: string | null,
-): Promise<string[]> {
-  const apiKey = process.env.DEEPSEEK_API_KEY?.trim();
-  if (!apiKey) throw new Error("DEEPSEEK_API_KEY is not set");
-
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), DEEPSEEK_DIRECT_TIMEOUT_MS);
-
-  try {
-    const res = await fetch(DEEPSEEK_DIRECT_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: DEEPSEEK_DIRECT_MODEL,
-        temperature: 0.6,
-        messages: [
-          { role: "system", content: INFOGRAPHIC_SYSTEM_PROMPT },
-          { role: "user", content: infographicUserPrompt(title, category) },
-        ],
-      }),
-      signal: ctrl.signal,
-    });
-    if (!res.ok) {
-      const txt = await res.text().catch(() => "");
-      throw new Error(`DeepSeek HTTP ${res.status}: ${txt.slice(0, 200)}`);
-    }
-    const data: any = await res.json();
-    const text = data?.choices?.[0]?.message?.content;
-    if (typeof text !== "string" || !text.trim()) {
-      throw new Error("DeepSeek: empty response");
-    }
-    const bullets = parseBullets(text);
-    if (bullets.length < 3) throw new Error("DeepSeek: less than 3 bullets parsed");
-    return bullets;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 /**
- * Stage 30J — Premium-копирайтер для инфографики (простой прямой fetch).
- *
- * Картинка инфографики ломается, если буллет длиннее 32 символов (≈ 2 строки
- * по 16). Поэтому промпт жёстко требует:
- *   - максимум 3-5 слов на буллет;
- *   - ровно один эмодзи в начале;
- *   - ответ — чистый JSON-массив из 3 строк (без markdown code-fence).
- *
- * Парсер: сначала JSON.parse (после снятия возможного ```json…```), потом
- * fallback на pipe-формат и parseBullets — на случай если Gemini нарушит инструкцию.
- * Любой буллет > 32 символов всё равно режется по слову — страховка SVG-вёрстки.
+ * Парсит ответ OpenRouter в массив из 3 буллетов.
+ * Три попытки парсинга: JSON-массив → pipe-формат → построчный.
  */
-async function bulletsGemini(
-  title: string,
-  category?: string | null,
-): Promise<string[]> {
-  // Stage 30F: trim — защита от хвостового \n/пробела в env (см. generateGemini).
-  const apiKey = process.env.GEMINI_API_KEY?.trim();
-  if (!apiKey) throw new Error("GEMINI_API_KEY is missing");
+function parseBulletsFromLLM(text: string, maxLen = 32): string[] {
+  let bullets: string[] = [];
 
-  // Stage 30J: премиум-промпт по ТЗ Product Owner. Английская формулировка
-  // (Gemini лучше понимает инструкции на английском), но сами строки
-  // буллетов — на русском, ради корректной работы с UI и шрифтом инфографики.
-  const PREMIUM_GEMINI_INFOGRAPHIC_PROMPT = [
-    "You are a top-tier marketing copywriter for a premium marketplace.",
-    "Analyze the item and extract exactly 3 absolute best selling points.",
-    "Each point MUST be ultra-short (maximum 3-5 words), extremely punchy,",
-    "and include 1 highly relevant emoji at the start.",
-    "Do NOT use markdown code blocks.",
-    "Return ONLY a valid JSON array of 3 strings.",
-    "The strings themselves MUST be in Russian.",
-    'Example of valid output: ["⚡ Мощность 800 Вт","🧰 Кейс с битами","🏗 Бьёт бетон"]',
-  ].join("\n");
-
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), GEMINI_TIMEOUT_MS);
-
+  // 1) JSON-массив
   try {
-    const promptText = `${PREMIUM_GEMINI_INFOGRAPHIC_PROMPT}\n\n${infographicUserPrompt(title, category)}`;
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: promptText }] }],
-          generationConfig: { temperature: 0.6, maxOutputTokens: 200 },
-        }),
-        signal: ctrl.signal,
-      },
-    );
+    const cleaned = text
+      .trim()
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/```\s*$/i, "")
+      .trim();
+    const parsed = JSON.parse(cleaned);
+    if (Array.isArray(parsed)) {
+      bullets = parsed.filter((s) => typeof s === "string").map((s) => s.trim()).filter(Boolean);
+    }
+  } catch { /* не JSON */ }
 
-    if (!res.ok) {
-      const fullText = await res.text().catch(() => "");
-      console.error(
-        "[AI Service Error][Gemini/bullets]: Response Status:",
-        res.status,
-        "Text:",
-        fullText,
-      );
-      throw new Error(`Gemini HTTP ${res.status}: ${fullText.slice(0, 200)}`);
-    }
-    const data: any = await res.json();
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (typeof text !== "string" || !text.trim()) {
-      throw new Error("Gemini: empty response");
-    }
-
-    // Stage 30J: парсер с тройным fallback'ом.
-    //   1) JSON-массив (как просит новый промпт).
-    //   2) pipe-формат (наследие Stage 30C, на случай если модель нарушит инструкцию).
-    //   3) построчный parseBullets (последняя соломинка).
-    let bullets: string[] = [];
-    try {
-      const cleaned = text
-        .trim()
-        .replace(/^```(?:json)?\s*/i, "")
-        .replace(/```\s*$/i, "")
-        .trim();
-      const parsed = JSON.parse(cleaned);
-      if (Array.isArray(parsed)) {
-        bullets = parsed
-          .filter((s) => typeof s === "string")
-          .map((s) => s.trim())
-          .filter(Boolean);
-      }
-    } catch {
-      /* не JSON — пробуем pipe ниже */
-    }
-    if (bullets.length < 3 && text.includes("|")) {
-      bullets = text
-        .replace(/\r?\n/g, " ")
-        .split("|")
-        .map((s) => s.trim())
-        .filter(Boolean);
-    }
-    if (bullets.length < 3) {
-      bullets = parseBullets(text);
-    }
-
-    // Жёсткая защита вёрстки: режем длиннее 32 символов по границе слова.
-    bullets = bullets.slice(0, 3).map((b) => {
-      if (b.length <= 32) return b;
-      const words = b.split(/\s+/);
-      let acc = "";
-      for (const w of words) {
-        const next = acc ? `${acc} ${w}` : w;
-        if (next.length > 32) break;
-        acc = next;
-      }
-      return acc || b.slice(0, 32);
-    });
-
-    if (bullets.length < 3) {
-      throw new Error("Gemini: less than 3 bullets parsed");
-    }
-    return bullets;
-  } finally {
-    clearTimeout(timer);
+  // 2) Pipe-формат
+  if (bullets.length < 3 && text.includes("|")) {
+    bullets = text
+      .replace(/\r?\n/g, " ")
+      .split("|")
+      .map((s) => s.trim())
+      .filter(Boolean);
   }
+
+  // 3) Построчный
+  if (bullets.length < 3) {
+    bullets = parseBullets(text);
+  }
+
+  // Защита вёрстки: режем длиннее maxLen по границе слова
+  return bullets.slice(0, 3).map((b) => {
+    if (b.length <= maxLen) return b;
+    const words = b.split(/\s+/);
+    let acc = "";
+    for (const w of words) {
+      const next = acc ? `${acc} ${w}` : w;
+      if (next.length > maxLen) break;
+      acc = next;
+    }
+    return acc || b.slice(0, maxLen);
+  });
+}
+
+// ─── OpenRouter: генерация буллетов ──────────────────────────────────────────
+
+async function bulletsViaOpenRouter(
+  title: string,
+  category: string | null | undefined,
+  model: string,
+  provider: AiProvider,
+): Promise<string[]> {
+  const client = getOpenRouterClient();
+
+  // Для Gemini-модели используем premium-промпт (JSON-массив + эмодзи)
+  const isGemini = model.startsWith("google/");
+  const systemPrompt = isGemini ? PREMIUM_INFOGRAPHIC_SYSTEM_PROMPT : INFOGRAPHIC_SYSTEM_PROMPT;
+
+  const completion = await client.chat.completions.create({
+    model,
+    temperature: 0.6,
+    max_tokens: isGemini ? 200 : 400,
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: infographicUserPrompt(title, category) },
+    ],
+  });
+
+  const text = completion.choices?.[0]?.message?.content;
+  if (typeof text !== "string" || !text.trim()) {
+    throw new Error(`OpenRouter (${model}): empty response`);
+  }
+
+  const bullets = parseBulletsFromLLM(text);
+  if (bullets.length < 3) {
+    throw new Error(`OpenRouter (${model}): less than 3 bullets parsed`);
+  }
+  return bullets;
 }
 
 // ─── Infographic bullets cache (Stage 33.1) ──────────────────────────────────
 //
 // In-memory кэш буллетов. Ключ = lowercase(title + "|" + category).
-// TTL = 24 часа. Позволяет повторно использовать буллеты для одинаковых
-// вещей без дополнительных вызовов LLM.
-//
-// Архитектурное решение: in-memory (не БД), потому что буллеты зависят только
-// от title+category, перезапуск сервера раз в сутки допустим, а DB-миграция
-// излишня для этой задачи.
+// TTL = 24 часа. Повторные запросы для одинаковых вещей бесплатны.
 
 interface BulletsEntry {
   bullets: string[];
   provider: AiProvider;
   actualProvider: AiProvider;
+  model?: string;
   cachedAt: number;
 }
 
@@ -1078,14 +811,11 @@ function bulletsCacheGet(key: string): BulletsEntry | null {
   return entry;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── Главная точка: буллеты инфографики ──────────────────────────────────────
 
 /**
- * Stage 30B/30C: получить 3 коротких буллета для инфографики.
- * Stage 33.1: добавлен in-memory кэш (TTL 24ч) — повторные запросы для
- * одинакового title+category не тратят LLM-токены.
- * Логика fallback идентична generateListingDescription: при ошибке реального
- * провайдера мягко падаем в mock, чтобы UX не сломался.
+ * Stage 30B / 30-Refactoring: получить 3 коротких буллета для инфографики.
+ * Stage 33.1: in-memory кэш (TTL 24ч) — повторные запросы не тратят LLM-токены.
  */
 export async function generateInfographicBullets(
   title: string,
@@ -1094,9 +824,9 @@ export async function generateInfographicBullets(
 ): Promise<InfographicBulletsResult> {
   if (!title || !title.trim()) throw new Error("title is required");
 
-  const requested = await resolveProvider(requestedProvider);
+  const provider = await resolveProvider(requestedProvider);
 
-  if (requested === "mock") {
+  if (provider === "mock") {
     return {
       bullets: bulletsMockFromTitle(title, category),
       provider: "mock",
@@ -1105,66 +835,61 @@ export async function generateInfographicBullets(
     };
   }
 
-  // ── Проверяем кэш (только для не-mock провайдеров) ──────────────────────
+  // Проверяем кэш (только для не-mock провайдеров)
   const cacheKey = bulletsCacheKey(title, category);
   const cached = bulletsCacheGet(cacheKey);
   if (cached) {
     logger.info(
-      { provider: cached.provider, title: title.slice(0, 60), fromCache: true },
+      { provider: cached.provider, model: cached.model, title: title.slice(0, 60), fromCache: true },
       "ai-service: infographic bullets cache hit",
     );
     return {
       bullets: cached.bullets,
       provider: cached.provider,
       actualProvider: cached.actualProvider,
+      model: cached.model,
       fallback: false,
     };
   }
 
+  const model = resolveModel(provider);
+
   try {
     let bullets: string[];
-    if (requested === "openai") bullets = await bulletsOpenAi(title, category);
-    else if (requested === "gemini") bullets = await bulletsGemini(title, category);
-    else {
-      // Stage 33.0: Amvera → Direct DeepSeek (промежуточный резерв перед mock)
-      try {
-        bullets = await bulletsAmvera(title, category);
-      } catch (amveraErr: any) {
-        logger.warn(
-          { err: amveraErr?.message },
-          "ai-service: Amvera bullets failed, trying direct DeepSeek API",
-        );
-        bullets = await bulletsDirectDeepSeek(title, category);
-      }
+    try {
+      bullets = await bulletsViaOpenRouter(title, category, model, provider);
+    } catch (openRouterErr: any) {
+      // OpenRouter недоступен → пробуем прямой DeepSeek (Stage 33.0 резерв)
+      logger.warn(
+        { provider, model, err: openRouterErr?.message },
+        "ai-service: OpenRouter bullets failed, trying direct DeepSeek API",
+      );
+      bullets = await bulletsDirectDeepSeek(title, category);
     }
 
     // Сохраняем в кэш
     BULLETS_CACHE.set(cacheKey, {
       bullets,
-      provider: requested,
-      actualProvider: requested,
+      provider,
+      actualProvider: provider,
+      model,
       cachedAt: Date.now(),
     });
 
     logger.info(
-      { provider: requested, title: title.slice(0, 60) },
+      { provider, model, title: title.slice(0, 60) },
       "ai-service: infographic bullets success",
     );
-    return {
-      bullets,
-      provider: requested,
-      actualProvider: requested,
-      fallback: false,
-    };
+    return { bullets, provider, actualProvider: provider, fallback: false, model };
   } catch (err: any) {
     const reason = err?.message || String(err);
     logger.error(
-      { provider: requested, err: reason },
-      "ai-service: infographic bullets failed, falling back to mock",
+      { provider, model, err: reason },
+      "ai-service: all providers failed, falling back to mock bullets",
     );
     return {
       bullets: bulletsMockFromTitle(title, category),
-      provider: requested,
+      provider,
       actualProvider: "mock",
       fallback: true,
       fallbackReason: reason,

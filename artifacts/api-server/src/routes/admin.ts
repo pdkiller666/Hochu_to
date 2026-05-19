@@ -1389,12 +1389,12 @@ router.put("/settings", requireAuth, requireRole("superadmin"), async (req: Auth
   if ("paymentMode" in patch && !["self_employed", "ip", "ooo"].includes(patch.paymentMode)) {
     return res.status(400).json({ error: "invalid_value", field: "paymentMode" });
   }
-  // Stage 30A: AI provider — допустимы только три значения
-  if ("activeAiProvider" in patch && !["mock", "openai", "amvera"].includes(patch.activeAiProvider)) {
+  // Stage 30-Refactoring: AI provider — поддерживаем OpenRouter + legacy значения
+  if ("activeAiProvider" in patch && !["mock", "openrouter", "openai", "amvera", "gemini"].includes(patch.activeAiProvider)) {
     return res.status(400).json({
       error: "invalid_value",
       field: "activeAiProvider",
-      message: "Допустимо: mock | openai | amvera",
+      message: "Допустимо: mock | openrouter | openai | amvera | gemini",
     });
   }
 
@@ -1501,11 +1501,11 @@ router.put(
   requireRole("superadmin"),
   async (req: AuthRequest, res) => {
     const { activeAiProvider } = req.body ?? {};
-    if (!["mock", "openai", "amvera"].includes(activeAiProvider)) {
+    if (!["mock", "openrouter", "openai", "amvera", "gemini"].includes(activeAiProvider)) {
       return res.status(400).json({
         error: "invalid_value",
         field: "activeAiProvider",
-        message: "Допустимо: mock | openai | amvera",
+        message: "Допустимо: mock | openrouter | openai | amvera | gemini",
       });
     }
     const updated = await updatePlatformSettings(

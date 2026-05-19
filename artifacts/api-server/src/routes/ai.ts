@@ -106,13 +106,13 @@ router.post(
         },
         requestedProvider,
       );
-      res.json(result);
+      return res.json(result);
     } catch (err: any) {
       logger.error(
         { err: err?.message, userId },
         "ai.generate-description: unexpected failure",
       );
-      res
+      return res
         .status(500)
         .json({ error: "internal", message: "Не удалось сгенерировать текст" });
     }
