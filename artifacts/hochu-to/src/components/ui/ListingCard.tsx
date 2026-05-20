@@ -102,39 +102,38 @@ export function ListingCard({ listing }: ListingCardProps) {
 
   return (
     <Link href={`/listings/${listing.id}`} className="card-hover group relative flex flex-col h-full">
-      {/* Category Badge */}
-      <div className="absolute top-4 left-4 z-10">
-        <span className="px-3 py-1 bg-white/90 backdrop-blur-sm text-xs font-bold rounded-full text-foreground shadow-sm">
-          {listing.categoryName || "Категория"}
-        </span>
-      </div>
-
-      {/* M-2: Availability badge */}
-      <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10">
-        {isAvailable ? (
-          <span className="flex items-center gap-1 px-2 py-0.5 bg-emerald-500 text-white text-[10px] font-bold rounded-full shadow-sm">
-            <CheckCircle2 className="w-3 h-3" />
-            Свободно
+      {/* Top overlay row: категория + доступность слева, сердечко справа */}
+      <div className="absolute top-3 left-3 right-3 z-10 flex items-center justify-between gap-2">
+        {/* Левая группа: категория + статус */}
+        <div className="flex items-center gap-1.5 min-w-0">
+          <span className="flex-shrink-0 px-2.5 py-1 bg-white/90 backdrop-blur-sm text-[10px] font-bold rounded-full text-foreground shadow-sm truncate max-w-[110px]">
+            {listing.categoryName || "Категория"}
           </span>
-        ) : (
-          <span className="flex items-center gap-1 px-2 py-0.5 bg-stone-700/90 text-white text-[10px] font-bold rounded-full shadow-sm">
-            Занято
-          </span>
-        )}
-      </div>
+          {isAvailable ? (
+            <span className="flex-shrink-0 flex items-center gap-0.5 px-2 py-1 bg-emerald-500 text-white text-[10px] font-bold rounded-full shadow-sm">
+              <CheckCircle2 className="w-3 h-3" />
+              Свободно
+            </span>
+          ) : (
+            <span className="flex-shrink-0 px-2 py-1 bg-stone-700/90 text-white text-[10px] font-bold rounded-full shadow-sm">
+              Занято
+            </span>
+          )}
+        </div>
 
-      {/* Favorite Button */}
-      <button
-        onClick={handleFavoriteClick}
-        className={`absolute top-4 right-4 z-10 w-8 h-8 rounded-full bg-white/90 backdrop-blur-sm flex items-center justify-center transition-all shadow-sm ${
-          fav
-            ? "text-rose-500 hover:text-rose-600"
-            : "text-muted-foreground hover:text-rose-500 hover:bg-white"
-        }`}
-        title={fav ? "Удалить из избранного" : "Добавить в избранное"}
-      >
-        <Heart className={`w-4 h-4 ${fav ? "fill-current" : ""}`} />
-      </button>
+        {/* Сердечко справа */}
+        <button
+          onClick={handleFavoriteClick}
+          className={`flex-shrink-0 w-8 h-8 rounded-full bg-white/90 backdrop-blur-sm flex items-center justify-center transition-all shadow-sm ${
+            fav
+              ? "text-rose-500 hover:text-rose-600"
+              : "text-muted-foreground hover:text-rose-500 hover:bg-white"
+          }`}
+          title={fav ? "Удалить из избранного" : "Добавить в избранное"}
+        >
+          <Heart className={`w-4 h-4 ${fav ? "fill-current" : ""}`} />
+        </button>
+      </div>
 
       {/* Image */}
       <div className="relative aspect-[4/3] overflow-hidden bg-muted">
