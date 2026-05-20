@@ -9,8 +9,6 @@ id = "artifacts/mockup-sandbox"
 [deployment]
 router = "application"
 deploymentTarget = "autoscale"
-run = ["bash", "-c", "PORT=8080 NODE_ENV=production pnpm --filter @workspace/api-server run start"]
-build = ["bash", "-c", "PORT=5000 BASE_PATH=/ pnpm --filter @workspace/hochu-to build && mkdir -p artifacts/api-server/dist/public && cp -r artifacts/hochu-to/dist/public/. artifacts/api-server/dist/public/ && pnpm --filter @workspace/api-server build"]
 
 [deployment.postBuild]
 args = ["pnpm", "store", "prune"]
