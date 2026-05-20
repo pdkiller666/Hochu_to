@@ -236,18 +236,8 @@ export function DigitalActUpload({
   function acceptFullscreenSignature() {
     if (fsSignatureRef.current && !fsSignatureRef.current.isEmpty()) {
       const dataUrl = fsSignatureRef.current.toDataURL();
-      const ctx = signatureRef.current;
-      if (ctx) {
-        const img = new Image();
-        img.onload = () => {
-          ctx.clear();
-          const canvas = (ctx as any).canvasRef?.current;
-          if (canvas) {
-            const c = canvas.getContext("2d");
-            if (c) c.drawImage(img, 0, 0, canvas.width / (window.devicePixelRatio || 1), canvas.height / (window.devicePixelRatio || 1));
-          }
-        };
-        img.src = dataUrl;
+      if (signatureRef.current) {
+        signatureRef.current.loadDataURL(dataUrl);
       }
       setSignatureEmpty(false);
     }
@@ -615,7 +605,7 @@ export function DigitalActUpload({
                 {photos.length > 0 && (
                   <span>{photosWithGps > 0
                     ? `📍 GPS у ${photosWithGps} из ${photos.length}${browserGpsUsed ? " (браузер)" : ""}`
-                    : "⚠️ GPS не извлечён (нормально для скриншотов)"}</span>
+                    : "ℹ️ GPS не найден — геопривязка добавится при наличии разрешения"}</span>
                 )}
               </div>
             </div>

@@ -12,6 +12,8 @@ export type UpdateBookingStatusRequestStatus =
 export const UpdateBookingStatusRequestStatus = {
   pending: "pending",
   confirmed: "confirmed",
+  active: "active",
+  return_pending: "return_pending",
   rejected: "rejected",
   completed: "completed",
   cancelled: "cancelled",

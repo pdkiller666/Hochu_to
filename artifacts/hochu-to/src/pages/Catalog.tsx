@@ -3,7 +3,7 @@ import { useGetListings, useGetCategories, useGetRegions, useGetCurrentUser } fr
 import { ListingCard } from "@/components/ui/ListingCard";
 import { useLocation, useSearch } from "wouter";
 import { useState, useEffect, useRef } from "react";
-import { Search, X, SlidersHorizontal, MapPin, Loader2, ChevronDown, ChevronUp, ArrowUpDown, ShieldCheck, LayoutGrid, Rows3 } from "lucide-react";
+import { Search, X, SlidersHorizontal, MapPin, Loader2, ChevronDown, ChevronUp, ArrowUpDown, ShieldCheck, LayoutGrid, Rows3, Banknote } from "lucide-react";
 import { getToken, getAuthHeaders } from "@/lib/auth";
 import { getCachedGeoRegion, setCachedGeoRegion, detectRegionByServerGeoIP, useRegion } from "@/lib/region-context";
 import { readPersistedState, clearPersistedState } from "@/lib/use-persisted-state";
@@ -340,7 +340,7 @@ export default function Catalog() {
                     : "bg-white border-border text-foreground hover:border-primary hover:text-primary"
                 }`}
               >
-                <SlidersHorizontal className="w-4 h-4" />
+                <Banknote className="w-4 h-4" />
                 <span className="hidden sm:inline">
                   {minPrice || maxPrice ? `${minPrice || "0"}–${maxPrice || "∞"} ₽` : "Цена"}
                 </span>

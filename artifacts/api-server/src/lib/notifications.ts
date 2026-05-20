@@ -98,7 +98,9 @@ export type NotifType =
   | "pool_buyout_completed"       // все участники: «Пул ликвидирован, X — единственный владелец»
   // Stage 40 — Wallet Pro
   | "wallet_topup"               // пополнение кошелька
-  | "wallet_withdraw";           // вывод средств
+  | "wallet_withdraw"            // вывод средств
+  // Stage N — чат по бронированию
+  | "new_booking_message";       // новое сообщение в чате бронирования
 
 export async function createNotification(params: {
   userId: number;

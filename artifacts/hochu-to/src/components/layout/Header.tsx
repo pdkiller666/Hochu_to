@@ -12,26 +12,29 @@ import { useFavorites } from "@/lib/favorites-context";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "";
 
-function getNotifLink(type: string): string {
+function getNotifLink(type: string, bookingId?: number): string {
   switch (type) {
-    case "booking_submitted":           return "/dashboard?tab=outgoing";
-    case "booking_created":             return "/dashboard?tab=incoming";
-    case "booking_confirmed":           return "/dashboard?tab=outgoing";
-    case "booking_active":              return "/dashboard?tab=outgoing";
-    case "booking_return_pending":      return "/dashboard?tab=incoming";
-    case "booking_rejected":            return "/dashboard?tab=outgoing";
-    case "booking_cancelled":           return "/dashboard?tab=incoming";
-    case "booking_completed":           return "/dashboard?tab=history";
-    case "reminder_confirm_pending":    return "/dashboard";
-    case "reminder_handover_today":     return "/dashboard";
-    case "reminder_handover_overdue":   return "/dashboard";
-    case "reminder_return_today":       return "/dashboard?tab=outgoing";
-    case "reminder_return_overdue":     return "/dashboard";
-    case "reminder_return_confirm":     return "/dashboard";
-    case "auto_cancelled":              return "/dashboard?tab=incoming";
-    case "auto_activated":             return "/dashboard?tab=incoming";
-    case "auto_completed":             return "/dashboard?tab=history";
-    default:                            return "/dashboard";
+    case "booking_submitted":                  return "/dashboard?tab=outgoing";
+    case "booking_created":                    return "/dashboard?tab=incoming";
+    case "booking_confirmed":                  return "/dashboard?tab=outgoing";
+    case "booking_active":                     return "/dashboard?tab=outgoing";
+    case "booking_return_pending":             return "/dashboard?tab=incoming";
+    case "booking_rejected":                   return "/dashboard?tab=outgoing";
+    case "booking_cancelled":                  return "/dashboard?tab=incoming";
+    case "booking_completed":                  return "/dashboard?tab=history";
+    case "reminder_confirm_pending":           return "/dashboard";
+    case "reminder_handover_today":            return "/dashboard";
+    case "reminder_handover_overdue":          return "/dashboard";
+    case "reminder_return_today":              return "/dashboard?tab=outgoing";
+    case "reminder_return_overdue":            return "/dashboard";
+    case "reminder_return_confirm":            return "/dashboard";
+    case "auto_cancelled":                     return "/dashboard?tab=incoming";
+    case "auto_activated":                     return "/dashboard?tab=incoming";
+    case "auto_completed":                     return "/dashboard?tab=history";
+    case "digital_act_countersign_required":   return "/dashboard?tab=incoming";
+    case "new_booking_message":
+      return bookingId ? `/dashboard?tab=incoming&chat=${bookingId}` : "/dashboard?tab=incoming";
+    default:                                   return "/dashboard";
   }
 }
 
@@ -87,6 +90,7 @@ type DropdownItem =
 function HeaderSearchBar({ className, inputClassName }: SearchBarProps) {
   const [location, navigate] = useLocation();
   const searchStr = useSearch();
+  const { region: currentRegion } = useRegion();
   const [value, setValue] = useState(() => {
     if (typeof window === "undefined") return "";
     return new URLSearchParams(window.location.search).get("search") || "";
@@ -126,14 +130,22 @@ function HeaderSearchBar({ className, inputClassName }: SearchBarProps) {
     const t = setTimeout(async () => {
       setLoadingDrop(true);
       try {
-        const [listRes, catRes] = await Promise.all([
+        // Сначала запрашиваем из текущего региона, потом всё остальное
+        const regionParam = currentRegion ? `&region=${encodeURIComponent(currentRegion)}` : "";
+        const [listResLocal, listResAll, catRes] = await Promise.all([
+          currentRegion
+            ? fetch(`${API_BASE}/api/listings?search=${encodeURIComponent(q)}${regionParam}&limit=4`).then(r => r.json())
+            : Promise.resolve(null),
           fetch(`${API_BASE}/api/listings?search=${encodeURIComponent(q)}&limit=5`).then(r => r.json()),
           fetch(`${API_BASE}/api/categories`).then(r => r.json()),
         ]);
         if (cancelled) return;
-        const listings: DropdownItem[] = ((listRes.listings ?? listRes.data ?? listRes) as any[])
-          .slice(0, 4)
-          .map(l => ({ kind: "listing" as const, id: l.id, title: l.title, photo: l.photos?.[0], pricePerDay: Number(l.pricePerDay), regionName: l.regionName }));
+        // Merge: local first (deduped), then global
+        const toItem = (l: any) => ({ kind: "listing" as const, id: l.id, title: l.title, photo: l.photos?.[0], pricePerDay: Number(l.pricePerDay), regionName: l.regionName });
+        const localItems = ((listResLocal?.listings ?? listResLocal?.data ?? listResLocal ?? []) as any[]).map(toItem);
+        const localIds = new Set(localItems.map((l: any) => l.id));
+        const globalItems = ((listResAll.listings ?? listResAll.data ?? listResAll) as any[]).map(toItem).filter((l: any) => !localIds.has(l.id));
+        const listings: DropdownItem[] = [...localItems, ...globalItems].slice(0, 4);
         const cats: DropdownItem[] = (catRes as any[])
           .filter(c => c.name?.toLowerCase().includes(q.toLowerCase()))
           .slice(0, 2)
@@ -150,7 +162,7 @@ function HeaderSearchBar({ className, inputClassName }: SearchBarProps) {
       }
     }, 250);
     return () => { cancelled = true; clearTimeout(t); };
-  }, [value]);
+  }, [value, currentRegion]);
 
   useEffect(() => {
     function handler(e: MouseEvent) {
@@ -567,7 +579,7 @@ export function Header() {
                               onClick={() => {
                                 if (!n.isRead) markOneRead(n.id);
                                 setNotifOpen(false);
-                                navigate(getNotifLink(n.type));
+                                navigate(getNotifLink(n.type, n.bookingId ?? undefined));
                               }}
                               className={cn(
                                 "w-full text-left px-4 py-3 hover:bg-muted/50 transition-colors",
@@ -741,7 +753,7 @@ export function Header() {
                       onClick={() => {
                         if (!n.isRead) markOneRead(n.id);
                         setMobileNotifOpen(false);
-                        navigate(getNotifLink(n.type));
+                        navigate(getNotifLink(n.type, n.bookingId ?? undefined));
                       }}
                       className={cn(
                         "w-full text-left px-3 py-2.5 rounded-xl transition-colors flex items-start gap-2",

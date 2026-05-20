@@ -18,9 +18,9 @@ export const HealthCheckResponse = zod.object({
  * @summary Register a new user
  */
 export const RegisterUserBody = zod.object({
-  name: zod.string().min(2, "Имя минимум 2 символа"),
-  email: zod.string().email("Некорректный email"),
-  password: zod.string().min(8, "Пароль минимум 8 символов"),
+  name: zod.string(),
+  email: zod.string(),
+  password: zod.string(),
   role: zod.enum(["renter", "owner"]),
   phone: zod.string().optional(),
   regionId: zod.number().optional(),
@@ -420,6 +420,8 @@ export const GetMyBookingsResponseItem = zod.object({
   status: zod.enum([
     "pending",
     "confirmed",
+    "active",
+    "return_pending",
     "rejected",
     "completed",
     "cancelled",
@@ -494,6 +496,8 @@ export const GetBookingByIdResponse = zod.object({
   status: zod.enum([
     "pending",
     "confirmed",
+    "active",
+    "return_pending",
     "rejected",
     "completed",
     "cancelled",
@@ -514,10 +518,13 @@ export const UpdateBookingStatusBody = zod.object({
   status: zod.enum([
     "pending",
     "confirmed",
+    "active",
+    "return_pending",
     "rejected",
     "completed",
     "cancelled",
   ]),
+  ownerComment: zod.string().optional(),
 });
 
 export const UpdateBookingStatusResponse = zod.object({
@@ -555,6 +562,8 @@ export const UpdateBookingStatusResponse = zod.object({
   status: zod.enum([
     "pending",
     "confirmed",
+    "active",
+    "return_pending",
     "rejected",
     "completed",
     "cancelled",

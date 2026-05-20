@@ -5,6 +5,8 @@ export interface SignaturePadHandle {
   clear: () => void;
   isEmpty: () => boolean;
   toDataURL: () => string;
+  /** Загружает dataURL на canvas и помечает pad как непустой */
+  loadDataURL: (dataUrl: string) => void;
 }
 
 interface Props {
@@ -130,10 +132,32 @@ export const SignaturePad = forwardRef<SignaturePadHandle, Props>(function Signa
     onChange?.(true);
   }
 
+  function loadDataURL(dataUrl: string) {
+    const canvas = canvasRef.current;
+    const ctx = getCtx();
+    if (!canvas || !ctx) return;
+    const dpr = window.devicePixelRatio || 1;
+    const cssW = canvas.width / dpr;
+    const cssH = canvas.height / dpr;
+    const img = new Image();
+    img.onload = () => {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.scale(dpr, dpr);
+      ctx.drawImage(img, 0, 0, cssW, cssH);
+      dirtyRef.current = true;
+      setEmpty(false);
+      onChange?.(false);
+    };
+    img.src = dataUrl;
+  }
+
   useImperativeHandle(ref, () => ({
     clear,
     isEmpty: () => !dirtyRef.current,
     toDataURL: () => canvasRef.current?.toDataURL("image/png") ?? "",
+    loadDataURL,
   }));
 
   return (

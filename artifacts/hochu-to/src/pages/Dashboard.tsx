@@ -455,12 +455,16 @@ export default function Dashboard() {
     // System auto-transition notifications
     "auto_cancelled",
     "auto_activated",
+    // Digital act countersign notifications (shown in both incoming/outgoing)
+    "digital_act_countersign_required",
+    // Chat message notifications
+    "new_booking_message",
   ];
 
   const handleTabChange = useCallback((tab: typeof activeTab) => {
     setActiveTab(tab);
-    if (tab === "incoming") markSectionRead(["booking_created", "booking_cancelled", "booking_return_pending", ...REMINDER_TYPES_LIST]);
-    if (tab === "outgoing") markSectionRead(["booking_submitted", "booking_confirmed", "booking_rejected", "booking_active", ...REMINDER_TYPES_LIST]);
+    if (tab === "incoming") markSectionRead(["booking_created", "booking_cancelled", "booking_return_pending", "digital_act_countersign_required", "new_booking_message", ...REMINDER_TYPES_LIST]);
+    if (tab === "outgoing") markSectionRead(["booking_submitted", "booking_confirmed", "booking_rejected", "booking_active", "digital_act_countersign_required", "new_booking_message", ...REMINDER_TYPES_LIST]);
     if (tab === "history")  markSectionRead(["booking_completed", "auto_completed"]);
   }, [markSectionRead]);
 
@@ -766,6 +770,10 @@ export default function Dashboard() {
     // System auto-transition notifications (go to both tabs)
     "auto_cancelled",
     "auto_activated",
+    // Digital act countersign (both parties)
+    "digital_act_countersign_required",
+    // Chat messages
+    "new_booking_message",
   ];
   const badgeIncoming = unreadNotifs.filter(n =>
     ["booking_created", "booking_cancelled", "booking_return_pending", ...REMINDER_TYPES].includes(n.type)
@@ -1245,6 +1253,13 @@ export default function Dashboard() {
               </div>
               <div>
                 {role === "owner" ? (() => {
+                  if (booking.status === "cancelled" || booking.status === "rejected") {
+                    return (
+                      <p className="text-xs text-muted-foreground italic">
+                        {booking.status === "cancelled" ? "Отменено" : "Отклонено"} — дохода нет
+                      </p>
+                    );
+                  }
                   const isDirect = (booking as any).protectionEnabled === false;
                   const rentAmount = (booking as any).rentAmount as number | undefined;
                   const ownerPayout = (booking as any).ownerPayout as number | undefined;

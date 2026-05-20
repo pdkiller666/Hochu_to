@@ -9,4 +9,5 @@ import type { UpdateBookingStatusRequestStatus } from "./updateBookingStatusRequ
 
 export interface UpdateBookingStatusRequest {
   status: UpdateBookingStatusRequestStatus;
+  ownerComment?: string;
 }

@@ -1,6 +1,6 @@
 import { Layout } from "@/components/layout/Layout";
 import { Link } from "wouter";
-import { Hammer, Tent, Trees, PartyPopper, Baby, Laptop, Heart } from "lucide-react";
+import { Hammer, Tent, Trees, PartyPopper, Baby, Laptop, Heart, Users, ArrowRight, Sparkles } from "lucide-react";
 import { motion } from "framer-motion";
 import { useGetCategories } from "@workspace/api-client-react";
 import { cn } from "@/lib/utils";
@@ -156,6 +156,68 @@ export default function Home() {
       />
 
       {/* ──────────────────────────── */}
+
+      {/* Блок «Совместные закупки» */}
+      <section className="py-12 bg-white">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            className="relative rounded-3xl overflow-hidden bg-gradient-to-r from-[#4A8587] to-[#2e6566] p-8 md:p-12 flex flex-col md:flex-row items-center gap-8 shadow-2xl"
+          >
+            {/* Декоративные круги */}
+            <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2 pointer-events-none" />
+            <div className="absolute bottom-0 left-24 w-40 h-40 bg-white/5 rounded-full translate-y-1/2 pointer-events-none" />
+
+            {/* Иконка */}
+            <div className="relative flex-shrink-0 w-24 h-24 md:w-32 md:h-32 rounded-3xl bg-white/15 flex items-center justify-center shadow-xl">
+              <Users className="w-12 h-12 md:w-16 md:h-16 text-white" />
+              <div className="absolute -top-2 -right-2 w-8 h-8 bg-[#C65D3B] rounded-full flex items-center justify-center shadow-lg">
+                <Sparkles className="w-4 h-4 text-white" />
+              </div>
+            </div>
+
+            {/* Текст */}
+            <div className="flex-1 text-white text-center md:text-left relative z-10">
+              <p className="text-sm font-semibold uppercase tracking-widest text-white/70 mb-2">Новая функция</p>
+              <h2 className="text-2xl md:text-3xl lg:text-4xl font-extrabold mb-3">
+                Вместе дешевле —<br className="hidden sm:block" /> совместные закупки
+              </h2>
+              <p className="text-white/80 text-base md:text-lg leading-relaxed max-w-xl">
+                Объединяйтесь с другими пользователями и покупайте нужные вещи оптом по выгодной цене. Создайте заявку или присоединитесь к уже существующей.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-3 mt-6 justify-center md:justify-start">
+                <Link
+                  href="/joint-purchases"
+                  className="inline-flex items-center gap-2 bg-white text-[#4A8587] font-bold px-6 py-3 rounded-xl hover:bg-white/90 transition-colors shadow-lg text-sm sm:text-base"
+                >
+                  Смотреть закупки
+                  <ArrowRight className="w-4 h-4" />
+                </Link>
+                <Link
+                  href="/joint-purchases"
+                  className="inline-flex items-center gap-2 bg-white/15 text-white font-semibold px-6 py-3 rounded-xl hover:bg-white/25 transition-colors border border-white/20 text-sm sm:text-base"
+                >
+                  Создать заявку
+                </Link>
+              </div>
+            </div>
+
+            {/* Статистика */}
+            <div className="relative z-10 flex-shrink-0 grid grid-cols-2 gap-4 text-center">
+              <div className="bg-white/15 rounded-2xl p-4 backdrop-blur-sm">
+                <p className="text-2xl md:text-3xl font-extrabold text-white">до 40%</p>
+                <p className="text-white/70 text-xs mt-1">экономия</p>
+              </div>
+              <div className="bg-white/15 rounded-2xl p-4 backdrop-blur-sm">
+                <p className="text-2xl md:text-3xl font-extrabold text-white">100%</p>
+                <p className="text-white/70 text-xs mt-1">безопасно</p>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      </section>
 
       {/* Popular Categories */}
       <section className="py-20 bg-card">

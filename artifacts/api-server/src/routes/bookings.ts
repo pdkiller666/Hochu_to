@@ -1171,6 +1171,22 @@ router.post("/:id/messages", requireAuth, async (req: AuthRequest, res) => {
   const receiverId = booking.ownerId === req.userId ? booking.renterId : booking.ownerId;
   broadcastToUser(receiverId, "NEW_MESSAGE", message);
 
+  // Создаём уведомление в колоколе для получателя
+  try {
+    const [listing] = await db.select({ title: listingsTable.title }).from(listingsTable).where(eq(listingsTable.id, booking.listingId)).limit(1);
+    const [sender] = await db.select({ name: usersTable.name }).from(usersTable).where(eq(usersTable.id, req.userId!)).limit(1);
+    await createNotification({
+      userId: receiverId,
+      type: "new_booking_message",
+      title: `💬 Новое сообщение — «${listing?.title ?? "аренда"}»`,
+      message: `${sender?.name ?? "Пользователь"}: ${content.slice(0, 80)}${content.length > 80 ? "…" : ""}`,
+      bookingId,
+      listingTitle: listing?.title ?? undefined,
+    });
+  } catch {
+    // Уведомление не критично — не прерываем ответ
+  }
+
   res.status(201).json(message);
 });
 

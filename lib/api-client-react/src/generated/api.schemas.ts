@@ -311,6 +311,8 @@ export type UpdateBookingStatusRequestStatus =
 export const UpdateBookingStatusRequestStatus = {
   pending: "pending",
   confirmed: "confirmed",
+  active: "active",
+  return_pending: "return_pending",
   rejected: "rejected",
   completed: "completed",
   cancelled: "cancelled",
@@ -318,6 +320,7 @@ export const UpdateBookingStatusRequestStatus = {
 
 export interface UpdateBookingStatusRequest {
   status: UpdateBookingStatusRequestStatus;
+  ownerComment?: string;
 }
 
 export type BookingStatus = (typeof BookingStatus)[keyof typeof BookingStatus];
@@ -325,6 +328,8 @@ export type BookingStatus = (typeof BookingStatus)[keyof typeof BookingStatus];
 export const BookingStatus = {
   pending: "pending",
   confirmed: "confirmed",
+  active: "active",
+  return_pending: "return_pending",
   rejected: "rejected",
   completed: "completed",
   cancelled: "cancelled",

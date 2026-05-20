@@ -1133,7 +1133,9 @@ components:
       properties:
         status:
           type: string
-          enum: [pending, confirmed, rejected, completed, cancelled]
+          enum: [pending, confirmed, active, return_pending, rejected, completed, cancelled]
+        ownerComment:
+          type: string
       required:
         - status
 
@@ -1178,7 +1180,7 @@ components:
           description: Залог по объявлению.
         status:
           type: string
-          enum: [pending, confirmed, rejected, completed, cancelled]
+          enum: [pending, confirmed, active, return_pending, rejected, completed, cancelled]
         message:
           type: string
         ownerPhone:
