@@ -294,18 +294,13 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
       fundContribution: "0",
       depositAmount: "0",
       protectionEnabled: false,
-      status: "confirmed",
+      status: "pending",
       message: message ?? null,
     }).returning();
 
     const bookingNumber = generateBookingNumber(booking.id);
     await db.update(bookingsTable).set({ bookingNumber }).where(eq(bookingsTable.id, booking.id));
     booking.bookingNumber = bookingNumber;
-
-    // Прямой контакт создаётся сразу со статусом 'confirmed' → +1 к bookingCount
-    if (bookingCounts(booking.status)) {
-      await applyBookingCountDelta(booking.listingId, +1);
-    }
 
     const [renterUser] = await db.select({ name: usersTable.name }).from(usersTable)
       .where(eq(usersTable.id, req.userId!)).limit(1);
@@ -315,28 +310,22 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
       bookingNumber,
       actorId: req.userId!,
       actorRole: "renter",
-      eventType: "direct_contact_opened",
-      toStatus: "confirmed",
+      eventType: "created",
+      toStatus: "pending",
       comment: isBetaMode
-        ? `Бета-режим: заявка отправлена напрямую владельцу (без оплаты платформе)`
-        : `Прямой расчёт: оплачено ${CONTACT_FEE} ₽ за открытие контактов`,
+        ? `Бета-режим: заявка ожидает подтверждения владельца (без оплаты платформе)`
+        : `Прямой расчёт: заявка ожидает подтверждения владельца (${CONTACT_FEE} ₽ при подтверждении)`,
     });
 
     await createNotification({
       userId: listing.ownerId,
       type: "booking_created",
-      title: isBetaMode
-        ? `📩 Новая заявка — «${listing.title}»`
-        : `📞 Прямой запрос контактов — «${listing.title}»`,
+      title: `📩 Новая заявка — «${listing.title}»`,
       message: (() => {
         const rn = renterUser?.name ?? "Пользователь";
-        if (isBetaMode) {
-          const verb = genderedWord(rn, "оставил", "оставила");
-          const pron = genderedWord(rn, "ним", "ней");
-          return `${rn} ${verb} заявку на аренду. Свяжитесь с ${pron} и договоритесь о встрече.`;
-        }
-        const verb = genderedWord(rn, "оплатил", "оплатила");
-        return `${rn} ${verb} открытие ваших контактов (${CONTACT_FEE} ₽). Ожидайте сообщения.`;
+        const verb = genderedWord(rn, "оставил", "оставила");
+        const pron = genderedWord(rn, "ним", "ней");
+        return `${rn} ${verb} заявку на аренду. Подтвердите её в личном кабинете, чтобы начать общение.`;
       })(),
       bookingId: booking.id,
       listingTitle: listing.title ?? undefined,
@@ -344,12 +333,8 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
     await createNotification({
       userId: req.userId!,
       type: "booking_submitted",
-      title: isBetaMode
-        ? `📩 Заявка отправлена — «${listing.title}»`
-        : `📞 Контакты открыты — «${listing.title}»`,
-      message: isBetaMode
-        ? `Ваша заявка отправлена владельцу. Он свяжется с вами в ближайшее время — оплата напрямую при встрече.`
-        : `Вы оплатили открытие контактов владельца. Свяжитесь с ним напрямую.`,
+      title: `📩 Заявка отправлена — «${listing.title}»`,
+      message: `Ваша заявка ожидает подтверждения владельца. Мы уведомим вас, когда он ответит.`,
       bookingId: booking.id,
       listingTitle: listing.title ?? undefined,
     });

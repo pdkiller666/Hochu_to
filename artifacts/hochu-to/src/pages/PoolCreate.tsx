@@ -6,7 +6,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
 import { useAuthState } from "@/lib/auth";
 import { usePublicSettings } from "@/lib/use-public-settings";
-import { ArrowLeft, Loader2, Sparkles, ShieldCheck } from "lucide-react";
+import { ArrowLeft, Loader2, Sparkles, ShieldCheck, CalendarClock } from "lucide-react";
 
 export default function PoolCreate() {
   const [, setLocation] = useLocation();
@@ -19,6 +19,7 @@ export default function PoolCreate() {
   const [itemUrl, setItemUrl] = useState("");
   const [targetAmount, setTargetAmount] = useState("");
   const [paymentDetails, setPaymentDetails] = useState("");
+  const [deadlineDate, setDeadlineDate] = useState("");
 
   useEffect(() => {
     if (isReady && !isAuthed) {
@@ -62,6 +63,7 @@ export default function PoolCreate() {
       itemUrl: itemUrl.trim() || null,
       targetAmountRub: Math.round(amount),
       creatorPaymentDetails: paymentDetails.trim(),
+      expiresAt: deadlineDate ? new Date(deadlineDate + "T23:59:59+03:00").toISOString() : null,
     });
   }
 
@@ -158,6 +160,27 @@ export default function PoolCreate() {
                 maxLength={500}
                 className="input w-full"
               />
+            </Field>
+
+            <Field
+              label="Срок сбора (необязательно)"
+              hint="Если сумма не наберётся к этой дате — пул автоматически отменится"
+            >
+              <div className="relative">
+                <CalendarClock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                <input
+                  type="date"
+                  value={deadlineDate}
+                  min={new Date(Date.now() + 86400000).toISOString().slice(0, 10)}
+                  onChange={(e) => setDeadlineDate(e.target.value)}
+                  className="input w-full pl-9"
+                />
+              </div>
+              {deadlineDate && (
+                <div className="mt-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  ⏳ Пул автоматически закроется <strong>{new Date(deadlineDate).toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" })}</strong>, если нужная сумма не соберётся.
+                </div>
+              )}
             </Field>
 
             <div className="pt-3 flex gap-3">

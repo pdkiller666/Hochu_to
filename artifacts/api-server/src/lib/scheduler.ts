@@ -809,13 +809,48 @@ async function runDailyTrustScoreRecalc(): Promise<{ processed: number; failed: 
   return { processed, failed };
 }
 
+async function runPoolExpiryCancel(): Promise<{ cancelled: number }> {
+  const now = new Date();
+  let cancelled = 0;
+  try {
+    const expired = await db
+      .select({ id: poolsTable.id, creatorId: poolsTable.creatorId, title: poolsTable.title })
+      .from(poolsTable)
+      .where(and(
+        eq(poolsTable.status, "funding"),
+        isNotNull(poolsTable.expiresAt),
+        lt(poolsTable.expiresAt, now),
+      ));
+
+    for (const pool of expired) {
+      await db.update(poolsTable).set({ status: "canceled" }).where(eq(poolsTable.id, pool.id));
+      cancelled++;
+      // Уведомление создателю
+      const { createNotification } = await import("./notifications");
+      await createNotification({
+        userId: pool.creatorId,
+        type: "system",
+        title: `⏰ Пул «${pool.title}» закрыт`,
+        message: `Срок сбора истёк, а нужная сумма не набралась. Пул переведён в статус «Отменён».`,
+      });
+    }
+
+    if (cancelled > 0) logger.info({ cancelled }, "PoolExpiryCancel: cancelled expired pools");
+    else logger.info("PoolExpiryCancel: no expired pools");
+  } catch (err) {
+    logger.error({ err }, "PoolExpiryCancel: failed");
+  }
+  return { cancelled };
+}
+
 export function startScheduler() {
-  // Часовые задачи: напоминания + авто-переходы + отмена выкупов + очистка промо
+  // Часовые задачи: напоминания + авто-переходы + отмена выкупов + очистка промо + дедлайны пулов
   const runHourly = async () => {
     await runReminders().catch((err) => logger.error({ err }, "Scheduler: reminders failed"));
     await runAutoTransitions().catch((err) => logger.error({ err }, "Scheduler: auto-transitions failed"));
     await runBuyoutAutoCancel().catch((err) => logger.error({ err }, "Scheduler: buyout auto-cancel failed"));
     await runPromoCleanup().catch((err) => logger.error({ err }, "Scheduler: promo cleanup failed"));
+    await runPoolExpiryCancel().catch((err) => logger.error({ err }, "Scheduler: pool expiry cancel failed"));
   };
 
   // Запускаем немедленно при старте сервера

@@ -143,6 +143,8 @@ const createBodySchema = z.object({
     ),
   targetAmountRub: z.number().int().positive().max(50_000_000),
   creatorPaymentDetails: z.string().min(3).max(500),
+  /** ISO-дата дедлайна сбора (опционально). Если не указана — сбор бессрочный. */
+  expiresAt: z.string().datetime({ offset: true }).optional().nullable(),
 });
 
 router.post("/", requireAuth, async (req: AuthRequest, res: Response) => {
@@ -166,6 +168,8 @@ router.post("/", requireAuth, async (req: AuthRequest, res: Response) => {
       return;
     }
 
+    const expiresAt = parsed.data.expiresAt ? new Date(parsed.data.expiresAt) : null;
+
     const [created] = await db
       .insert(poolsTable)
       .values({
@@ -178,6 +182,7 @@ router.post("/", requireAuth, async (req: AuthRequest, res: Response) => {
         procurementStrategy,
         creatorPaymentDetails:
           collectionMethod === "p2p_direct" ? parsed.data.creatorPaymentDetails.trim() : null,
+        expiresAt,
       })
       .returning();
 

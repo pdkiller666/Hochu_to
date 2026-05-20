@@ -129,6 +129,7 @@ export interface CreatePoolPayload {
   itemUrl?: string | null;
   targetAmountRub: number;
   creatorPaymentDetails: string;
+  expiresAt?: string | null;
 }
 
 export function createPool(body: CreatePoolPayload): Promise<PoolListItem> {
