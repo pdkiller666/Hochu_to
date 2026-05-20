@@ -9,7 +9,7 @@ import { applyBookingCountDelta, bookingCountDelta, bookingCounts } from "../lib
 import { recordAuditEvent } from "../lib/audit-events.js";
 import { recalcTrustScoreForUsers } from "../lib/trust-score.js";
 import { broadcastToUser } from "../lib/websocket.js";
-import { holdFunds, releaseFunds, payoutOwner } from "../lib/escrow.js";
+import { holdFunds, releaseFunds, payoutOwner, payoutPoolShareholders } from "../lib/escrow.js";
 
 const router = Router();
 
@@ -872,15 +872,32 @@ router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
   }
 
   // Stage 39 — Escrow Engine: хуки управления кошельками.
-  // Активны только при isCommercialMode=true. Все ошибки перехватываются —
-  // основной поток бронирования НЕ должен падать из-за сбоя escrow.
+  // Стандартные escrow-операции активны только при isCommercialMode=true.
+  // Pool-распределение активно всегда (beta + commercial).
+  // Все ошибки перехватываются — основной поток НЕ должен падать из-за сбоя escrow.
   try {
     const escrowSettings = await getPlatformSettings();
+    const bookingNum = updated.bookingNumber ?? undefined;
+
+    // Pool rental income distribution — активна всегда (не зависит от isCommercialMode)
+    if (status === "completed" && listingForCoOwner?.poolId) {
+      const ownerPayoutAmt = parseFloat(String(updated.ownerPayout ?? "0"));
+      if (ownerPayoutAmt > 0) {
+        void payoutPoolShareholders({
+          poolId: listingForCoOwner.poolId,
+          renterId: updated.renterId,
+          bookingId: updated.id,
+          bookingNumber: bookingNum,
+          ownerPayout: ownerPayoutAmt,
+          poolFeePercent: parseFloat(String(escrowSettings.poolFeeSelfManagedPercent ?? "5")),
+        });
+      }
+    }
+
     if (escrowSettings.isCommercialMode) {
       const isMock = escrowSettings.paymentProvider === "mock";
       const totalAmt = parseFloat(String(updated.totalPrice ?? "0"));
 
-      const bookingNum = updated.bookingNumber ?? undefined;
       if (status === "confirmed" && fromStatus === "pending" && totalAmt > 0) {
         // Владелец принял бронь → замораживаем средства арендатора
         void holdFunds({
@@ -899,8 +916,8 @@ router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
           bookingNumber: bookingNum,
           amount: totalAmt,
         });
-      } else if (status === "completed" && totalAmt > 0) {
-        // Аренда завершена → выплата владельцу (минус комиссия платформы)
+      } else if (status === "completed" && !listingForCoOwner?.poolId && totalAmt > 0) {
+        // Аренда завершена (не пул) → выплата владельцу (минус комиссия платформы)
         void payoutOwner({
           renterId: updated.renterId,
           ownerId: updated.ownerId,

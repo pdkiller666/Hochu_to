@@ -123,6 +123,33 @@ export function getPool(id: number): Promise<PoolDetail> {
   return jsonFetch<PoolDetail>(`/api/pools/${id}`);
 }
 
+export interface PoolIncomeDistribution {
+  userId: number;
+  userName: string | null;
+  amount: number;
+  description: string | null;
+}
+
+export interface PoolIncomeEntry {
+  bookingId: number;
+  bookingNumber: string | null;
+  date: string;
+  distributions: PoolIncomeDistribution[];
+  maintenanceCut: number;
+  total: number;
+}
+
+export interface PoolIncomeResponse {
+  entries: PoolIncomeEntry[];
+  totalDistributed: number;
+  maintenanceTotal: number;
+  maintenanceFundBalance: number;
+}
+
+export function getPoolIncome(poolId: number): Promise<PoolIncomeResponse> {
+  return jsonFetch<PoolIncomeResponse>(`/api/pools/${poolId}/income`);
+}
+
 export interface CreatePoolPayload {
   title: string;
   description?: string | null;

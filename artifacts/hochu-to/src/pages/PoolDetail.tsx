@@ -27,12 +27,14 @@ import {
   markBuyoutTransferred,
   confirmBuyoutParticipant,
   cancelBuyout,
+  getPoolIncome,
   type PoolDetail,
   type PoolShareDetail,
   type ShareOfferDetail,
   type PoolEvent,
   type BuyoutDetailResponse,
   type BuyoutParticipant,
+  type PoolIncomeResponse,
 } from "@/lib/api-pools";
 import { formatPrice } from "@/lib/utils";
 import { TrustBadge } from "@/components/ui/TrustBadge";
@@ -67,6 +69,11 @@ import {
   Banknote,
   ShoppingBag,
   AlertTriangle,
+  TrendingUp,
+  PiggyBank,
+  CircleDollarSign,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 
 const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
@@ -227,6 +234,11 @@ export default function PoolDetailPage() {
         {/* Stage 26 — Оценочная стоимость (амортизация по факту аренд) */}
         {pool.status === "active" && pool.listing && (
           <ResidualValueBlock pool={pool} />
+        )}
+
+        {/* Экономика пула — история доходов с аренды */}
+        {pool.status === "active" && me && (
+          <IncomeBlock poolId={pool.id} meId={me.id} />
         )}
 
         {/* Stage 25 — Вторичный рынок долей */}
@@ -1325,6 +1337,137 @@ function ResidualValueBlock({ pool }: { pool: PoolDetail }) {
           </p>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ───────────────────────────────────────────────────────────────────────────
+// Экономика пула — блок распределения арендного дохода
+// ───────────────────────────────────────────────────────────────────────────
+
+function IncomeBlock({ poolId, meId }: { poolId: number; meId: number }) {
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const { data, isLoading, error } = useQuery<PoolIncomeResponse>({
+    queryKey: ["pool-income", poolId],
+    queryFn: () => getPoolIncome(poolId),
+    retry: false,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="bg-gradient-to-br from-emerald-50 to-stone-50 border border-emerald-200 rounded-xl p-5">
+        <div className="flex items-center gap-2 text-sm text-stone-500">
+          <Loader2 className="w-4 h-4 animate-spin" /> Загружаем историю доходов…
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !data) return null;
+
+  const toggleEntry = (bookingId: number) => {
+    setExpanded(prev => {
+      const next = new Set(prev);
+      if (next.has(bookingId)) next.delete(bookingId);
+      else next.add(bookingId);
+      return next;
+    });
+  };
+
+  const hasIncome = data.entries.length > 0;
+
+  return (
+    <div className="bg-gradient-to-br from-emerald-50 to-stone-50 border border-emerald-200 rounded-xl p-5">
+      <div className="flex items-start gap-3 mb-4">
+        <div className="flex-shrink-0 w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center">
+          <TrendingUp className="w-5 h-5 text-emerald-600" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <h3 className="text-sm font-semibold text-stone-700">Доходы с аренды</h3>
+          <p className="text-xs text-stone-500 mt-0.5">
+            Каждая завершённая аренда автоматически распределяется между дольщиками
+          </p>
+        </div>
+      </div>
+
+      {/* Сводка */}
+      <div className="grid grid-cols-3 gap-3 mb-4">
+        <div className="bg-white/70 rounded-lg p-3 text-center">
+          <div className="text-lg font-bold text-emerald-700">{formatPrice(data.totalDistributed)}</div>
+          <div className="text-[11px] text-stone-500 mt-0.5">Выплачено дольщикам</div>
+        </div>
+        <div className="bg-white/70 rounded-lg p-3 text-center">
+          <div className="text-lg font-bold text-amber-700">{formatPrice(data.maintenanceFundBalance)}</div>
+          <div className="text-[11px] text-stone-500 mt-0.5">Фонд обслуживания</div>
+        </div>
+        <div className="bg-white/70 rounded-lg p-3 text-center">
+          <div className="text-lg font-bold text-stone-700">{data.entries.length}</div>
+          <div className="text-[11px] text-stone-500 mt-0.5">Успешных аренд</div>
+        </div>
+      </div>
+
+      {!hasIncome && (
+        <div className="text-center py-6 text-stone-400 text-sm">
+          <CircleDollarSign className="w-10 h-10 mx-auto mb-2 opacity-30" />
+          Пока аренд не было — доходы появятся здесь после первой завершённой сделки
+        </div>
+      )}
+
+      {hasIncome && (
+        <div className="space-y-2">
+          <div className="text-xs font-semibold text-stone-500 uppercase tracking-wide mb-1">История распределений</div>
+          {data.entries.map((entry) => {
+            const isOpen = expanded.has(entry.bookingId);
+            const myDist = entry.distributions.find(d => d.userId === meId);
+            return (
+              <div key={entry.bookingId} className="bg-white/80 border border-emerald-100 rounded-lg overflow-hidden">
+                <button
+                  onClick={() => toggleEntry(entry.bookingId)}
+                  className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left hover:bg-emerald-50/50 transition-colors"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <PiggyBank className="w-4 h-4 text-emerald-500 flex-shrink-0" />
+                    <div className="min-w-0">
+                      <div className="text-xs font-mono text-stone-500">{entry.bookingNumber ?? `#${entry.bookingId}`}</div>
+                      <div className="text-xs text-stone-400">
+                        {new Date(entry.date).toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" })}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="text-right">
+                      <div className="text-sm font-bold text-emerald-700">+{formatPrice(entry.total)}</div>
+                      {myDist && (
+                        <div className="text-[11px] text-stone-500">вам: +{formatPrice(myDist.amount)}</div>
+                      )}
+                    </div>
+                    {isOpen ? <ChevronUp className="w-3.5 h-3.5 text-stone-400" /> : <ChevronDown className="w-3.5 h-3.5 text-stone-400" />}
+                  </div>
+                </button>
+
+                {isOpen && (
+                  <div className="border-t border-emerald-100 px-4 py-3 space-y-2">
+                    {entry.distributions.map((d, i) => (
+                      <div key={i} className="flex items-center justify-between text-xs">
+                        <span className="text-stone-600 font-medium">{d.userName ?? `Пользователь #${d.userId}`}</span>
+                        <span className={`font-bold ${d.userId === meId ? "text-emerald-700" : "text-stone-600"}`}>
+                          +{formatPrice(d.amount)}
+                        </span>
+                      </div>
+                    ))}
+                    {entry.maintenanceCut > 0 && (
+                      <div className="flex items-center justify-between text-xs border-t border-stone-100 pt-2 mt-2">
+                        <span className="text-stone-400">Фонд обслуживания (5%)</span>
+                        <span className="text-amber-600 font-medium">+{formatPrice(entry.maintenanceCut)}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

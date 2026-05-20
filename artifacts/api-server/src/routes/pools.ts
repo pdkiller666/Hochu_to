@@ -8,6 +8,8 @@ import {
   usersTable,
   listingsTable,
   auditEventsTable,
+  walletTransactionsTable,
+  bookingsTable,
 } from "@workspace/db";
 import { z } from "zod";
 import { requireAuth, type AuthRequest } from "../middleware/auth.js";
@@ -1279,6 +1281,116 @@ router.get("/:id/shares/:shareId/suggested-price", async (req, res) => {
     });
   } catch (e) {
     logger.error({ err: e }, "GET /pools/:id/shares/:shareId/suggested-price failed");
+    res.status(500).json({ error: "internal_error" });
+  }
+});
+
+// ── GET /api/pools/:id/income ───────────────────────────────────────────────
+// История распределения дохода с аренды пула по дольщикам.
+// Доступна любому авторизованному пользователю (дольщику или создателю).
+router.get("/:id/income", requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      res.status(400).json({ error: "invalid_id" });
+      return;
+    }
+
+    const [pool] = await db.select({ id: poolsTable.id, creatorId: poolsTable.creatorId, maintenanceFundBalance: poolsTable.maintenanceFundBalance })
+      .from(poolsTable).where(eq(poolsTable.id, id)).limit(1);
+    if (!pool) {
+      res.status(404).json({ error: "pool_not_found" });
+      return;
+    }
+
+    // Только участники пула или создатель могут видеть доходы
+    const userId = req.userId!;
+    const myShare = await db.select({ id: poolSharesTable.id })
+      .from(poolSharesTable)
+      .where(and(eq(poolSharesTable.poolId, id), eq(poolSharesTable.userId, userId)))
+      .limit(1);
+    const isAdmin = (req as any).userRole === "admin";
+    if (pool.creatorId !== userId && myShare.length === 0 && !isAdmin) {
+      res.status(403).json({ error: "forbidden" });
+      return;
+    }
+
+    // Связанный листинг пула
+    const [listing] = await db
+      .select({ id: listingsTable.id })
+      .from(listingsTable)
+      .where(eq(listingsTable.poolId, id))
+      .limit(1);
+
+    if (!listing) {
+      res.json({ entries: [], totalDistributed: 0, maintenanceTotal: 0, maintenanceFundBalance: parseFloat(String(pool.maintenanceFundBalance ?? "0")) });
+      return;
+    }
+
+    // Все транзакции pool_rental по брониям этого листинга
+    const result = await db.execute(sql`
+      SELECT
+        wt.id,
+        wt.user_id       AS "userId",
+        wt.amount,
+        wt.type,
+        wt.reference_id  AS "bookingId",
+        wt.booking_number AS "bookingNumber",
+        wt.description,
+        wt.created_at    AS "createdAt",
+        u.name           AS "userName"
+      FROM wallet_transactions wt
+      LEFT JOIN users u ON u.id = wt.user_id
+      INNER JOIN bookings b ON b.id = wt.reference_id
+      WHERE wt.reference_type = 'pool_rental'
+        AND b.listing_id = ${listing.id}
+      ORDER BY wt.created_at DESC
+      LIMIT 300
+    `);
+
+    const rows = result.rows as Array<{
+      id: number; userId: number; amount: string; type: string;
+      bookingId: number; bookingNumber: string | null; description: string | null;
+      createdAt: string; userName: string | null;
+    }>;
+
+    // Суммарные итоги
+    const totalDistributed = rows
+      .filter(r => r.type === "payout")
+      .reduce((s, r) => s + parseFloat(r.amount ?? "0"), 0);
+    const maintenanceTotal = rows
+      .filter(r => r.type === "commission")
+      .reduce((s, r) => s + parseFloat(r.amount ?? "0"), 0);
+
+    // Группировка по брони
+    const byBooking = new Map<number, {
+      bookingId: number; bookingNumber: string | null;
+      date: string; distributions: Array<{ userId: number; userName: string | null; amount: number; description: string | null }>;
+      maintenanceCut: number; total: number;
+    }>();
+
+    for (const row of rows) {
+      const key = row.bookingId;
+      if (!byBooking.has(key)) {
+        byBooking.set(key, { bookingId: key, bookingNumber: row.bookingNumber, date: row.createdAt, distributions: [], maintenanceCut: 0, total: 0 });
+      }
+      const entry = byBooking.get(key)!;
+      if (row.type === "payout") {
+        entry.distributions.push({ userId: row.userId, userName: row.userName, amount: parseFloat(row.amount), description: row.description });
+        entry.total += parseFloat(row.amount);
+      } else if (row.type === "commission") {
+        entry.maintenanceCut += parseFloat(row.amount);
+      }
+    }
+
+    res.json({
+      entries: Array.from(byBooking.values()),
+      totalDistributed: Math.round(totalDistributed * 100) / 100,
+      maintenanceTotal: Math.round(maintenanceTotal * 100) / 100,
+      maintenanceFundBalance: parseFloat(String(pool.maintenanceFundBalance ?? "0")),
+    });
+  } catch (e) {
+    logger.error({ err: e }, "GET /pools/:id/income failed");
     res.status(500).json({ error: "internal_error" });
   }
 });

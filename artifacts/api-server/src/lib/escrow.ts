@@ -1,6 +1,6 @@
 import { db } from "@workspace/db";
-import { walletsTable, walletTransactionsTable } from "@workspace/db/schema";
-import { eq, sql } from "drizzle-orm";
+import { walletsTable, walletTransactionsTable, poolsTable, poolSharesTable } from "@workspace/db/schema";
+import { eq, sql, and, inArray } from "drizzle-orm";
 import { createNotification } from "./notifications.js";
 
 /**
@@ -263,4 +263,131 @@ export async function payoutOwner(params: {
       link: "/dashboard",
     }).catch(() => {}),
   ]);
+}
+
+// ─── payoutPoolShareholders ───────────────────────────────────────────────────
+
+/**
+ * Распределяет доход с аренды пула между всеми дольщиками.
+ *
+ * Алгоритм:
+ *  1. Из ownerPayout вычитается poolFeePercent% → пополняет maintenanceFundBalance пула.
+ *  2. Остаток делится между подтверждёнными дольщиками пропорционально sharePercentage.
+ *  3. Каждому зачисляется на availableBalance кошелька + создаётся WalletTransaction.
+ *  4. Уведомление на /dashboard?tab=wallet каждому получателю.
+ *
+ * Активна в обоих режимах (beta + commercial) — экономика пула не зависит от ЮKassa.
+ */
+export async function payoutPoolShareholders(params: {
+  poolId: number;
+  renterId: number;
+  bookingId: number;
+  bookingNumber?: string;
+  ownerPayout: number;
+  poolFeePercent: number;
+}): Promise<void> {
+  const { poolId, renterId, bookingId, bookingNumber, ownerPayout, poolFeePercent } = params;
+  const ref = bookingNumber ?? `#${bookingId}`;
+
+  const shares = await db
+    .select({ userId: poolSharesTable.userId, sharePercentage: poolSharesTable.sharePercentage })
+    .from(poolSharesTable)
+    .where(and(
+      eq(poolSharesTable.poolId, poolId),
+      inArray(poolSharesTable.paymentStatus, ["creator_confirmed", "escrow_held"] as any),
+    ));
+
+  if (shares.length === 0) return;
+
+  const maintenanceCut = Math.ceil(ownerPayout * (poolFeePercent / 100) * 100) / 100;
+  const distributable = Math.max(0, parseFloat((ownerPayout - maintenanceCut).toFixed(2)));
+  const totalPct = shares.reduce((s, sh) => s + parseFloat(sh.sharePercentage ?? "0"), 0);
+
+  await db.transaction(async (tx) => {
+    // Списываем из замороженных средств арендатора
+    const renterRows = await tx.execute(
+      sql`SELECT * FROM wallets WHERE user_id = ${renterId} FOR UPDATE`
+    );
+    const renterWallet = (renterRows.rows as any[])[0];
+    if (renterWallet) {
+      const frozen = parseFloat(renterWallet.frozen_balance ?? "0");
+      await tx
+        .update(walletsTable)
+        .set({ frozenBalance: Math.max(0, frozen - ownerPayout).toFixed(2), updatedAt: new Date() })
+        .where(eq(walletsTable.userId, renterId));
+    }
+
+    // Зачисляем каждому дольщику пропорционально его доле
+    for (const share of shares) {
+      const pct = parseFloat(share.sharePercentage ?? "0");
+      const normalizedPct = totalPct > 0 ? pct / totalPct : 0;
+      const credit = Math.floor(distributable * normalizedPct * 100) / 100;
+      if (credit <= 0) continue;
+
+      const rows = await tx.execute(
+        sql`SELECT * FROM wallets WHERE user_id = ${share.userId} FOR UPDATE`
+      );
+      let wallet = (rows.rows as any[])[0];
+      if (!wallet) {
+        const [created] = await tx
+          .insert(walletsTable)
+          .values({ userId: share.userId, availableBalance: "0", frozenBalance: "0" })
+          .returning();
+        wallet = created;
+      }
+
+      const available = parseFloat(wallet.available_balance ?? "0");
+      await tx
+        .update(walletsTable)
+        .set({ availableBalance: (available + credit).toFixed(2), updatedAt: new Date() })
+        .where(eq(walletsTable.userId, share.userId));
+
+      await tx.insert(walletTransactionsTable).values({
+        userId: share.userId,
+        amount: credit.toFixed(2),
+        platformCommission: "0",
+        type: "payout",
+        status: "completed",
+        referenceId: bookingId,
+        referenceType: "pool_rental",
+        bookingNumber: bookingNumber ?? null,
+        description: `Доход с аренды пула (${pct.toFixed(1)}%), бронь ${ref}`,
+      });
+    }
+
+    // Отчисление в фонд обслуживания пула
+    if (maintenanceCut > 0) {
+      await tx
+        .update(poolsTable)
+        .set({ maintenanceFundBalance: sql`${poolsTable.maintenanceFundBalance} + ${maintenanceCut.toFixed(2)}` })
+        .where(eq(poolsTable.id, poolId));
+
+      await tx.insert(walletTransactionsTable).values({
+        userId: renterId,
+        amount: maintenanceCut.toFixed(2),
+        platformCommission: "0",
+        type: "commission",
+        status: "completed",
+        referenceId: bookingId,
+        referenceType: "pool_rental",
+        bookingNumber: bookingNumber ?? null,
+        description: `Фонд обслуживания пула, бронь ${ref}`,
+      });
+    }
+  });
+
+  // Уведомления дольщикам (best-effort, вне транзакции)
+  for (const share of shares) {
+    const pct = parseFloat(share.sharePercentage ?? "0");
+    const normalizedPct = totalPct > 0 ? pct / totalPct : 0;
+    const credit = Math.floor(distributable * normalizedPct * 100) / 100;
+    if (credit <= 0) continue;
+    await createNotification({
+      userId: share.userId,
+      type: "booking_completed",
+      title: `💰 Доход с аренды +${credit.toFixed(2)} ₽`,
+      message: `Зачислено ${credit.toFixed(2)} ₽ — ваша доля ${pct.toFixed(1)}% по брони ${ref}`,
+      link: "/dashboard?tab=wallet",
+    }).catch(() => {});
+  }
 }
