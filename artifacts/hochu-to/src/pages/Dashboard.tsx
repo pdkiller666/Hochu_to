@@ -262,6 +262,10 @@ export default function Dashboard() {
   const [tgPrefs, setTgPrefs] = useState({ bookings: true, system: true, chats: true });
   const [tgBusy, setTgBusy] = useState(false);
   const [tgBotUsername, setTgBotUsername] = useState<string | null>(null);
+  // Email verification
+  const [emailVerified, setEmailVerified] = useState(false);
+  const [emailVerifBusy, setEmailVerifBusy] = useState(false);
+  const [emailVerifSent, setEmailVerifSent] = useState(false);
   // Stage 38-UE — Phone Verification via SMS
   const [phoneVerified, setPhoneVerified] = useState(false);
   const [smsEnabled, setSmsEnabled] = useState(false);
@@ -548,6 +552,12 @@ export default function Dashboard() {
     }, 3000);
     return () => clearInterval(id);
   }, [!!tgOtp, tgLinked, token]);
+
+  // Инициализируем emailVerified из данных пользователя
+  useEffect(() => {
+    if (!user) return;
+    setEmailVerified((user as any).emailVerified ?? false);
+  }, [user?.id, (user as any)?.emailVerified]);
 
   // Stage 38-UE: load phone verification status
   useEffect(() => {
@@ -2672,6 +2682,96 @@ export default function Dashboard() {
                         <Camera className="w-3 h-3" />
                         Нажмите на фото для замены (до 5 МБ)
                       </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ── Email верификация ── */}
+                <div className={`border rounded-2xl p-5 mb-4 shadow-sm ${emailVerified ? "bg-emerald-50 border-emerald-200" : "bg-white border-border"}`}>
+                  <div className="flex items-start gap-3">
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${emailVerified ? "bg-emerald-100" : "bg-stone-100"}`}>
+                      <BadgeCheck className={`w-5 h-5 ${emailVerified ? "text-emerald-600" : "text-stone-400"}`} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="font-bold text-base">Email</h3>
+                        {emailVerified ? (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 font-semibold">✓ подтверждён</span>
+                        ) : (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-semibold">⚠ не подтверждён</span>
+                        )}
+                      </div>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        {user.email}
+                        {emailVerified
+                          ? " — адрес подтверждён."
+                          : " — подтвердите адрес, чтобы получать уведомления и восстанавливать доступ."}
+                      </p>
+                      {!emailVerified && (
+                        <div className="mt-3">
+                          {emailVerifSent ? (
+                            <p className="text-sm text-emerald-700 font-medium">
+                              ✅ Ссылка отправлена! Откройте письмо и нажмите на ссылку подтверждения.
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  setEmailVerifSent(false);
+                                  setEmailVerifBusy(false);
+                                }}
+                                className="ml-2 underline text-muted-foreground hover:text-foreground text-xs"
+                              >
+                                Отправить снова
+                              </button>
+                            </p>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={emailVerifBusy}
+                              onClick={async () => {
+                                setEmailVerifBusy(true);
+                                try {
+                                  const API_BASE = import.meta.env.VITE_API_URL ?? "";
+                                  const r = await fetch(`${API_BASE}/api/auth/send-verify-email`, {
+                                    method: "POST",
+                                    headers: { ...authHeaders.headers },
+                                  });
+                                  const data = await r.json();
+                                  if (data.alreadyVerified) {
+                                    setEmailVerified(true);
+                                    toast({ title: "Email уже подтверждён" });
+                                    return;
+                                  }
+                                  if (data.sent) {
+                                    // Мок-режим: сразу верифицируем по токену из ответа
+                                    if (data.mockVerifyToken) {
+                                      const vr = await fetch(`${API_BASE}/api/auth/verify-email`, {
+                                        method: "POST",
+                                        headers: { "Content-Type": "application/json" },
+                                        body: JSON.stringify({ token: data.mockVerifyToken }),
+                                      });
+                                      if (vr.ok) {
+                                        setEmailVerified(true);
+                                        toast({ title: "✅ Email подтверждён!", description: "Адрес успешно верифицирован." });
+                                        return;
+                                      }
+                                    }
+                                    setEmailVerifSent(true);
+                                    toast({ title: "Письмо отправлено", description: "Проверьте почту и перейдите по ссылке." });
+                                  }
+                                } catch {
+                                  toast({ title: "Ошибка", description: "Не удалось отправить письмо", variant: "destructive" });
+                                } finally {
+                                  setEmailVerifBusy(false);
+                                }
+                              }}
+                              className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary/90 transition disabled:opacity-50"
+                            >
+                              {emailVerifBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <BadgeCheck className="w-4 h-4" />}
+                              Подтвердить email
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>

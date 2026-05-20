@@ -6,7 +6,7 @@ import {
   regionsTable,
   authSessionsTable,
 } from "@workspace/db";
-import { and, eq, gt, isNull } from "drizzle-orm";
+import { and, eq, gt, isNull, sql } from "drizzle-orm";
 import { RegisterUserBody, LoginUserBody } from "@workspace/api-zod";
 import { issueAccessToken, verifyAccessToken } from "../lib/auth-token";
 import {
@@ -71,6 +71,7 @@ function formatUser(user: typeof usersTable.$inferSelect, regionName?: string) {
     // Stage 29 — Trust Score: 0..100, NULL пока ещё не вычислялось.
     trustScore: user.trustScore ?? null,
     trustScoreUpdatedAt: user.trustScoreUpdatedAt ? user.trustScoreUpdatedAt.toISOString() : null,
+    emailVerified: (user as any).emailVerified ?? false,
     createdAt: user.createdAt.toISOString(),
   };
 }
@@ -267,6 +268,73 @@ router.get("/me", async (req, res) => {
     res.json(formatUser(user, regionName));
   } catch {
     res.status(401).json({ error: "unauthorized", message: "Недействительный токен" });
+  }
+});
+
+// ─── POST /auth/send-verify-email — отправляет (мок) ссылку верификации ────
+router.post("/send-verify-email", async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+    if (!token) { res.status(401).json({ error: "unauthorized" }); return; }
+    const payload = verifyAccessToken(token);
+    if (!payload) { res.status(401).json({ error: "unauthorized" }); return; }
+
+    const [user] = await db.select().from(usersTable).where(eq(usersTable.id, payload.userId)).limit(1);
+    if (!user) { res.status(401).json({ error: "unauthorized" }); return; }
+
+    if ((user as any).emailVerified) {
+      res.json({ alreadyVerified: true });
+      return;
+    }
+
+    // Мок-режим: генерируем токен, сразу возвращаем ссылку (в production отправлялась бы почта)
+    const { randomUUID } = await import("crypto");
+    const vToken = randomUUID();
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24ч
+
+    await db.update(usersTable).set({
+      emailVerifyToken: vToken,
+      emailVerifyTokenExpiresAt: expiresAt,
+    } as any).where(eq(usersTable.id, user.id));
+
+    res.json({
+      sent: true,
+      // В dev-режиме возвращаем токен прямо в ответе для мок-верификации
+      mockVerifyToken: process.env.NODE_ENV !== "production" ? vToken : undefined,
+    });
+  } catch {
+    res.status(500).json({ error: "server_error" });
+  }
+});
+
+// ─── POST /auth/verify-email — верифицирует email по токену ─────────────────
+router.post("/verify-email", async (req, res) => {
+  try {
+    const { token: vToken } = req.body as { token?: string };
+    if (!vToken) { res.status(400).json({ error: "token_required" }); return; }
+
+    const [user] = await db.select().from(usersTable)
+      .where(eq(usersTable.emailVerifyToken as any, vToken))
+      .limit(1);
+
+    if (!user) { res.status(400).json({ error: "invalid_token", message: "Ссылка недействительна или уже использована" }); return; }
+
+    const expiresAt: Date | null = (user as any).emailVerifyTokenExpiresAt;
+    if (expiresAt && new Date() > expiresAt) {
+      res.status(400).json({ error: "token_expired", message: "Ссылка истекла. Запросите новую." });
+      return;
+    }
+
+    await db.update(usersTable).set({
+      emailVerified: true,
+      emailVerifyToken: null,
+      emailVerifyTokenExpiresAt: null,
+    } as any).where(eq(usersTable.id, user.id));
+
+    res.json({ verified: true });
+  } catch {
+    res.status(500).json({ error: "server_error" });
   }
 });
 

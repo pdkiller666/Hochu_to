@@ -132,6 +132,66 @@ export default function ListingForm() {
   });
   const [pickerIdx, setPickerIdx] = useState<number | null>(null);
 
+  // ─── Crop modal ──────────────────────────────────────────────────────────────
+  const [cropModal, setCropModal] = useState<{ idx: number; src: string } | null>(null);
+  const cropCanvasRef = useRef<HTMLCanvasElement>(null);
+  const cropImgRef = useRef<HTMLImageElement | null>(null);
+  const [cropDrag, setCropDrag] = useState<{ startX: number; startY: number; ox: number; oy: number } | null>(null);
+  const [cropOffset, setCropOffset] = useState({ x: 0, y: 0 });
+  const [cropScale, setCropScale] = useState(1);
+
+  const openCropModal = (idx: number) => {
+    const url = photos[idx];
+    if (!url) return;
+    setCropOffset({ x: 0, y: 0 });
+    setCropScale(1);
+    setCropModal({ idx, src: url.startsWith("http") ? url : `${API_BASE}${url}` });
+  };
+
+  const applyCrop = async () => {
+    if (!cropModal || !cropCanvasRef.current || !cropImgRef.current) return;
+    const canvas = cropCanvasRef.current;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    const SIZE = 800;
+    canvas.width = SIZE;
+    canvas.height = SIZE;
+    ctx.clearRect(0, 0, SIZE, SIZE);
+    const img = cropImgRef.current;
+    const scale = cropScale;
+    const ox = cropOffset.x;
+    const oy = cropOffset.y;
+    // Вычисляем размер изображения в canvas-координатах
+    const natural = Math.min(img.naturalWidth, img.naturalHeight);
+    const displaySize = SIZE * scale;
+    const aspectW = (img.naturalWidth / natural) * displaySize;
+    const aspectH = (img.naturalHeight / natural) * displaySize;
+    const drawX = (SIZE - aspectW) / 2 + ox;
+    const drawY = (SIZE - aspectH) / 2 + oy;
+    ctx.drawImage(img, drawX, drawY, aspectW, aspectH);
+
+    canvas.toBlob(async (blob) => {
+      if (!blob) return;
+      const form = new FormData();
+      form.append("photos", blob, "cropped.jpg");
+      try {
+        const res = await fetch(`${API_BASE}/api/upload`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+          body: form,
+        });
+        if (!res.ok) throw new Error();
+        const { urls } = await res.json() as { urls: string[] };
+        const newUrl = urls[0];
+        setPhotos(prev => prev.map((p, i) => i === cropModal.idx ? newUrl : p));
+        toast({ title: "Фото обрезано и сохранено" });
+      } catch {
+        toast({ title: "Не удалось сохранить обрезанное фото", variant: "destructive" });
+      }
+      setCropModal(null);
+    }, "image/jpeg", 0.92);
+  };
+
   const [uploading, setUploading] = useState(false);
   const uploadInputId = "photo-upload-input";
 
@@ -1067,11 +1127,20 @@ export default function ListingForm() {
                           Главным
                         </button>
                       )}
+                      {/* Crop button */}
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); openCropModal(i); }}
+                        className="absolute top-1 left-1 w-5 h-5 bg-black/60 hover:bg-emerald-600 text-white rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-[9px] font-bold leading-none"
+                        title="Обрезать фото"
+                      >
+                        ✂
+                      </button>
                       {/* Position picker toggle */}
                       <button
                         type="button"
                         onClick={(e) => { e.stopPropagation(); setPickerIdx(pickerIdx === i ? null : i); }}
-                        className="absolute top-1 left-1 w-5 h-5 bg-black/60 hover:bg-primary text-white rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-[9px] font-bold leading-none"
+                        className="absolute top-7 left-1 w-5 h-5 bg-black/60 hover:bg-primary text-white rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-[9px] font-bold leading-none"
                         title="Кадрирование"
                       >
                         ⛶
@@ -1152,6 +1221,115 @@ export default function ListingForm() {
           </div>
         </form>
       </div>
+
+      {/* ─── Crop Modal ────────────────────────────────────────────────────── */}
+      {cropModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col gap-0 overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+              <h3 className="font-bold text-base flex items-center gap-2">✂ Обрезать фото</h3>
+              <button onClick={() => setCropModal(null)} className="p-1.5 hover:bg-stone-100 rounded-lg">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-4 flex flex-col gap-4">
+              {/* Canvas preview */}
+              <div
+                className="relative w-full aspect-square bg-stone-100 rounded-xl overflow-hidden cursor-move select-none border border-border"
+                onMouseDown={(e) => {
+                  setCropDrag({ startX: e.clientX, startY: e.clientY, ox: cropOffset.x, oy: cropOffset.y });
+                }}
+                onMouseMove={(e) => {
+                  if (!cropDrag) return;
+                  setCropOffset({ x: cropDrag.ox + (e.clientX - cropDrag.startX), y: cropDrag.oy + (e.clientY - cropDrag.startY) });
+                }}
+                onMouseUp={() => setCropDrag(null)}
+                onMouseLeave={() => setCropDrag(null)}
+                onTouchStart={(e) => {
+                  const t = e.touches[0];
+                  setCropDrag({ startX: t.clientX, startY: t.clientY, ox: cropOffset.x, oy: cropOffset.y });
+                }}
+                onTouchMove={(e) => {
+                  if (!cropDrag) return;
+                  const t = e.touches[0];
+                  setCropOffset({ x: cropDrag.ox + (t.clientX - cropDrag.startX), y: cropDrag.oy + (t.clientY - cropDrag.startY) });
+                }}
+                onTouchEnd={() => setCropDrag(null)}
+              >
+                <img
+                  ref={cropImgRef}
+                  src={cropModal.src}
+                  alt=""
+                  className="absolute"
+                  style={{
+                    left: "50%",
+                    top: "50%",
+                    transform: `translate(-50%, -50%) translate(${cropOffset.x}px, ${cropOffset.y}px) scale(${cropScale})`,
+                    transformOrigin: "center",
+                    maxWidth: "none",
+                    maxHeight: "none",
+                    width: `${cropScale * 100}%`,
+                    height: "auto",
+                    pointerEvents: "none",
+                    userSelect: "none",
+                  }}
+                  draggable={false}
+                  crossOrigin="anonymous"
+                />
+                {/* Crop frame overlay */}
+                <div className="absolute inset-0 border-2 border-white/60 pointer-events-none" />
+                <div className="absolute inset-0 grid grid-cols-3 grid-rows-3 pointer-events-none">
+                  {Array.from({ length: 9 }).map((_, i) => (
+                    <div key={i} className="border border-white/20" />
+                  ))}
+                </div>
+              </div>
+
+              {/* Zoom */}
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-muted-foreground w-8">🔍 {Math.round(cropScale * 100)}%</span>
+                <input
+                  type="range"
+                  min={0.5}
+                  max={3}
+                  step={0.05}
+                  value={cropScale}
+                  onChange={(e) => setCropScale(Number(e.target.value))}
+                  className="flex-1 accent-primary"
+                />
+                <button
+                  type="button"
+                  onClick={() => { setCropOffset({ x: 0, y: 0 }); setCropScale(1); }}
+                  className="text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded-lg hover:bg-stone-100 transition-colors"
+                >
+                  Сброс
+                </button>
+              </div>
+
+              <p className="text-xs text-muted-foreground text-center">Перетаскивайте фото мышью или пальцем. Колесо прокрутки — масштаб.</p>
+
+              {/* Hidden canvas for export */}
+              <canvas ref={cropCanvasRef} className="hidden" />
+            </div>
+            <div className="flex gap-3 px-5 pb-5">
+              <button
+                type="button"
+                onClick={() => setCropModal(null)}
+                className="flex-1 py-2.5 bg-stone-100 hover:bg-stone-200 rounded-xl text-sm font-bold transition-colors"
+              >
+                Отмена
+              </button>
+              <button
+                type="button"
+                onClick={applyCrop}
+                className="flex-1 py-2.5 bg-primary hover:bg-primary/90 text-white rounded-xl text-sm font-bold transition-colors flex items-center justify-center gap-2"
+              >
+                ✂ Применить
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </Layout>
   );
 }

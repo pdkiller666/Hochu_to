@@ -53,6 +53,12 @@ export const usersTable = pgTable("users", {
   phoneOtp: text("phone_otp"),
   /** Когда истекает phone OTP (5 минут) */
   phoneOtpExpiresAt: timestamp("phone_otp_expires_at"),
+  /** Подтверждён ли email через ссылку из письма */
+  emailVerified: boolean("email_verified").default(false).notNull(),
+  /** Токен для верификации email (UUID, TTL 24ч) */
+  emailVerifyToken: text("email_verify_token"),
+  /** Когда истекает токен верификации email */
+  emailVerifyTokenExpiresAt: timestamp("email_verify_token_expires_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
