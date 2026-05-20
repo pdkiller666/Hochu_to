@@ -212,43 +212,12 @@ export default function Catalog() {
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
 
-          {/* M-3: Горизонтальный скролл категорий */}
-          {categories && categories.length > 0 && (
-            <div className="flex gap-1.5 overflow-x-auto py-2 scrollbar-none [-ms-overflow-style:none] [scrollbar-width:none] border-b border-border/40">
-              <button
-                onClick={() => setCategory("")}
-                className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-semibold transition-colors border ${
-                  !category
-                    ? "bg-primary text-white border-primary"
-                    : "bg-white border-border hover:border-primary hover:text-primary text-foreground"
-                }`}
-              >
-                Все
-              </button>
-              {categories.map((cat) => (
-                <button
-                  key={cat.id}
-                  onClick={() => setCategory(cat.slug)}
-                  className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-semibold transition-colors border whitespace-nowrap ${
-                    category === cat.slug
-                      ? "bg-primary text-white border-primary"
-                      : "bg-white border-border hover:border-primary hover:text-primary text-foreground"
-                  }`}
-                >
-                  {cat.name}
-                  {(cat as any).listingCount > 0 && (
-                    <span className="ml-1 opacity-60">{(cat as any).listingCount}</span>
-                  )}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* Toggle bar — всегда видим, открывает/скрывает панель */}
-          <div className="pt-3 pb-2 flex items-center gap-2 flex-wrap">
+          {/* Toggle bar + карусель категорий в одну строку */}
+          <div className="py-2 flex items-center gap-2 min-w-0">
+            {/* Кнопка фильтров — фиксированная слева */}
             <button
               onClick={() => setShowFilters(v => !v)}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold border transition-all ${
+              className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-semibold border transition-all ${
                 showFilters || hasActiveFilters
                   ? "bg-primary/10 border-primary text-primary"
                   : "bg-white border-border text-foreground hover:border-primary hover:text-primary"
@@ -264,61 +233,45 @@ export default function Catalog() {
               {showFilters ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
             </button>
 
-            {/* Активные чипсы — видны даже когда панель свёрнута */}
-            {!showFilters && (
-              <>
-                {selectedRegionName && (
-                  <button
-                    onClick={() => { setRegion(""); regionInitialized.current = true; }}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 bg-primary/10 text-primary rounded-full text-xs font-semibold hover:bg-primary/20"
-                    title="Убрать фильтр"
-                  >
-                    <MapPin className="w-3 h-3" /> {selectedRegionName} <X className="w-3 h-3" />
-                  </button>
-                )}
-                {selectedCategoryName && (
-                  <button
-                    onClick={() => setCategory("")}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 bg-primary/10 text-primary rounded-full text-xs font-semibold hover:bg-primary/20"
-                    title="Убрать фильтр"
-                  >
-                    {selectedCategoryName} <X className="w-3 h-3" />
-                  </button>
-                )}
-                {(minPrice || maxPrice) && (
-                  <button
-                    onClick={() => { setMinPrice(""); setMaxPrice(""); }}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 bg-primary/10 text-primary rounded-full text-xs font-semibold hover:bg-primary/20"
-                    title="Убрать фильтр"
-                  >
-                    {minPrice || "0"}–{maxPrice || "∞"} ₽ <X className="w-3 h-3" />
-                  </button>
-                )}
-                {sort && sort !== "new" && (
-                  <button
-                    onClick={() => setSort("new")}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 bg-primary/10 text-primary rounded-full text-xs font-semibold hover:bg-primary/20"
-                    title="Убрать фильтр"
-                  >
-                    <ArrowUpDown className="w-3 h-3" /> {selectedSortLabel} <X className="w-3 h-3" />
-                  </button>
-                )}
-                {safeOnly && (
-                  <button
-                    onClick={() => setSafeOnly(false)}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 bg-green-100 text-green-700 rounded-full text-xs font-semibold hover:bg-green-200"
-                    title="Убрать фильтр"
-                  >
-                    <ShieldCheck className="w-3 h-3" /> Безопасные <X className="w-3 h-3" />
-                  </button>
-                )}
-              </>
-            )}
+            {/* Разделитель */}
+            <div className="flex-shrink-0 w-px h-5 bg-border" />
 
+            {/* Карусель категорий — скроллится вправо */}
+            <div className="flex gap-1.5 overflow-x-auto flex-1 scrollbar-none [-ms-overflow-style:none] [scrollbar-width:none] py-0.5">
+              <button
+                onClick={() => setCategory("")}
+                className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors border whitespace-nowrap ${
+                  !category
+                    ? "bg-primary text-white border-primary"
+                    : "bg-white border-border hover:border-primary hover:text-primary text-foreground"
+                }`}
+              >
+                Все
+              </button>
+              {categories?.map((cat) => (
+                <button
+                  key={cat.id}
+                  onClick={() => setCategory(category === cat.slug ? "" : cat.slug)}
+                  className={`flex-shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors border whitespace-nowrap ${
+                    category === cat.slug
+                      ? "bg-primary text-white border-primary"
+                      : "bg-white border-border hover:border-primary hover:text-primary text-foreground"
+                  }`}
+                >
+                  {(cat as any).icon && <span>{(cat as any).icon}</span>}
+                  <span>{cat.name}</span>
+                  {(cat as any).listingCount > 0 && (
+                    <span className="opacity-60">{(cat as any).listingCount}</span>
+                  )}
+                </button>
+              ))}
+            </div>
+
+            {/* Сбросить — прижат к правому краю */}
             {hasActiveFilters && (
               <button
                 onClick={resetFilters}
-                className="ml-auto flex items-center gap-1 px-3 py-2 rounded-xl text-sm text-muted-foreground hover:text-destructive hover:bg-destructive/10 border border-transparent transition-all"
+                className="flex-shrink-0 flex items-center gap-1 px-3 py-2 rounded-xl text-sm text-muted-foreground hover:text-destructive hover:bg-destructive/10 border border-transparent transition-all"
                 title="Сбросить все фильтры"
               >
                 <X className="w-4 h-4" />
@@ -459,36 +412,6 @@ export default function Catalog() {
             </div>
           </div>
 
-          {/* Category pills */}
-          <div
-            className="flex gap-2 overflow-x-auto pb-3 no-scrollbar"
-            style={{ scrollbarWidth: "none" }}
-          >
-            <button
-              onClick={() => setCategory("")}
-              className={`flex-shrink-0 flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-sm font-semibold border transition-all whitespace-nowrap ${
-                category === ""
-                  ? "bg-primary text-white border-primary shadow-sm"
-                  : "bg-white text-foreground border-border hover:border-primary hover:text-primary"
-              }`}
-            >
-              Все категории
-            </button>
-            {categories?.map(c => (
-              <button
-                key={c.id}
-                onClick={() => setCategory(category === c.slug ? "" : c.slug)}
-                className={`flex-shrink-0 flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-sm font-semibold border transition-all whitespace-nowrap ${
-                  category === c.slug
-                    ? "bg-primary text-white border-primary shadow-sm"
-                    : "bg-white text-foreground border-border hover:border-primary hover:text-primary"
-                }`}
-              >
-                <span>{c.icon}</span>
-                <span>{c.name}</span>
-              </button>
-            ))}
-          </div>
           </>
           )}
         </div>
