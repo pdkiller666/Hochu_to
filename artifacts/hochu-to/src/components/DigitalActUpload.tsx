@@ -1,7 +1,8 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import {
   Loader2, Camera, X, MapPin, Clock, ShieldCheck, AlertTriangle,
   PenLine, Video, Upload, Maximize2, Info, CheckCircle2, UserCheck,
+  ChevronLeft, ChevronRight, ZoomIn,
 } from "lucide-react";
 // @ts-expect-error — exifr — pure JS, no bundled .d.ts
 import exifr from "exifr";
@@ -59,6 +60,7 @@ export function DigitalActUpload({
 
   const [actMode, setActMode] = useState<ActMode>(bookingId != null && currentUserId != null ? "loading" : "full");
   const [existingAct, setExistingAct] = useState<any>(null);
+  const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
 
   const [photos, setPhotos] = useState<UploadedPhoto[]>([]);
   const [videoUrl, setVideoUrl] = useState("");
@@ -414,16 +416,105 @@ export function DigitalActUpload({
               {/* Фото из акта (только просмотр) */}
               {existingAct?.photos?.length > 0 && (
                 <div>
-                  <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-2 block">
-                    Фото из акта ({existingAct.photos.length} шт.)
+                  <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-2">
+                    📷 Фото из акта ({existingAct.photos.length} шт.)
+                    <span className="text-[10px] font-normal text-muted-foreground normal-case tracking-normal">— нажмите для просмотра</span>
                   </label>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-2 gap-2">
                     {existingAct.photos.map((url: string, i: number) => (
-                      <div key={i} className="aspect-square rounded-lg overflow-hidden border border-stone-200 bg-stone-100">
-                        <img src={`${API_BASE}${url}`} alt="" className="w-full h-full object-cover" />
-                      </div>
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => setLightboxIdx(i)}
+                        className="relative aspect-square rounded-xl overflow-hidden border border-stone-200 bg-stone-100 group focus:outline-none focus:ring-2 focus:ring-primary"
+                      >
+                        <img
+                          src={url.startsWith("http") ? url : `${API_BASE}${url}`}
+                          alt={`Фото ${i + 1}`}
+                          className="w-full h-full object-cover transition-transform duration-200 group-hover:scale-105"
+                        />
+                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
+                          <ZoomIn className="w-6 h-6 text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-lg" />
+                        </div>
+                        <div className="absolute bottom-1 right-1 text-[10px] bg-black/50 text-white px-1.5 py-0.5 rounded font-medium">
+                          {i + 1}/{existingAct.photos.length}
+                        </div>
+                      </button>
                     ))}
                   </div>
+                </div>
+              )}
+
+              {/* Лайтбокс */}
+              {lightboxIdx !== null && existingAct?.photos && (
+                <div
+                  className="fixed inset-0 z-[100] bg-black/90 flex items-center justify-center"
+                  onClick={() => setLightboxIdx(null)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") setLightboxIdx(null);
+                    if (e.key === "ArrowLeft") setLightboxIdx(i => i !== null && i > 0 ? i - 1 : i);
+                    if (e.key === "ArrowRight") setLightboxIdx(i => i !== null && i < existingAct.photos.length - 1 ? i + 1 : i);
+                  }}
+                  tabIndex={-1}
+                  ref={el => el?.focus()}
+                >
+                  {/* Закрыть */}
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setLightboxIdx(null); }}
+                    className="absolute top-4 right-4 w-10 h-10 bg-white/10 hover:bg-white/20 rounded-full flex items-center justify-center text-white transition-colors z-10"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+
+                  {/* Счётчик */}
+                  <div className="absolute top-4 left-1/2 -translate-x-1/2 text-white/70 text-sm font-medium bg-black/40 px-3 py-1 rounded-full">
+                    {lightboxIdx + 1} / {existingAct.photos.length}
+                  </div>
+
+                  {/* Стрелка влево */}
+                  {lightboxIdx > 0 && (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setLightboxIdx(lightboxIdx - 1); }}
+                      className="absolute left-3 w-10 h-10 bg-white/10 hover:bg-white/20 rounded-full flex items-center justify-center text-white transition-colors"
+                    >
+                      <ChevronLeft className="w-6 h-6" />
+                    </button>
+                  )}
+
+                  {/* Фото */}
+                  <img
+                    src={existingAct.photos[lightboxIdx].startsWith("http") ? existingAct.photos[lightboxIdx] : `${API_BASE}${existingAct.photos[lightboxIdx]}`}
+                    alt={`Фото ${lightboxIdx + 1}`}
+                    className="max-w-[90vw] max-h-[85vh] rounded-xl object-contain shadow-2xl"
+                    onClick={(e) => e.stopPropagation()}
+                  />
+
+                  {/* Стрелка вправо */}
+                  {lightboxIdx < existingAct.photos.length - 1 && (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setLightboxIdx(lightboxIdx + 1); }}
+                      className="absolute right-3 w-10 h-10 bg-white/10 hover:bg-white/20 rounded-full flex items-center justify-center text-white transition-colors"
+                    >
+                      <ChevronRight className="w-6 h-6" />
+                    </button>
+                  )}
+
+                  {/* Точки-навигация */}
+                  {existingAct.photos.length > 1 && (
+                    <div className="absolute bottom-5 left-1/2 -translate-x-1/2 flex gap-1.5">
+                      {existingAct.photos.map((_: string, i: number) => (
+                        <button
+                          key={i}
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setLightboxIdx(i); }}
+                          className={`w-2 h-2 rounded-full transition-colors ${i === lightboxIdx ? "bg-white" : "bg-white/30 hover:bg-white/60"}`}
+                        />
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
