@@ -68,12 +68,8 @@ channel = "stable-25_05"
 [userenv]
 
 [userenv.shared]
-GITHUB_TOKEN = "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"
+GITHUB_TOKEN = "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"
 
 [[ports]]
 localPort = 5000
 externalPort = 80
-
-[[ports]]
-localPort = 8080
-externalPort = 8080
