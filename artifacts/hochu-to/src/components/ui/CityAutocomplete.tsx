@@ -5,6 +5,77 @@ import { cn } from "@/lib/utils";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "";
 
+// Справочник городов России (федеральные центры + крупные города)
+const RU_CITIES: string[] = [
+  "Москва","Санкт-Петербург","Новосибирск","Екатеринбург","Казань",
+  "Нижний Новгород","Челябинск","Самара","Омск","Ростов-на-Дону",
+  "Уфа","Красноярск","Воронеж","Пермь","Волгоград","Краснодар",
+  "Саратов","Тюмень","Тольятти","Ижевск","Барнаул","Ульяновск",
+  "Иркутск","Хабаровск","Ярославль","Владивосток","Махачкала",
+  "Томск","Оренбург","Кемерово","Новокузнецк","Рязань","Астрахань",
+  "Набережные Челны","Пенза","Липецк","Тула","Киров","Чебоксары",
+  "Калининград","Брянск","Курск","Иваново","Магнитогорск","Тверь",
+  "Ставрополь","Нижний Тагил","Белгород","Архангельск","Владимир",
+  "Сочи","Чита","Смоленск","Сургут","Волжский","Якутск","Орёл",
+  "Улан-Удэ","Вологда","Саранск","Череповец","Тамбов","Симферополь",
+  "Стерлитамак","Мурманск","Владикавказ","Нижневартовск","Петрозаводск",
+  "Кострома","Нальчик","Новороссийск","Калуга","Грозный","Чебоксары",
+  "Сыктывкар","Севастополь","Йошкар-Ола","Абакан","Псков","Великий Новгород",
+  "Рыбинск","Балашиха","Химки","Подольск","Одинцово","Люберцы",
+  "Мытищи","Красногорск","Королёв","Электросталь","Коломна","Раменское",
+  "Серпухов","Жуковский","Ногинск","Орехово-Зуево","Домодедово",
+  "Долгопрудный","Щёлково","Пушкино","Наро-Фоминск","Клин","Дмитров",
+  "Воскресенск","Ступино","Можайск","Истра","Видное","Реутов",
+  "Бийск","Рубцовск","Армавир","Пятигорск","Кисловодск","Ессентуки",
+  "Таганрог","Шахты","Батайск","Новочеркасск","Волгодонск","Каменск-Шахтинский",
+  "Тобольск","Ишим","Ханты-Мансийск","Нефтеюганск","Нягань",
+  "Прокопьевск","Новокузнецк","Ленинск-Кузнецкий","Белово","Киселёвск",
+  "Ачинск","Норильск","Канск","Минусинск","Железногорск",
+  "Ангарск","Братск","Усть-Илимск","Шелехов","Саянск",
+  "Комсомольск-на-Амуре","Амурск","Биробиджан",
+  "Южно-Сахалинск","Петропавловск-Камчатский","Магадан","Анадырь",
+  "Нарьян-Мар","Салехард","Новый Уренгой","Ноябрьск","Муравленко",
+  "Ухта","Усинск","Воркута","Инта","Сыктывкар",
+  "Великие Луки","Псков","Тихвин","Гатчина","Выборг","Сосновый Бор",
+  "Петергоф","Колпино","Пушкин","Павловск","Кронштадт",
+  "Нижний Новгород","Дзержинск","Арзамас","Саров","Бор","Кстово",
+  "Оренбург","Орск","Новотроицк","Бузулук","Бугуруслан",
+  "Пенза","Кузнецк","Заречный","Нижний Ломов",
+  "Саратов","Балаково","Энгельс","Балашов","Вольск","Маркс",
+  "Тольятти","Сызрань","Новокуйбышевск","Чапаевск","Кинель",
+  "Ульяновск","Димитровград","Инза","Барыш","Сенгилей",
+  "Казань","Набережные Челны","Альметьевск","Зеленодольск","Нижнекамск","Чистополь",
+  "Уфа","Стерлитамак","Салават","Нефтекамск","Октябрьский","Туймазы","Белебей",
+  "Пермь","Березники","Соликамск","Лысьва","Чайковский","Краснокамск",
+  "Екатеринбург","Нижний Тагил","Каменск-Уральский","Первоуральск","Серов","Асбест",
+  "Тюмень","Тобольск","Ишим","Ялуторовск","Заводоуковск",
+  "Курган","Шадринск","Шумиха","Куртамыш",
+  "Магнитогорск","Златоуст","Миасс","Копейск","Озёрск","Снежинск",
+];
+
+// Нормализация для нечёткого поиска
+function norm(s: string) {
+  return s.toLowerCase().replace(/ё/g, "е");
+}
+
+function filterStatic(q: string, exclude: Set<string>): string[] {
+  const nq = norm(q);
+  const starts: string[] = [];
+  const includes: string[] = [];
+  for (const city of RU_CITIES) {
+    if (exclude.has(city)) continue;
+    const nc = norm(city);
+    if (nc.startsWith(nq)) starts.push(city);
+    else if (nc.includes(nq)) includes.push(city);
+  }
+  return [...starts, ...includes].slice(0, 6);
+}
+
+interface SuggestItem {
+  name: string;
+  hasListings: boolean;
+}
+
 interface CityAutocompleteProps {
   value: string;
   onChange: (city: string) => void;
@@ -20,13 +91,12 @@ export function CityAutocomplete({
   className,
   inputClassName,
 }: CityAutocompleteProps) {
-  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [suggestions, setSuggestions] = useState<SuggestItem[]>([]);
   const [showDrop, setShowDrop] = useState(false);
   const [loading, setLoading] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Fetch suggestions with 250ms debounce
   useEffect(() => {
     const q = value.trim();
     if (q.length < 2) { setSuggestions([]); setShowDrop(false); return; }
@@ -34,15 +104,26 @@ export function CityAutocomplete({
     const t = setTimeout(async () => {
       setLoading(true);
       try {
-        const res = await fetch(`${API_BASE}/api/listings/cities?q=${encodeURIComponent(q)}`);
-        if (!res.ok) return;
-        const data: string[] = await res.json();
-        if (!cancelled) {
-          setSuggestions(data);
-          setShowDrop(data.length > 0);
-        }
-      } catch {
-        // ignore
+        // Запрос к API (города с реальными объявлениями)
+        let apiCities: string[] = [];
+        try {
+          const res = await fetch(`${API_BASE}/api/listings/cities?q=${encodeURIComponent(q)}`);
+          if (res.ok) apiCities = await res.json();
+        } catch { /* ignore network errors */ }
+
+        if (cancelled) return;
+
+        // Дополняем статическим справочником
+        const apiSet = new Set(apiCities);
+        const staticCities = filterStatic(q, apiSet);
+
+        const items: SuggestItem[] = [
+          ...apiCities.map(c => ({ name: c, hasListings: true })),
+          ...staticCities.map(c => ({ name: c, hasListings: false })),
+        ];
+
+        setSuggestions(items.slice(0, 8));
+        setShowDrop(items.length > 0);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -50,7 +131,7 @@ export function CityAutocomplete({
     return () => { cancelled = true; clearTimeout(t); };
   }, [value]);
 
-  // Close on outside click
+  // Закрытие по клику вовне
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
@@ -74,9 +155,9 @@ export function CityAutocomplete({
     inputRef.current?.focus();
   }, [onChange]);
 
-  // Highlight matching part
+  // Подсветка совпадения
   const highlight = (text: string, query: string) => {
-    const idx = text.toLowerCase().indexOf(query.toLowerCase());
+    const idx = norm(text).indexOf(norm(query));
     if (idx === -1) return <span>{text}</span>;
     return (
       <>
@@ -113,7 +194,7 @@ export function CityAutocomplete({
             if (e.key === "Escape") { setShowDrop(false); inputRef.current?.blur(); }
             if (e.key === "Enter" && suggestions.length > 0 && showDrop) {
               e.preventDefault();
-              pick(suggestions[0]);
+              pick(suggestions[0].name);
             }
           }}
           className={cn(
@@ -142,16 +223,24 @@ export function CityAutocomplete({
             className="absolute z-50 left-0 right-0 top-full mt-1.5 bg-white border border-border rounded-2xl shadow-xl overflow-hidden"
           >
             <ul role="listbox" className="py-1">
-              {suggestions.map((city) => (
-                <li key={city}>
+              {suggestions.map((item) => (
+                <li key={item.name}>
                   <button
                     type="button"
                     role="option"
-                    onMouseDown={e => { e.preventDefault(); pick(city); }}
+                    onMouseDown={e => { e.preventDefault(); pick(item.name); }}
                     className="w-full flex items-center gap-2.5 px-4 py-2.5 hover:bg-muted/60 transition-colors text-left text-sm"
                   >
-                    <MapPin className="w-3.5 h-3.5 text-primary flex-shrink-0" />
-                    <span>{highlight(city, value.trim())}</span>
+                    <MapPin className={cn(
+                      "w-3.5 h-3.5 flex-shrink-0",
+                      item.hasListings ? "text-primary" : "text-muted-foreground",
+                    )} />
+                    <span className="flex-1 min-w-0">{highlight(item.name, value.trim())}</span>
+                    {item.hasListings && (
+                      <span className="text-[10px] font-semibold text-primary/70 bg-primary/8 px-1.5 py-0.5 rounded-full flex-shrink-0 whitespace-nowrap">
+                        есть объявления
+                      </span>
+                    )}
                   </button>
                 </li>
               ))}
