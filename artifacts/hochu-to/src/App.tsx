@@ -25,6 +25,7 @@ import Pools from "@/pages/Pools";
 import PoolCreate from "@/pages/PoolCreate";
 import PoolDetailPage from "@/pages/PoolDetail";
 import Instructions from "@/pages/Instructions";
+import GuaranteeFund from "@/pages/GuaranteeFund";
 import About from "@/pages/About";
 import Contacts from "@/pages/Contacts";
 import Privacy from "@/pages/Privacy";
@@ -74,7 +75,7 @@ function Router() {
       <Route path="/pools/:id" component={PoolDetailPage} />
       <Route path="/how-to-rent" component={Instructions} />
       <Route path="/how-to-list" component={Instructions} />
-      <Route path="/guarantee-fund" component={Instructions} />
+      <Route path="/guarantee-fund" component={GuaranteeFund} />
 
       <Route path="/admin" component={AdminPage} />
 

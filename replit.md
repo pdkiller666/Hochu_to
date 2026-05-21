@@ -107,7 +107,7 @@ artifacts-monorepo/
 - **/joint-purchases** — Joint purchases page with request form
 - **/how-to-rent** — Instructions for renters
 - **/how-to-list** — Instructions for owners  
-- **/guarantee-fund** — Guarantee fund / mutual aid system description
+- **/guarantee-fund** — «Стальной Щит» — полная страница Гарантийного фонда: терракотовый герой с анимацией, механика фонда (4 шага), Цифровой акт (мок-карточка), категории арбитража A/Б, ИИ-арбитраж (Gemini Vision мок), шаги подачи заявки, антифрод-лимиты, CTA. Файл: `GuaranteeFund.tsx` (отдельный, не Instructions.tsx)
 - **/about** — About us
 - **/contacts** — Contact form + social links
 - **/privacy** — Privacy policy
