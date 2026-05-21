@@ -551,7 +551,12 @@ router.post(
 
           const [listing] = await tx
             .update(listingsTable)
-            .set({ poolId: null, custodianId: reqRow.initiatorId, isAvailable: true })
+            .set({
+              poolId: null,
+              ownerId: reqRow.initiatorId,
+              custodianId: reqRow.initiatorId,
+              isAvailable: true,
+            })
             .where(eq(listingsTable.poolId, reqRow.poolId))
             .returning();
           updatedListing = listing ?? null;

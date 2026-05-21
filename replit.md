@@ -108,9 +108,9 @@ artifacts-monorepo/
 - **/how-to-rent** — Instructions for renters
 - **/how-to-list** — Instructions for owners  
 - **/guarantee-fund** — APEX (Asset Protection & Escrow eXchange) — полная страница Гарантийного фонда: терракотовый герой с анимацией, механика фонда (4 шага), Цифровой акт (мок-карточка), категории арбитража A/Б, ИИ-арбитраж (Gemini Vision мок), шаги подачи заявки, антифрод-лимиты, CTA. Файл: `GuaranteeFund.tsx` (отдельный, не Instructions.tsx)
-- **/co-sharing** — Каталог пулов (список + фильтры по статусу)
-- **/co-sharing/create** — Создание нового пула (`PoolCreate.tsx`): auth-гейт для гостей, форма с URL товара, целевой суммой, реквизитами СБП
-- **/co-sharing/:id** — Детальная страница пула (`PoolDetail.tsx`): прогресс сбора, список акционеров, `ContributeBlock` (СБП-deeplink + tel: ссылка), `PoolCalendarBlock` (занятые даты из `/unavailable-dates` + текущий хранитель), `ResidualValueBlock` (остаточная стоимость), `IncomeBlock` (доходы с аренды), `MarketplaceBlock` (вторичный рынок долей), `BuyoutBlock` (выкуп)
+- **/pools** — Каталог пулов (список + фильтры по статусу). `/joint-purchases` → redirect сюда.
+- **/pools/create** — Создание нового пула (`PoolCreate.tsx`): auth-гейт для гостей, форма с URL товара, целевой суммой, реквизитами СБП
+- **/pools/:id** — Детальная страница пула (`PoolDetail.tsx`): прогресс сбора, список акционеров, `ContributeBlock` (СБП-deeplink + tel: ссылка), `PoolCalendarBlock` (занятые даты из `/unavailable-dates` + текущий хранитель), `ResidualValueBlock` (остаточная стоимость), `IncomeBlock` (доходы с аренды), `MarketplaceBlock` (вторичный рынок долей), `BuyoutBlock` (выкуп)
 - **/about** — About us
 - **/contacts** — Contact form + social links
 - **/privacy** — Privacy policy
@@ -255,7 +255,7 @@ Marketplace-style sticky header (Avito/Wildberries pattern) — visible on all p
 
 **Desktop (md+):** Logo + centered Search bar (flex-grow) + Region pill + Nav (xl+) + Auth/Profile actions on a single 64px row.
 
-**Mobile (<md):** Single-row compact layout (~52px) — Logo icon | Search bar (flex-1, h-36px, thin border) | Heart+Bell (p-2, icon 18px) | Burger. Avito/Ozon pattern. Previous 2-row layout (~114px) was removed in Stage UI-2.
+**Mobile (<md):** Single-row compact layout (~52px) — Logo icon | Search bar (flex-1, h-36px, thin border) | Burger. Heart+Bell убраны из хедера (Stage UI-2b) — теперь только в `BottomNav`. Avito/Ozon pattern. Previous 2-row layout (~114px) was removed in Stage UI-2.
 
 **Search behavior:**
 - Submitting navigates to `/catalog?search=<query>` while preserving other URL params (region, category)
@@ -416,21 +416,21 @@ Located at `artifacts/api-server/src/lib/scheduler.ts`. Runs every hour via `nod
 
 **Это разные ветки!** Amvera держит свой git-репозиторий на ветке `master`, но webhook настроен слушать GitHub `main`. При прямом push в Amvera нужно указывать `main:master`.
 
-- **Основной деплой (через GitHub webhook — автоматически):**
+- **GitHub push (основной деплой):**
   ```bash
-  git push https://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@github.com/pdkiller666/Hochu_to.git main
+  git push "https://pdkiller666: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@github.com/pdkiller666/Hochu_to.git" main
   ```
-  Amvera получает webhook от GitHub и запускает пересборку.
+  Amvera получает webhook от GitHub и запускает пересборку Docker.
 
-- **Прямой push в Amvera (emergency — если webhook не сработал):**
+- **Прямой push в Amvera (если webhook не сработал):**
   ```bash
-  # Обычный пуш (если истории совпадают):
-  git push https://pdkiller666:4_5AznCgvidfr5x@git.msk0.amvera.ru/pdkiller666/hocuto main:master
-
-  # Форс-пуш (если rejected non-fast-forward — Amvera master расходится с нашей историей):
-  git push --force https://pdkiller666:4_5AznCgvidfr5x@git.msk0.amvera.ru/pdkiller666/hocuto main:master
+  git push "https://pdkiller666:4_5AznCgvidfr5x@git.msk0.amvera.ru/pdkiller666/hocuto" main:master
   ```
-- **GitHub push** (2 способа): `bash scripts/github-push.sh "сообщение"` ИЛИ `GITHUB_TOKEN=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 git push origin main`
+- **Оба сразу** (рекомендуется):
+  ```bash
+  git push "https://pdkiller666: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@github.com/pdkiller666/Hochu_to.git" main && \
+  git push "https://pdkiller666:4_5AznCgvidfr5x@git.msk0.amvera.ru/pdkiller666/hocuto" main:master
+  ```
 - **Документация — синхронно с пушем**: на каждой итерации обновлять оба файла:
   - `docs/AGENT_INSTRUCTIONS.md` — добавлять блок «Журнал — Stage X» (что сделано, какие схемы/эндпоинты/UI, какие миграции, что проверено).
   - `replit.md` — обновлять разделы `API Routes`, `Database Schema`, `Project Checklist` (✅ / 🟡 / 🔴) так, чтобы карта проекта всегда отражала реальность.
