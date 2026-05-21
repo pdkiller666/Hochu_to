@@ -1192,21 +1192,21 @@ export default function ListingForm() {
                         onError={e => { (e.currentTarget as HTMLImageElement).src = "https://placehold.co/200x200?text=Фото"; }}
                       />
                       {i === 0 ? (
-                        <span className="absolute bottom-1 left-1 bg-primary text-white text-[10px] font-bold px-1.5 py-0.5 rounded-md">★ Главное</span>
+                        <span className="absolute bottom-2 left-2 bg-primary text-white text-[11px] font-bold px-2 py-1 rounded-md">★ Главное</span>
                       ) : (
                         <button
                           type="button"
                           onClick={() => setMainPhoto(i)}
-                          className="absolute bottom-1 left-1 right-7 bg-black/60 hover:bg-primary text-white text-[10px] font-bold px-1.5 py-0.5 rounded-md sm:opacity-0 sm:group-hover:opacity-100 transition-opacity truncate"
+                          className="absolute bottom-2 left-2 right-10 bg-black/70 hover:bg-primary text-white text-[11px] font-bold px-2 py-1 rounded-md sm:opacity-0 sm:group-hover:opacity-100 transition-opacity truncate"
                         >
-                          Главным
+                          ★ Главным
                         </button>
                       )}
                       {/* Crop button */}
                       <button
                         type="button"
                         onClick={(e) => { e.stopPropagation(); openCropModal(i); }}
-                        className="absolute top-1 left-1 w-7 h-7 sm:w-5 sm:h-5 bg-black/60 hover:bg-emerald-600 text-white rounded flex items-center justify-center sm:opacity-0 sm:group-hover:opacity-100 transition-opacity text-sm sm:text-[9px] font-bold leading-none"
+                        className="absolute top-2 left-2 w-10 h-10 sm:w-6 sm:h-6 bg-black/70 hover:bg-emerald-600 text-white rounded-xl sm:rounded flex items-center justify-center sm:opacity-0 sm:group-hover:opacity-100 transition-opacity text-lg sm:text-[9px] font-bold leading-none shadow-lg"
                         title="Обрезать фото"
                       >
                         ✂
@@ -1215,7 +1215,7 @@ export default function ListingForm() {
                       <button
                         type="button"
                         onClick={(e) => { e.stopPropagation(); setPickerIdx(pickerIdx === i ? null : i); }}
-                        className="absolute top-9 sm:top-7 left-1 w-7 h-7 sm:w-5 sm:h-5 bg-black/60 hover:bg-primary text-white rounded flex items-center justify-center sm:opacity-0 sm:group-hover:opacity-100 transition-opacity text-base sm:text-[9px] font-bold leading-none"
+                        className="absolute top-14 sm:top-7 left-2 w-10 h-10 sm:w-5 sm:h-5 bg-black/70 hover:bg-primary text-white rounded-xl sm:rounded flex items-center justify-center sm:opacity-0 sm:group-hover:opacity-100 transition-opacity text-xl sm:text-[9px] font-bold leading-none shadow-lg"
                         title="Кадрирование"
                       >
                         ⛶
@@ -1223,9 +1223,9 @@ export default function ListingForm() {
                       <button
                         type="button"
                         onClick={() => removePhoto(i)}
-                        className="absolute top-1 right-1 w-8 h-8 sm:w-6 sm:h-6 bg-black/60 hover:bg-red-500 text-white rounded-full flex items-center justify-center sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
+                        className="absolute top-2 right-2 w-10 h-10 sm:w-6 sm:h-6 bg-black/70 hover:bg-red-500 text-white rounded-full flex items-center justify-center sm:opacity-0 sm:group-hover:opacity-100 transition-opacity shadow-lg"
                       >
-                        <X className="w-4 h-4 sm:w-3 sm:h-3" />
+                        <X className="w-5 h-5 sm:w-3 sm:h-3" />
                       </button>
                       {/* Position picker overlay */}
                       {pickerIdx === i && (
