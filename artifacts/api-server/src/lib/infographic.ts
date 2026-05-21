@@ -150,6 +150,7 @@ OUTPUT: Complete, ready-to-post product card image.`;
 
 async function tryOpenRouter(
   prompt: string,
+  imageBuffer: Buffer,
   format: "square" | "horizontal" = "square",
 ): Promise<{ image: Buffer; provider: string } | null> {
   const apiKey = process.env.OPENROUTER_API_KEY?.trim();
@@ -158,15 +159,32 @@ async function tryOpenRouter(
     return null;
   }
 
-  // OpenRouter использует /chat/completions с полем modalities, НЕ /images/generate
+  // OpenRouter: /chat/completions с modalities + image_url для референс-фото
+  // Docs: https://openrouter.ai/docs/guides/overview/multimodal/image-understanding
+  // Текстовый промпт — первым, затем image_url. Фото кодируется в base64 JPEG.
   const aspectRatio = format === "horizontal" ? "16:9" : "1:1";
   const models = getOpenRouterModels();
+
+  // Готовим JPEG-версию референс-фото (≤1024px, 85% quality)
+  const refJpeg = await sharp(imageBuffer)
+    .rotate()
+    .resize(1024, 1024, { fit: "inside", withoutEnlargement: true })
+    .jpeg({ quality: 85 })
+    .toBuffer()
+    .catch(() => null);
+  const refB64 = refJpeg ? `data:image/jpeg;base64,${refJpeg.toString("base64")}` : null;
 
   for (const model of models) {
     const modalities = pickModalities(model);
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 60_000);
     try {
+      // Multipart content: текст первым (рекомендация доки), потом фото (если есть)
+      const userContent: any[] = [{ type: "text", text: prompt }];
+      if (refB64) {
+        userContent.push({ type: "image_url", image_url: { url: refB64 } });
+      }
+
       const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -177,7 +195,7 @@ async function tryOpenRouter(
         },
         body: JSON.stringify({
           model,
-          messages: [{ role: "user", content: prompt }],
+          messages: [{ role: "user", content: userContent }],
           modalities,
           image_config: { aspect_ratio: aspectRatio },
           stream: false,
@@ -453,7 +471,7 @@ export async function generateGenerativeInfographic(
 
   // 4. Tier 1: OpenRouter
   try {
-    const result = await tryOpenRouter(prompt, format);
+    const result = await tryOpenRouter(prompt, sourceBuffer, format);
     if (result) {
       const out = await sharp(result.image).webp({ quality: 90 }).toBuffer();
       await putCached(cacheKey, out);
