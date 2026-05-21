@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db, listingsTable, usersTable, categoriesTable, regionsTable, reviewsTable, bookingsTable, listingViewsTable } from "@workspace/db";
-import { eq, and, gte, lte, sql, or, desc, count } from "drizzle-orm";
+import { eq, and, gte, lte, sql, or, desc, count, ilike, isNotNull } from "drizzle-orm";
 import { requireAuth, AuthRequest } from "../middleware/auth.js";
 import { verifyAccessToken } from "../lib/auth-token.js";
 import { CreateListingBody } from "@workspace/api-zod";
@@ -540,6 +540,24 @@ router.post("/", requireAuth, async (req: AuthRequest, res) => {
     deposit: full!.deposit ? parseFloat(full!.deposit as unknown as string) : undefined,
     createdAt: full!.createdAt.toISOString(),
   });
+});
+
+// GET /cities?q=... — distinct city names from listings for autocomplete
+router.get("/cities", async (req, res) => {
+  const q = String(req.query.q ?? "").trim();
+  if (q.length < 2) { res.json([]); return; }
+  const rows = await db
+    .selectDistinct({ city: listingsTable.city })
+    .from(listingsTable)
+    .where(and(isNotNull(listingsTable.city), ilike(listingsTable.city, `%${q}%`)))
+    .limit(8);
+  const cities = rows.map(r => r.city).filter(Boolean) as string[];
+  cities.sort((a, b) => {
+    const aq = a.toLowerCase().startsWith(q.toLowerCase()) ? 0 : 1;
+    const bq = b.toLowerCase().startsWith(q.toLowerCase()) ? 0 : 1;
+    return aq - bq || a.localeCompare(b, "ru");
+  });
+  res.json(cities);
 });
 
 router.get("/:id", async (req, res) => {

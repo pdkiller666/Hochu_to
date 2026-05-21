@@ -4,6 +4,7 @@ import { ListingCard } from "@/components/ui/ListingCard";
 import { useLocation, useSearch } from "wouter";
 import { useState, useEffect, useRef } from "react";
 import { Search, X, SlidersHorizontal, MapPin, Loader2, ChevronDown, ChevronUp, ArrowUpDown, ShieldCheck, LayoutGrid, Rows3, Banknote } from "lucide-react";
+import { CityAutocomplete } from "@/components/ui/CityAutocomplete";
 import { getToken, getAuthHeaders } from "@/lib/auth";
 import { getCachedGeoRegion, setCachedGeoRegion, detectRegionByServerGeoIP, useRegion, getCachedGeoCity } from "@/lib/region-context";
 import { readPersistedState, clearPersistedState } from "@/lib/use-persisted-state";
@@ -322,21 +323,14 @@ export default function Catalog() {
                 </select>
               </div>
 
-              {/* City — free text filter, sm+ */}
-              <div className={`hidden sm:flex items-center gap-1.5 bg-white border rounded-xl px-3 py-2.5 min-w-[130px] max-w-[170px] transition-colors ${city ? "border-primary" : "border-border"}`}>
-                <MapPin className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-                <input
-                  type="text"
-                  placeholder="Город..."
+              {/* City — autocomplete, sm+ */}
+              <div className="hidden sm:block min-w-[130px] max-w-[190px]">
+                <CityAutocomplete
                   value={city}
-                  onChange={(e) => setCity(e.target.value)}
-                  className="bg-transparent border-none outline-none text-sm font-medium w-full min-w-0"
+                  onChange={setCity}
+                  placeholder="Город..."
+                  inputClassName="py-0"
                 />
-                {city && (
-                  <button onClick={() => setCity("")} className="text-muted-foreground hover:text-destructive flex-shrink-0 transition-colors">
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                )}
               </div>
 
               {/* Sort dropdown */}
@@ -446,21 +440,11 @@ export default function Catalog() {
                 </select>
               </div>
             </div>
-            <div className={`flex items-center gap-1.5 bg-white border rounded-xl px-3 py-2 transition-colors ${city ? "border-primary" : "border-border"}`}>
-              <MapPin className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-              <input
-                type="text"
-                placeholder="Населённый пункт..."
-                value={city}
-                onChange={(e) => setCity(e.target.value)}
-                className="bg-transparent border-none outline-none text-sm font-medium w-full min-w-0"
-              />
-              {city && (
-                <button onClick={() => setCity("")} className="text-muted-foreground hover:text-destructive flex-shrink-0 transition-colors">
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
+            <CityAutocomplete
+              value={city}
+              onChange={setCity}
+              placeholder="Населённый пункт..."
+            />
           </div>
 
           </>
