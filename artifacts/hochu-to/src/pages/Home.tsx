@@ -241,7 +241,8 @@ export default function Home() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-bold uppercase tracking-widest text-white/60 mb-1">Защита сделки</p>
-                  <h3 className="font-bold text-[#2b2b2b] bg-[transparent] border-t-[#2b2b2b] border-r-[#2b2b2b] border-b-[#2b2b2b] border-l-[#2b2b2b] text-[24px]">Гарантийный фонд</h3>
+                  <h3 className="font-bold text-[#2b2b2b] bg-[transparent] border-t-[#2b2b2b] border-r-[#2b2b2b] border-b-[#2b2b2b] border-l-[#2b2b2b] text-[24px]">APEX : 
+                  Гарантийный фонд</h3>
                   <p className="text-sm text-white/75 mt-1">Компенсация ущерба при спорах. 98% сделок без проблем.</p>
                 </div>
                 <ArrowRight className="w-5 h-5 text-white/50 group-hover:text-white group-hover:translate-x-1 transition-all flex-shrink-0" />
@@ -265,7 +266,7 @@ export default function Home() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-bold uppercase tracking-widest text-white/60 mb-1">Новая функция</p>
-                  <h3 className="font-bold text-[24px]">Co-Sharing</h3>
+                  <h3 className="font-bold text-[24px]">Co-Sharing: Совместное владение</h3>
                   <p className="text-sm text-white/75 mt-1">Покупайте вещи вместе — экономия до 80% на технике мечты.</p>
                 </div>
                 <ArrowRight className="w-5 h-5 text-white/50 group-hover:text-white group-hover:translate-x-1 transition-all flex-shrink-0" />
