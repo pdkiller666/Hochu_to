@@ -207,6 +207,7 @@ export interface Listing {
   pricePerDay: number;
   categoryId: number;
   categoryName?: string;
+  categorySlug?: string;
   regionId: number;
   regionName?: string;
   photos?: string[];
