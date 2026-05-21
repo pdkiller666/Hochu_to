@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 const items = [
   "🛡️ Цифровой акт на каждую сделку",
   "📸 Минимум 4 фото при передаче",
@@ -14,8 +16,14 @@ const items = [
 const repeated = [...items, ...items];
 
 export function Ticker() {
+  const [paused, setPaused] = useState(false);
+
   return (
-    <div className="bg-[#2B2B2B] py-4 overflow-hidden select-none">
+    <div
+      className="bg-[#2B2B2B] py-4 overflow-hidden select-none cursor-default"
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+    >
       <div
         style={{
           display: "flex",
@@ -23,6 +31,7 @@ export function Ticker() {
           whiteSpace: "nowrap",
           width: "max-content",
           animation: "hochu-ticker 38s linear infinite",
+          animationPlayState: paused ? "paused" : "running",
           willChange: "transform",
           transform: "translateZ(0)",
         }}
