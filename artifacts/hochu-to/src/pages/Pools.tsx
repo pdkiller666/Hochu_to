@@ -44,7 +44,7 @@ const STEPS = [
 
 const CHIPS = [
   { icon: Zap,    label: "Без эскроу-комиссий", cls: "bg-[#C65D3B]/80 border-[#C65D3B] text-white shadow-[0_4px_16px_rgba(198,93,59,0.5)]" },
-  { icon: Shield, label: "Цифровые акты",        cls: "bg-[#4A8587]/80 border-[#4A8587] text-white shadow-[0_4px_16px_rgba(74,133,135,0.5)]" },
+  { icon: Shield, label: "Цифровые акты",        cls: "bg-emerald-500 border-emerald-300 text-white shadow-[0_4px_20px_rgba(16,185,129,0.7)]" },
   { icon: Coins,  label: "Экономия до 80%",      cls: "bg-amber-500/80 border-amber-400 text-white shadow-[0_4px_16px_rgba(245,158,11,0.5)]" },
   { icon: Users,  label: "Долевое владение",     cls: "bg-violet-500/80 border-violet-400 text-white shadow-[0_4px_16px_rgba(139,92,246,0.5)]" },
 ];

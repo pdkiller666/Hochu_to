@@ -20,7 +20,7 @@ const fadeUp = {
 
 const CHIPS = [
   { icon: Shield,      label: "Взаимопомощь",  cls: "bg-white/20 border-white/40 text-white shadow-[0_4px_16px_rgba(255,255,255,0.15)]" },
-  { icon: Camera,      label: "Цифровые акты", cls: "bg-[#4A8587]/80 border-[#4A8587] text-white shadow-[0_4px_16px_rgba(74,133,135,0.5)]" },
+  { icon: Camera,      label: "Цифровые акты", cls: "bg-emerald-500 border-emerald-300 text-white shadow-[0_4px_20px_rgba(16,185,129,0.7)]" },
   { icon: Bot,         label: "ИИ-арбитраж",   cls: "bg-violet-500/80 border-violet-400 text-white shadow-[0_4px_16px_rgba(139,92,246,0.5)]" },
   { icon: Fingerprint, label: "Эл. подпись",   cls: "bg-amber-500/80 border-amber-400 text-white shadow-[0_4px_16px_rgba(245,158,11,0.5)]" },
 ];
