@@ -1,5 +1,5 @@
 import { Link, useLocation, useSearch } from "wouter";
-import { MapPin, Menu, X, LogOut, Crosshair, Loader2, Bell, Heart, Shield, Search, ChevronRight, LayoutGrid } from "lucide-react";
+import { MapPin, Menu, X, LogOut, Crosshair, Loader2, Bell, Heart, Shield, Search, ChevronRight, LayoutGrid, ChevronDown, Plus, LayoutDashboard } from "lucide-react";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuthState, getToken, getAuthHeaders } from "@/lib/auth";
@@ -229,7 +229,7 @@ function HeaderSearchBar({ className, inputClassName }: SearchBarProps) {
         >
           <X className="w-3.5 h-3.5" />
         </button>
-        <button type="submit" className="hidden 2xl:block btn-primary py-1.5 px-4 text-xs rounded-lg flex-shrink-0">
+        <button type="submit" className="btn-primary py-1.5 px-4 text-xs rounded-lg flex-shrink-0 hidden md:block">
           Найти
         </button>
       </form>
@@ -295,6 +295,8 @@ function HeaderSearchBar({ className, inputClassName }: SearchBarProps) {
 export function Header() {
   const [location, navigate] = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
   const { isAuthenticated, logout, token } = useAuthState();
   const [geoLoading, setGeoLoading] = useState(false);
 
@@ -338,11 +340,14 @@ export function Header() {
     });
   }, [isAuthenticated, subscribe]);
 
-  // Close dropdown when clicking outside
+  // Close dropdowns when clicking outside
   useEffect(() => {
     function handler(e: MouseEvent) {
       if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
         setNotifOpen(false);
+      }
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setUserMenuOpen(false);
       }
     }
     document.addEventListener("mousedown", handler);
@@ -464,31 +469,32 @@ export function Header() {
     { name: "О нас", path: "/about" },
   ];
 
+  const ROLE_LABELS: Record<string, string> = {
+    superadmin: "Суперадмин", admin: "Администратор", moderator: "Модератор",
+    support: "Поддержка", arbiter: "Арбитр", owner: "Владелец", renter: "Арендатор",
+  };
+  const isAdmin = user ? ["superadmin","admin","moderator","support","arbiter"].includes(user.role) : false;
+
   return (
-    <header className="sticky top-0 z-50 w-full overflow-x-clip bg-background/95 backdrop-blur-md border-b border-border/60 shadow-sm">
-      <div className="max-w-7xl mx-auto px-3 sm:px-4 lg:px-6 min-w-0">
-        <div className="flex items-center gap-2 h-16 min-w-0">
+    <header className="sticky top-0 z-50 w-full bg-white border-b border-border shadow-sm">
+      <div className="max-w-screen-xl mx-auto px-3 sm:px-4 lg:px-6">
+        <div className="flex items-center h-[62px] gap-2 lg:gap-3">
 
           {/* Logo */}
-          <Link href="/" className="flex-shrink-0 flex items-center gap-2 group">
-            <div className="w-9 h-9 rounded-xl bg-primary text-white flex items-center justify-center font-display font-black text-lg shadow group-hover:scale-105 transition-transform">
+          <Link href="/" className="flex-shrink-0 flex items-center gap-2 group mr-1">
+            <div className="w-9 h-9 rounded-xl bg-primary text-white flex items-center justify-center font-display font-black text-base shadow-sm group-hover:scale-105 transition-transform">
               Х_Т
             </div>
-            <span className="hidden sm:block font-display font-extrabold text-xl tracking-tight text-foreground">
+            <span className="hidden sm:block font-display font-extrabold text-[17px] tracking-tight text-foreground">
               Хочу<span className="text-primary">_То</span>
             </span>
           </Link>
 
-          {/* Desktop Search Bar — takes all available space */}
-          <div className="hidden md:flex flex-1 min-w-0 mx-3 items-center bg-white border border-border rounded-xl px-3 py-2 shadow-sm focus-within:ring-2 focus-within:ring-primary/30 focus-within:border-primary/50 transition-all">
-            <HeaderSearchBar className="w-full min-w-0" />
-          </div>
-
-          {/* Desktop Region Selector — visible from lg, compact */}
-          <div className="hidden lg:flex items-center gap-1 px-2.5 py-1.5 rounded-full border border-border bg-white shadow-sm text-sm text-muted-foreground hover:border-primary/40 transition-colors flex-shrink-0 max-w-[170px]">
+          {/* Region selector — before search, like Avito */}
+          <div className="hidden lg:flex items-center gap-1 flex-shrink-0 max-w-[160px] border border-border rounded-xl px-2.5 py-1.5 bg-muted/40 hover:border-primary/40 transition-colors cursor-pointer">
             <MapPin className="w-3.5 h-3.5 text-primary flex-shrink-0" />
             <select
-              className="bg-transparent border-none outline-none font-medium cursor-pointer appearance-none text-foreground min-w-0 flex-1 truncate text-sm"
+              className="bg-transparent border-none outline-none font-medium cursor-pointer appearance-none text-foreground min-w-0 flex-1 truncate text-[13px]"
               value={selectedSlug}
               onChange={(e) => handleRegionChange(e.target.value)}
               title={selectedName}
@@ -501,48 +507,43 @@ export function Header() {
             <button
               onClick={handleGeoDetect}
               disabled={geoLoading}
-              title="Определить регион по геолокации"
-              className="p-0.5 rounded-md hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors disabled:opacity-50 flex-shrink-0"
+              title="Определить по геолокации"
+              className="p-0.5 rounded hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors disabled:opacity-50 flex-shrink-0"
             >
-              {geoLoading
-                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                : <Crosshair className="w-3.5 h-3.5" />
-              }
+              {geoLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Crosshair className="w-3.5 h-3.5" />}
             </button>
           </div>
 
-          {/* Desktop Nav — only 2xl+ to avoid crowding at 1280px */}
-          <nav className="hidden 2xl:flex items-center gap-4 flex-shrink-0">
-            {navLinks.map((link) => (
-              <Link
-                key={link.path}
-                href={link.path}
-                className={cn(
-                  "text-sm font-semibold transition-colors hover:text-primary whitespace-nowrap",
-                  location === link.path ? "text-primary" : "text-foreground"
-                )}
-              >
-                {link.name}
-              </Link>
-            ))}
-          </nav>
+          {/* Search bar — dominant, flex-1 */}
+          <div className="hidden md:flex flex-1 min-w-0 items-center bg-white border-2 border-border rounded-xl px-3 py-1.5 shadow-sm focus-within:border-primary/60 focus-within:shadow-md transition-all h-[42px]">
+            <HeaderSearchBar className="w-full min-w-0" />
+          </div>
 
           {/* Mobile spacer */}
           <div className="flex-1 md:hidden" />
 
-          {/* Desktop Actions */}
-          <div className="hidden md:flex items-center gap-1.5 lg:gap-2 flex-shrink-0">
+          {/* + Разместить вещь CTA */}
+          <Link
+            href="/dashboard/listings/new"
+            className="hidden md:flex flex-shrink-0 items-center gap-1.5 px-3 lg:px-4 py-2 rounded-xl border-2 border-primary text-primary font-semibold text-sm hover:bg-primary hover:text-white transition-all whitespace-nowrap"
+          >
+            <Plus className="w-4 h-4 flex-shrink-0" />
+            <span className="hidden lg:block">Разместить</span>
+          </Link>
+
+          {/* Desktop Auth Actions */}
+          <div className="hidden md:flex items-center gap-1 flex-shrink-0">
             {isAuthenticated && user ? (
-              <div className="flex items-center gap-1.5 lg:gap-2">
-                {/* Favorites Heart */}
+              <>
+                {/* Favorites */}
                 <Link
                   href="/favorites"
-                  className="relative w-9 h-9 rounded-full bg-white border border-border flex items-center justify-center text-muted-foreground hover:border-rose-400 hover:text-rose-500 transition-all hover:shadow-md flex-shrink-0"
+                  className="relative w-9 h-9 rounded-xl hover:bg-muted flex items-center justify-center text-muted-foreground hover:text-rose-500 transition-all flex-shrink-0"
                   title="Избранное"
                 >
-                  <Heart className="w-4 h-4" />
+                  <Heart className="w-[18px] h-[18px]" />
                   {favCount > 0 && (
-                    <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] font-bold flex items-center justify-center">
+                    <span className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] font-bold flex items-center justify-center">
                       {favCount > 9 ? "9+" : favCount}
                     </span>
                   )}
@@ -552,17 +553,16 @@ export function Header() {
                 <div className="relative flex-shrink-0" ref={notifRef}>
                   <button
                     onClick={() => { setNotifOpen(v => !v); if (!notifOpen) fetchNotifications(); }}
-                    className="relative w-9 h-9 rounded-full bg-white border border-border flex items-center justify-center text-muted-foreground hover:border-primary hover:text-primary transition-all hover:shadow-md"
+                    className="relative w-9 h-9 rounded-xl hover:bg-muted flex items-center justify-center text-muted-foreground hover:text-primary transition-all"
                     title="Уведомления"
                   >
-                    <Bell className="w-4 h-4" />
+                    <Bell className="w-[18px] h-[18px]" />
                     {unreadCount > 0 && (
-                      <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-destructive text-white text-[9px] font-bold flex items-center justify-center">
+                      <span className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full bg-destructive text-white text-[9px] font-bold flex items-center justify-center">
                         {unreadCount > 9 ? "9+" : unreadCount}
                       </span>
                     )}
                   </button>
-
                   <AnimatePresence>
                     {notifOpen && (
                       <motion.div
@@ -570,9 +570,8 @@ export function Header() {
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         exit={{ opacity: 0, y: -8, scale: 0.97 }}
                         transition={{ duration: 0.15 }}
-                        className="absolute right-0 top-12 w-80 bg-white rounded-2xl border border-border shadow-xl z-50 overflow-hidden"
+                        className="absolute right-0 top-11 w-80 bg-white rounded-2xl border border-border shadow-xl z-50 overflow-hidden"
                       >
-                        {/* Header */}
                         <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                           <span className="font-bold text-sm">Уведомления</span>
                           {unreadCount > 0 && (
@@ -581,8 +580,6 @@ export function Header() {
                             </button>
                           )}
                         </div>
-
-                        {/* List */}
                         <div className="max-h-80 overflow-y-auto divide-y divide-border">
                           {notifications.length === 0 ? (
                             <div className="py-10 text-center">
@@ -592,37 +589,23 @@ export function Header() {
                           ) : notifications.map(n => (
                             <button
                               key={n.id}
-                              onClick={() => {
-                                if (!n.isRead) markOneRead(n.id);
-                                setNotifOpen(false);
-                                navigate(getNotifLink(n.type, n.bookingId ?? undefined));
-                              }}
-                              className={cn(
-                                "w-full text-left px-4 py-3 hover:bg-muted/50 transition-colors",
-                                !n.isRead && "bg-primary/5"
-                              )}
+                              onClick={() => { if (!n.isRead) markOneRead(n.id); setNotifOpen(false); navigate(getNotifLink(n.type, n.bookingId ?? undefined)); }}
+                              className={cn("w-full text-left px-4 py-3 hover:bg-muted/50 transition-colors", !n.isRead && "bg-primary/5")}
                             >
                               <div className="flex items-start gap-2">
-                                {!n.isRead && (
-                                  <span className="w-2 h-2 rounded-full bg-primary shrink-0 mt-1.5" />
-                                )}
+                                {!n.isRead && <span className="w-2 h-2 rounded-full bg-primary shrink-0 mt-1.5" />}
                                 <div className={cn("flex-1 min-w-0", n.isRead && "pl-4")}>
                                   <p className="text-sm font-semibold leading-snug line-clamp-2">{n.title}</p>
-                                  {n.message && (
-                                    <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2 leading-relaxed">{n.message}</p>
-                                  )}
+                                  {n.message && <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2 leading-relaxed">{n.message}</p>}
                                   <p className="text-[10px] text-muted-foreground mt-1">{timeAgo(n.createdAt)}</p>
                                 </div>
                               </div>
                             </button>
                           ))}
                         </div>
-
-                        {/* Footer */}
                         {notifications.length > 0 && (
                           <div className="border-t border-border px-4 py-2.5">
-                            <Link href="/dashboard" onClick={() => setNotifOpen(false)}
-                              className="text-xs text-primary font-semibold hover:underline">
+                            <Link href="/dashboard" onClick={() => setNotifOpen(false)} className="text-xs text-primary font-semibold hover:underline">
                               Перейти в личный кабинет →
                             </Link>
                           </div>
@@ -632,45 +615,89 @@ export function Header() {
                   </AnimatePresence>
                 </div>
 
-                <Link
-                  href="/dashboard"
-                  className="flex items-center gap-2 px-2 2xl:px-4 py-1.5 2xl:py-2 rounded-xl bg-white border border-border hover:border-primary transition-all group flex-shrink-0 min-w-0"
-                  title={`${user.name} — ${{superadmin:"Суперадмин",admin:"Администратор",moderator:"Модератор",support:"Поддержка",arbiter:"Арбитр",owner:"Владелец",renter:"Арендатор",user:"Пользователь"}[user.role] ?? user.role}`}
-                >
-                  <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold flex-shrink-0 text-sm">
-                    {user.name.charAt(0).toUpperCase()}
-                  </div>
-                  <div className="hidden 2xl:flex flex-col min-w-0">
-                    <span className="text-sm font-bold leading-none group-hover:text-primary transition-colors truncate max-w-[120px]">{user.name}</span>
-                    <span className="text-xs text-muted-foreground leading-none mt-1">
-                      {{superadmin:"Суперадмин",admin:"Администратор",moderator:"Модератор",support:"Поддержка",arbiter:"Арбитр",owner:"Владелец",renter:"Арендатор",user:"Пользователь"}[user.role] ?? user.role}
-                    </span>
-                  </div>
-                </Link>
-                {["superadmin", "admin", "moderator", "support", "arbiter"].includes(user.role) && (
-                  <Link
-                    href="/admin"
-                    title="Админ-панель"
-                    className="flex items-center gap-1.5 px-2 py-1.5 text-xs font-semibold rounded-lg bg-[#C65D3B]/10 text-[#C65D3B] hover:bg-[#C65D3B]/20 transition-colors flex-shrink-0"
+                {/* Profile dropdown */}
+                <div className="relative flex-shrink-0 ml-0.5" ref={userMenuRef}>
+                  <button
+                    onClick={() => setUserMenuOpen(v => !v)}
+                    className="flex items-center gap-2 pl-2 pr-1.5 py-1.5 rounded-xl hover:bg-muted transition-colors"
                   >
-                    <Shield className="w-4 h-4" />
-                    <span className="hidden 2xl:inline">Панель</span>
-                  </Link>
-                )}
-                <button
-                  onClick={logout}
-                  className="w-9 h-9 rounded-full hover:bg-destructive/10 text-muted-foreground hover:text-destructive flex items-center justify-center transition-colors flex-shrink-0"
-                  title="Выйти"
-                >
-                  <LogOut className="w-4 h-4" />
-                </button>
-              </div>
+                    <div className="w-8 h-8 rounded-full bg-primary/15 text-primary flex items-center justify-center font-bold text-sm flex-shrink-0">
+                      {user.name.charAt(0).toUpperCase()}
+                    </div>
+                    <span className="hidden lg:block text-sm font-semibold max-w-[90px] truncate text-foreground">
+                      {user.name.split(" ")[0]}
+                    </span>
+                    <ChevronDown className={cn("w-3.5 h-3.5 text-muted-foreground transition-transform", userMenuOpen && "rotate-180")} />
+                  </button>
+
+                  <AnimatePresence>
+                    {userMenuOpen && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -8, scale: 0.97 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: -8, scale: 0.97 }}
+                        transition={{ duration: 0.13 }}
+                        className="absolute right-0 top-full mt-2 w-60 bg-white rounded-2xl border border-border shadow-xl z-50 overflow-hidden"
+                      >
+                        {/* User info */}
+                        <div className="px-4 py-3 bg-muted/30 border-b border-border">
+                          <div className="font-bold text-sm text-foreground">{user.name}</div>
+                          <div className="text-xs text-muted-foreground mt-0.5">{ROLE_LABELS[user.role] ?? user.role}</div>
+                        </div>
+                        {/* Links */}
+                        <div className="p-1.5">
+                          <Link
+                            href="/dashboard"
+                            onClick={() => setUserMenuOpen(false)}
+                            className="flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-muted transition-colors text-sm font-medium text-foreground"
+                          >
+                            <LayoutDashboard className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                            Личный кабинет
+                          </Link>
+                          {isAdmin && (
+                            <Link
+                              href="/admin"
+                              onClick={() => setUserMenuOpen(false)}
+                              className="flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-primary/10 transition-colors text-sm font-semibold text-primary"
+                            >
+                              <Shield className="w-4 h-4 flex-shrink-0" />
+                              Панель администратора
+                            </Link>
+                          )}
+                          <div className="my-1 border-t border-border/60" />
+                          {navLinks.map(link => (
+                            <Link
+                              key={link.path}
+                              href={link.path}
+                              onClick={() => setUserMenuOpen(false)}
+                              className={cn(
+                                "flex items-center gap-2.5 px-3 py-2 rounded-xl hover:bg-muted transition-colors text-sm font-medium",
+                                location === link.path ? "text-primary" : "text-foreground"
+                              )}
+                            >
+                              {link.name}
+                            </Link>
+                          ))}
+                          <div className="my-1 border-t border-border/60" />
+                          <button
+                            onClick={() => { logout(); setUserMenuOpen(false); }}
+                            className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-destructive hover:bg-destructive/10 transition-colors text-sm font-medium"
+                          >
+                            <LogOut className="w-4 h-4 flex-shrink-0" />
+                            Выйти
+                          </button>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              </>
             ) : (
-              <div className="flex items-center gap-3">
-                <Link href="/auth" className="btn-secondary py-2 px-5 rounded-full text-sm">
+              <div className="flex items-center gap-2">
+                <Link href="/auth" className="px-4 py-2 text-sm font-semibold text-foreground hover:text-primary transition-colors">
                   Войти
                 </Link>
-                <Link href="/auth?tab=register" className="btn-primary py-2 px-5 rounded-full text-sm">
+                <Link href="/auth?tab=register" className="btn-primary py-2 px-4 rounded-xl text-sm">
                   Регистрация
                 </Link>
               </div>
@@ -860,7 +887,7 @@ export function Header() {
                         <div className="text-sm text-muted-foreground">Личный кабинет</div>
                       </div>
                     </Link>
-                    {user.role === "admin" && (
+                    {isAdmin && (
                       <Link
                         href="/admin"
                         onClick={() => setIsMobileMenuOpen(false)}
