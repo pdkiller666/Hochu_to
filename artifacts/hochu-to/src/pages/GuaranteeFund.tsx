@@ -19,10 +19,10 @@ const fadeUp = {
 };
 
 const CHIPS = [
-  { icon: Shield,      label: "Взаимопомощь" },
-  { icon: Camera,      label: "Цифровые акты" },
-  { icon: Bot,         label: "ИИ-арбитраж" },
-  { icon: Fingerprint, label: "Эл. подпись" },
+  { icon: Shield,      label: "Взаимопомощь",  cls: "bg-white/20 border-white/40 text-white shadow-[0_4px_16px_rgba(255,255,255,0.15)]" },
+  { icon: Camera,      label: "Цифровые акты", cls: "bg-[#4A8587]/80 border-[#4A8587] text-white shadow-[0_4px_16px_rgba(74,133,135,0.5)]" },
+  { icon: Bot,         label: "ИИ-арбитраж",   cls: "bg-violet-500/80 border-violet-400 text-white shadow-[0_4px_16px_rgba(139,92,246,0.5)]" },
+  { icon: Fingerprint, label: "Эл. подпись",   cls: "bg-amber-500/80 border-amber-400 text-white shadow-[0_4px_16px_rgba(245,158,11,0.5)]" },
 ];
 
 const STATS = [
@@ -105,7 +105,7 @@ const LIMITS = [
 
 export default function GuaranteeFund() {
   useDocumentMeta({
-    title: "Гарантийный фонд — Стальной Щит",
+    title: "Гарантийный фонд — APEX Protection",
     description: "Система защиты Хочу_То: взаимный фонд, Цифровые акты с подписью и GPS, ИИ-арбитраж Gemini Vision. Сдавайте спокойно — арендуйте уверенно.",
   });
 
@@ -143,7 +143,7 @@ export default function GuaranteeFund() {
             className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-white/15 border border-white/25 text-white text-sm font-bold mb-8 backdrop-blur"
           >
             <ShieldCheck className="w-4 h-4 fill-white/80" />
-            Стальной Щит · Система защиты Хочу_То
+            APEX · Asset Protection & Escrow eXchange
           </motion.div>
 
           <motion.h1
@@ -205,10 +205,10 @@ export default function GuaranteeFund() {
             transition={{ duration: 0.7, delay: 0.4 }}
             className="flex flex-wrap justify-center gap-3"
           >
-            {CHIPS.map(({ icon: Icon, label }) => (
+            {CHIPS.map(({ icon: Icon, label, cls }) => (
               <span
                 key={label}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/15 border border-white/30 text-white text-sm font-semibold shadow-sm backdrop-blur"
+                className={`inline-flex items-center gap-2 px-4 py-2 rounded-full border text-sm font-bold backdrop-blur transition-transform hover:scale-105 ${cls}`}
               >
                 <Icon className="w-4 h-4" />
                 {label}

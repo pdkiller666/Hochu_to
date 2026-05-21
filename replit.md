@@ -18,7 +18,7 @@ Full-stack rental marketplace "Хочу_То" (I Want That) — a platform for r
 - **Secret Management:** секретный ключ ЮKassa скрыт от публичных GET-запросов (Stage 20c), хранится с повышенным уровнем защиты.
 - **Idempotency:** все финансовые операции через ЮKassa защищены детерминированными Idempotence-Key (Stage 21a).
 
-## Система безопасности «Стальной Щит»
+## Система безопасности APEX (Asset Protection & Escrow eXchange)
 
 ### 1. Гарантийный фонд (Модель А)
 - Не страховка в юридическом смысле, а программа взаимопомощи.
@@ -107,7 +107,7 @@ artifacts-monorepo/
 - **/joint-purchases** — Joint purchases page with request form
 - **/how-to-rent** — Instructions for renters
 - **/how-to-list** — Instructions for owners  
-- **/guarantee-fund** — «Стальной Щит» — полная страница Гарантийного фонда: терракотовый герой с анимацией, механика фонда (4 шага), Цифровой акт (мок-карточка), категории арбитража A/Б, ИИ-арбитраж (Gemini Vision мок), шаги подачи заявки, антифрод-лимиты, CTA. Файл: `GuaranteeFund.tsx` (отдельный, не Instructions.tsx)
+- **/guarantee-fund** — APEX (Asset Protection & Escrow eXchange) — полная страница Гарантийного фонда: терракотовый герой с анимацией, механика фонда (4 шага), Цифровой акт (мок-карточка), категории арбитража A/Б, ИИ-арбитраж (Gemini Vision мок), шаги подачи заявки, антифрод-лимиты, CTA. Файл: `GuaranteeFund.tsx` (отдельный, не Instructions.tsx)
 - **/about** — About us
 - **/contacts** — Contact form + social links
 - **/privacy** — Privacy policy
