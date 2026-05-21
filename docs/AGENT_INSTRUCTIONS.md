@@ -33,6 +33,7 @@
 ### Что НЕЛЬЗЯ ломать (критические инварианты)
 | Инвариант | Где |
 |-----------|-----|
+| `vite.config.ts`: `PORT` и `BASE_PATH` — **опциональные** с дефолтами (`"5000"` / `"/"`). **Не добавлять `throw`** при их отсутствии — Docker-сборка Amvera не передаёт эти env vars во время `vite build`, только при запуске контейнера. | `artifacts/hochu-to/vite.config.ts` |
 | Gemini хедер авторизации: **НЕ** `Authorization`, а `X-Auth-Token: Bearer …` | `lib/ai-service.ts` |
 | Gemini model: `gemini-flash-latest` (не `gemini-1.5-flash` — 404) | `lib/ai-service.ts` |
 | Amvera messages field: `text` (не `content`) | `lib/ai-service.ts` |

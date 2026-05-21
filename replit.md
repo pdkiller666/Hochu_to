@@ -381,6 +381,7 @@ Located at `artifacts/api-server/src/lib/scheduler.ts`. Runs every hour via `nod
 - **Git push**: после каждой успешной итерации работы ОБЯЗАТЕЛЬНО выполнять `bash scripts/github-push.sh "описание"` — проект должен быть актуален на GitHub для деплоя через Amvera
 - Если `git add/commit` блокируется Replit (index.lock), скрипт всё равно пушит последний checkpoint-коммит
 - Деплой: GitHub `main` → Amvera webhook → Docker build
+- ⚠️ **КРИТИЧНО — `vite.config.ts`**: `PORT` и `BASE_PATH` должны быть **опциональными** с fallback-значениями (`?? "5000"` / `?? "/"`). Нельзя делать `throw new Error` при их отсутствии — Docker-сборка Amvera запускает `vite build` без этих переменных, они передаются только при старте контейнера. Dev-workflow передаёт `PORT=5000 BASE_PATH=/` явно, поэтому в разработке всё работает как прежде.
 - ⚠️ **КРИТИЧНО — API Server rebuild**: воркфлоу `API Server` запускает **pre-built** `./dist/index.mjs` и НЕ пересобирает код автоматически. После ЛЮБОГО изменения в `artifacts/api-server/src/` обязательно:
   ```bash
   cd artifacts/api-server && node build.mjs
