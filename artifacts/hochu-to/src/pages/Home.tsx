@@ -82,6 +82,33 @@ export default function Home() {
   return (
     <Layout>
       {/* ══════════════════════════════════════════
+          STICKY CATEGORY BAR (под хедером)
+      ══════════════════════════════════════════ */}
+      <div className="bg-background border-b border-border/50 sticky top-[52px] md:top-16 z-30">
+        <div className="max-w-7xl mx-auto px-3 sm:px-4">
+          <div className="flex gap-2 overflow-x-auto py-2.5 scrollbar-none [-ms-overflow-style:none] [scrollbar-width:none]">
+            {POPULAR_CATEGORIES.map(({ slug, icon: Icon, name, color }) => (
+              <Link
+                key={slug}
+                href={`/catalog?category=${slug}`}
+                className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border bg-white hover:border-primary hover:text-primary text-xs sm:text-sm font-semibold transition-colors whitespace-nowrap shadow-sm"
+              >
+                <div className={cn("w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0", color)}>
+                  <Icon className="w-3 h-3" />
+                </div>
+                {name}
+              </Link>
+            ))}
+            <Link
+              href="/catalog"
+              className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary text-white text-xs sm:text-sm font-semibold whitespace-nowrap shadow-sm hover:bg-primary/90 transition-colors"
+            >
+              Все →
+            </Link>
+          </div>
+        </div>
+      </div>
+      {/* ══════════════════════════════════════════
           HERO
       ══════════════════════════════════════════ */}
       <section className="relative py-20 md:py-32 bg-[#F2EEE3] overflow-hidden">
@@ -202,33 +229,6 @@ export default function Home() {
           </motion.div>
         </div>
       </section>
-      {/* ══════════════════════════════════════════
-          STICKY CATEGORY BAR
-      ══════════════════════════════════════════ */}
-      <div className="bg-background border-b border-border/50 sticky top-16 z-30">
-        <div className="max-w-7xl mx-auto px-3 sm:px-4">
-          <div className="flex gap-2 overflow-x-auto py-2.5 scrollbar-none [-ms-overflow-style:none] [scrollbar-width:none]">
-            {POPULAR_CATEGORIES.map(({ slug, icon: Icon, name, color }) => (
-              <Link
-                key={slug}
-                href={`/catalog?category=${slug}`}
-                className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border bg-white hover:border-primary hover:text-primary text-xs sm:text-sm font-semibold transition-colors whitespace-nowrap shadow-sm"
-              >
-                <div className={cn("w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0", color)}>
-                  <Icon className="w-3 h-3" />
-                </div>
-                {name}
-              </Link>
-            ))}
-            <Link
-              href="/catalog"
-              className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary text-white text-xs sm:text-sm font-semibold whitespace-nowrap shadow-sm hover:bg-primary/90 transition-colors"
-            >
-              Все →
-            </Link>
-          </div>
-        </div>
-      </div>
       {/* ══════════════════════════════════════════
           TICKER
       ══════════════════════════════════════════ */}
@@ -516,24 +516,24 @@ export default function Home() {
             <div className="flex-1 text-white text-center md:text-left relative z-10">
               <p className="text-sm font-semibold uppercase tracking-widest text-white/70 mb-2">Новая функция</p>
               <h2 className="text-2xl md:text-3xl lg:text-4xl font-extrabold mb-3">
-                Вместе дешевле —<br className="hidden sm:block" /> совместные закупки
+                Вместе дешевле —<br className="hidden sm:block" /> Совместные покупки
               </h2>
               <p className="text-white/80 text-base md:text-lg leading-relaxed max-w-xl">
                 Объединяйтесь с другими пользователями и покупайте нужные вещи оптом по выгодной цене. Создайте заявку или присоединитесь к уже существующей.
               </p>
               <div className="flex flex-col sm:flex-row gap-3 mt-6 justify-center md:justify-start">
                 <Link
-                  href="/joint-purchases"
-                  className="inline-flex items-center gap-2 bg-white text-[#4A8587] font-bold px-6 py-3 rounded-xl hover:bg-white/90 transition-colors shadow-lg text-sm sm:text-base"
+                  href="/pools"
+                  className="inline-flex items-center gap-2 bg-[#C65D3B] text-white font-bold px-6 py-3 rounded-xl hover:bg-[#a04829] transition-colors shadow-lg text-sm sm:text-base"
                 >
-                  Смотреть закупки
+                  Смотреть пулы
                   <ArrowRight className="w-4 h-4" />
                 </Link>
                 <Link
-                  href="/joint-purchases"
+                  href="/pools/create"
                   className="inline-flex items-center gap-2 bg-white/15 text-white font-semibold px-6 py-3 rounded-xl hover:bg-white/25 transition-colors border border-white/20 text-sm sm:text-base"
                 >
-                  Создать заявку
+                  Создать пул
                 </Link>
               </div>
             </div>
