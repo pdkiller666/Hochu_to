@@ -292,7 +292,7 @@ export default function Home() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-bold uppercase tracking-widest text-white/60 mb-1">Новая функция</p>
-                  <h3 className="font-bold text-lg leading-tight">Пул-шеринг</h3>
+                  <h3 className="font-bold text-[24px]">Пул-шеринг</h3>
                   <p className="text-sm text-white/75 mt-1">Покупайте вещи вместе — экономия до 80% на технике мечты.</p>
                 </div>
                 <ArrowRight className="w-5 h-5 text-white/50 group-hover:text-white group-hover:translate-x-1 transition-all flex-shrink-0" />
