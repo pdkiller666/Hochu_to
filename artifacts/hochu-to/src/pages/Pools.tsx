@@ -68,7 +68,7 @@ export default function Pools() {
   return (
     <Layout>
       {/* ══════ HERO ══════ */}
-      <section className="relative py-20 md:py-32 bg-gradient-to-br from-[#2e6566] via-[#4A8587] to-[#3a7577] overflow-hidden">
+      <section className="relative pt-10 pb-16 md:pt-14 md:pb-24 bg-gradient-to-br from-[#2e6566] via-[#4A8587] to-[#3a7577] overflow-hidden">
         <motion.div
           animate={{ scale: [1, 1.2, 1], x: [0, 30, 0], y: [0, -20, 0] }}
           transition={{ duration: 10, repeat: Infinity, ease: "easeInOut" }}

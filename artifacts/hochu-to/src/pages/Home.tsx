@@ -84,7 +84,7 @@ export default function Home() {
       {/* ══════════════════════════════════════════
           HERO
       ══════════════════════════════════════════ */}
-      <section className="relative py-20 md:py-32 bg-[#F2EEE3] overflow-hidden">
+      <section className="relative pt-10 pb-16 md:pt-14 md:pb-24 bg-[#F2EEE3] overflow-hidden">
         {/* Animated blobs */}
         <motion.div
           animate={{ scale: [1, 1.15, 1], x: [0, 20, 0], y: [0, -15, 0] }}

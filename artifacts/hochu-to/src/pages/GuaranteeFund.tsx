@@ -112,7 +112,7 @@ export default function GuaranteeFund() {
   return (
     <Layout>
       {/* ══════════════════════ HERO ══════════════════════ */}
-      <section className="relative py-20 md:py-32 overflow-hidden bg-gradient-to-br from-[#6B2020] via-[#C65D3B] to-[#8E3F23]">
+      <section className="relative pt-10 pb-16 md:pt-14 md:pb-24 overflow-hidden bg-gradient-to-br from-[#6B2020] via-[#C65D3B] to-[#8E3F23]">
         {/* Animated blobs */}
         <motion.div
           animate={{ scale: [1, 1.25, 1], x: [0, 40, 0], y: [0, -30, 0] }}
