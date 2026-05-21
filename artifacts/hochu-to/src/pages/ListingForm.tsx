@@ -1,4 +1,5 @@
 import { Layout } from "@/components/layout/Layout";
+import { CityAutocomplete } from "@/components/ui/CityAutocomplete";
 import { useState, useEffect, useRef, useCallback } from "react";
 import {
   AlertDialog,
@@ -568,13 +569,10 @@ export default function ListingForm() {
               <label className="block text-sm font-bold mb-2">
                 Район / метро / населённый пункт <span className="text-muted-foreground font-normal">(необязательно)</span>
               </label>
-              <input
-                type="text"
-                className="input-field"
-                placeholder="Например: Арбат, Центральный район, м. Сокольники"
+              <CityAutocomplete
                 value={formData.city}
-                onChange={e => setFormData({ ...formData, city: e.target.value })}
-                maxLength={100}
+                onChange={val => setFormData({ ...formData, city: val })}
+                placeholder="Например: Арбат, Центральный район, м. Сокольники"
               />
               <p className="text-xs text-muted-foreground mt-1">Это поможет арендаторам точнее понять, где находится вещь</p>
             </div>
