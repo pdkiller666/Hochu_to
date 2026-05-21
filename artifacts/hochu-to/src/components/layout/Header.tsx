@@ -1,5 +1,5 @@
 import { Link, useLocation, useSearch } from "wouter";
-import { MapPin, Menu, X, LogOut, Crosshair, Loader2, Bell, Heart, Shield, Search, ChevronRight, LayoutGrid, ChevronDown, Plus, LayoutDashboard } from "lucide-react";
+import { MapPin, Menu, X, LogOut, Crosshair, Loader2, Bell, Heart, Shield, Search, ChevronRight, LayoutGrid, ChevronDown, Plus, LayoutDashboard, Users } from "lucide-react";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuthState, getToken, getAuthHeaders } from "@/lib/auth";
@@ -519,13 +519,15 @@ export function Header() {
             <HeaderSearchBar className="w-full min-w-0" />
           </div>
 
-          {/* + Разместить вещь CTA */}
+          {/* Пул-шеринг CTA — киллер-фича */}
           <Link
-            href="/dashboard/listings/new"
-            className="hidden md:flex flex-shrink-0 items-center gap-1.5 px-3 lg:px-4 py-2 rounded-xl border-2 border-primary text-primary font-semibold text-sm hover:bg-primary hover:text-white transition-all whitespace-nowrap"
+            href="/pools"
+            className="hidden md:flex flex-shrink-0 items-center gap-1.5 px-3 lg:px-5 py-2 rounded-xl font-bold text-sm text-white whitespace-nowrap shadow-md transition-all hover:-translate-y-0.5 hover:shadow-lg relative overflow-hidden group"
+            style={{ background: "linear-gradient(135deg, #4A8587 0%, #2e6566 100%)" }}
           >
-            <Plus className="w-4 h-4 flex-shrink-0" />
-            <span className="hidden lg:block">Разместить</span>
+            <span className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/10 to-white/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-500 pointer-events-none" />
+            <Users className="w-4 h-4 flex-shrink-0" />
+            <span className="hidden lg:block">Совм. покупки</span>
           </Link>
 
           {/* Desktop Auth Actions */}
