@@ -3,15 +3,17 @@ import { useLocation, Link } from "wouter";
 import { useMutation } from "@tanstack/react-query";
 import { createPool } from "@/lib/api-pools";
 import { useToast } from "@/hooks/use-toast";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useAuthState } from "@/lib/auth";
 import { usePublicSettings } from "@/lib/use-public-settings";
-import { ArrowLeft, Loader2, Sparkles, ShieldCheck, CalendarClock } from "lucide-react";
+import { ArrowLeft, Loader2, Sparkles, ShieldCheck, CalendarClock, Users, LogIn } from "lucide-react";
 
 export default function PoolCreate() {
   const [, setLocation] = useLocation();
-  const { isAuthed, isReady } = useAuthState();
-  const { settings } = usePublicSettings();
+  const { isAuthenticated: isAuthed, isAuthLoading } = useAuthState();
+  const isReady = !isAuthLoading;
+  const publicSettings = usePublicSettings();
+  const settings = publicSettings?.settings ?? null;
   const { toast } = useToast();
 
   const [title, setTitle] = useState("");
@@ -20,12 +22,6 @@ export default function PoolCreate() {
   const [targetAmount, setTargetAmount] = useState("");
   const [paymentDetails, setPaymentDetails] = useState("");
   const [deadlineDate, setDeadlineDate] = useState("");
-
-  useEffect(() => {
-    if (isReady && !isAuthed) {
-      setLocation("/auth?tab=login&redirect=/pools/create");
-    }
-  }, [isReady, isAuthed, setLocation]);
 
   const createMut = useMutation({
     mutationFn: createPool,
@@ -79,10 +75,50 @@ export default function PoolCreate() {
           <ArrowLeft className="w-4 h-4" /> Назад к пулам
         </Link>
 
+        {/* ── Скелетон пока auth-статус загружается ── */}
+        {!isReady && (
+          <div className="bg-white rounded-3xl border border-border shadow-sm p-8 md:p-12 flex flex-col items-center gap-4">
+            <div className="w-20 h-20 rounded-3xl bg-stone-100 animate-pulse" />
+            <div className="h-7 w-56 rounded-xl bg-stone-100 animate-pulse" />
+            <div className="h-4 w-72 rounded-lg bg-stone-100 animate-pulse" />
+            <div className="h-4 w-48 rounded-lg bg-stone-100 animate-pulse" />
+          </div>
+        )}
+
+        {/* ── Заглушка для неавторизованных ── */}
+        {isReady && !isAuthed && (
+          <div className="bg-white rounded-3xl border border-border shadow-sm p-8 md:p-12 text-center">
+            <div className="w-20 h-20 rounded-3xl bg-[#4A8587]/10 flex items-center justify-center mx-auto mb-6">
+              <Users className="w-10 h-10 text-[#4A8587]" />
+            </div>
+            <h2 className="text-2xl font-extrabold text-foreground mb-3">Войдите, чтобы создать пул</h2>
+            <p className="text-muted-foreground text-sm mb-8 max-w-sm mx-auto">
+              Для создания пула совместного владения нужен аккаунт. Это займёт меньше минуты.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-3 justify-center">
+              <Link
+                href="/auth?tab=login&redirect=/pools/create"
+                className="inline-flex items-center justify-center gap-2 px-7 py-3 rounded-xl bg-[#C65D3B] text-white font-bold shadow-lg shadow-[#C65D3B]/25 hover:bg-[#a04829] hover:-translate-y-0.5 transition-all"
+              >
+                <LogIn className="w-4 h-4" />
+                Войти в аккаунт
+              </Link>
+              <Link
+                href="/auth?tab=register&redirect=/pools/create"
+                className="inline-flex items-center justify-center gap-2 px-7 py-3 rounded-xl border-2 border-border text-foreground font-bold hover:border-[#4A8587] hover:text-[#4A8587] hover:-translate-y-0.5 transition-all"
+              >
+                Зарегистрироваться
+              </Link>
+            </div>
+          </div>
+        )}
+
+        {/* ── Форма для авторизованных ── */}
+        {isReady && isAuthed && (
         <div className="bg-white rounded-3xl border border-border shadow-sm p-6 md:p-8">
           <div className="flex items-center gap-2 mb-2">
             <Sparkles className="w-5 h-5 text-primary" />
-            <span className="text-sm font-bold text-primary">Создание совместной покупки</span>
+            <span className="text-sm font-bold text-primary">Создание пула совместного владения</span>
           </div>
           <h1 className="text-2xl md:text-3xl font-extrabold mb-2">Новый пул</h1>
           <p className="text-muted-foreground text-sm mb-6">
@@ -201,6 +237,7 @@ export default function PoolCreate() {
             </div>
           </form>
         </div>
+        )}
       </div>
     </Layout>
   );
