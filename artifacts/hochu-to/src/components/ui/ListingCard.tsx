@@ -102,35 +102,6 @@ export function ListingCard({ listing }: ListingCardProps) {
 
   return (
     <Link href={`/listings/${listing.id}`} className="card-hover group relative flex flex-col h-full">
-      {/* Top overlay row: категория слева, сердечко справа */}
-      <div className="absolute top-2 left-2 right-2 z-10 flex items-start justify-between gap-1">
-        {/* Метка категории — кликабельна, ведёт в каталог по этой категории */}
-        <button
-          onClick={(e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            const slug = (listing as any).categorySlug;
-            navigate(slug ? `/catalog?category=${slug}` : "/catalog");
-          }}
-          className="px-2 py-0.5 bg-white/90 backdrop-blur-sm text-[10px] font-semibold rounded-full text-foreground shadow-sm leading-4 max-w-[calc(100%-40px)] truncate hover:bg-primary hover:text-white transition-colors cursor-pointer"
-        >
-          {listing.categoryName || "Категория"}
-        </button>
-
-        {/* Сердечко справа */}
-        <button
-          onClick={handleFavoriteClick}
-          className={`flex-shrink-0 w-7 h-7 rounded-full bg-white/90 backdrop-blur-sm flex items-center justify-center transition-all shadow-sm ${
-            fav
-              ? "text-rose-500 hover:text-rose-600"
-              : "text-muted-foreground hover:text-rose-500 hover:bg-white"
-          }`}
-          title={fav ? "Удалить из избранного" : "Добавить в избранное"}
-        >
-          <Heart className={`w-3.5 h-3.5 ${fav ? "fill-current" : ""}`} />
-        </button>
-      </div>
-
       {/* Image */}
       <div className="relative aspect-[4/3] overflow-hidden bg-muted">
         {hasPhoto && photoUrl ? (
@@ -151,8 +122,38 @@ export function ListingCard({ listing }: ListingCardProps) {
             <span className="px-4 py-2 bg-white text-foreground font-bold rounded-xl shadow-lg">Занято</span>
           </div>
         )}
+
+        {/* Bottom overlay row: категория слева, сердечко справа */}
+        <div className="absolute bottom-0 left-0 right-0 z-10 flex items-end justify-between gap-1 px-2 pb-2 pt-6 bg-gradient-to-t from-black/50 to-transparent">
+          {/* Метка категории — кликабельна, ведёт в каталог по этой категории */}
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              const slug = (listing as any).categorySlug;
+              navigate(slug ? `/catalog?category=${slug}` : "/catalog");
+            }}
+            className="px-2 py-0.5 bg-white/90 backdrop-blur-sm text-[10px] font-semibold rounded-full text-foreground shadow-sm leading-4 max-w-[calc(100%-40px)] truncate hover:bg-primary hover:text-white transition-colors cursor-pointer"
+          >
+            {listing.categoryName || "Категория"}
+          </button>
+
+          {/* Сердечко справа */}
+          <button
+            onClick={handleFavoriteClick}
+            className={`flex-shrink-0 w-7 h-7 rounded-full bg-white/90 backdrop-blur-sm flex items-center justify-center transition-all shadow-sm ${
+              fav
+                ? "text-rose-500 hover:text-rose-600"
+                : "text-muted-foreground hover:text-rose-500 hover:bg-white"
+            }`}
+            title={fav ? "Удалить из избранного" : "Добавить в избранное"}
+          >
+            <Heart className={`w-3.5 h-3.5 ${fav ? "fill-current" : ""}`} />
+          </button>
+        </div>
+
         {(listing.photos?.length ?? 0) > 1 && (
-          <span className="absolute bottom-2 right-2 bg-black/60 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+          <span className="absolute top-2 right-2 bg-black/60 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
             {listing.photos!.length} фото
           </span>
         )}
