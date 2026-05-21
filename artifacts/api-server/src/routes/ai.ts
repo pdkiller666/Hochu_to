@@ -23,6 +23,10 @@ import {
   buildHorizontalImage,
   buildMarketplaceInfographic,
 } from "../lib/image-service.js";
+import {
+  generateGenerativeInfographic,
+  preprocessForAI,
+} from "../lib/infographic.js";
 import { UPLOADS_DIR } from "../lib/uploadsDir.js";
 import { logger } from "../lib/logger.js";
 
@@ -200,16 +204,22 @@ router.post(
           ? req.body.provider.trim().toLowerCase()
           : null;
 
-      // template=marketplace (Stage 41) → продающее фото с панелями; classic → старый стиль с буллетами
-      // format=horizontal → 1200×630 для соцсетей (только в classic-режиме)
+      // template=marketplace (Stage 41 default) → AI-generative; classic → SVG-overlay буллеты
+      // format: query-string ?format=horizontal ИЛИ multipart body format
+      // preprocess: query-string ?preprocess=true ИЛИ body preprocess=true
       const template =
         typeof req.body?.template === "string"
           ? req.body.template.trim().toLowerCase()
           : "marketplace";
-      const format =
-        typeof req.body?.format === "string"
-          ? req.body.format.trim().toLowerCase()
-          : "square";
+      const format = (
+        (typeof req.query?.format === "string" ? req.query.format : null) ??
+        (typeof req.body?.format === "string" ? req.body.format : null) ??
+        "square"
+      ).trim().toLowerCase();
+      const preprocess =
+        req.query?.preprocess === "true" ||
+        req.body?.preprocess === "true" ||
+        req.body?.preprocess === true;
 
       if (!title) {
         res.status(400).json({
@@ -241,9 +251,25 @@ router.post(
         let webpBuffer: Buffer;
         let responseExtra: Record<string, unknown>;
 
-        if (template === "marketplace") {
-          // ── Stage 41: Marketplace template ──────────────────────────────
-          // 1) Получаем структуру (title + 2 колонки) из LLM
+        if (format === "horizontal") {
+          // ── Горизонтальный формат 1200×630 (OG / соцсети) — legacy path, сохранён ──
+          const bulletsResult = await generateInfographicBullets(
+            title,
+            category,
+            requestedProvider,
+          );
+          webpBuffer = await buildHorizontalImage(file.buffer, bulletsResult.bullets);
+          responseExtra = {
+            template: "horizontal",
+            bullets: bulletsResult.bullets,
+            provider: bulletsResult.provider,
+            actualProvider: bulletsResult.actualProvider,
+            fallback: bulletsResult.fallback,
+            fallbackReason: bulletsResult.fallbackReason,
+          };
+        } else if (template === "marketplace") {
+          // ── Stage 41: AI-Generative marketplace card (3-tier fallback) ──
+          // 1) LLM генерирует структуру (title + bullets) для промпта
           const mktResult = await generateMarketplaceContent(
             title,
             category,
@@ -252,38 +278,58 @@ router.post(
             requestedProvider,
           );
 
-          // 2) Формируем строку цены для пилюли
-          const priceText = pricePerDay
-            ? `от ${Math.round(pricePerDay).toLocaleString("ru-RU")} ₽/сут`
-            : "Цена по запросу";
+          // 2) Опциональный препроцессинг (?preprocess=true)
+          const sourceBuffer = preprocess
+            ? await preprocessForAI(file.buffer)
+            : file.buffer;
 
-          // 3) Рендерим marketplace-инфографику
-          webpBuffer = await buildMarketplaceInfographic(
-            file.buffer,
-            mktResult.content,
-            priceText,
-          );
+          // 3) Формируем bullets из контента LLM
+          const allBullets = [
+            ...mktResult.content.leftItems,
+            ...mktResult.content.rightItems,
+          ].slice(0, 6);
+          const priceNum = pricePerDay ? Math.round(pricePerDay) : 0;
+
+          // 4) Generative AI (Tier 1 OpenRouter → Tier 2 Imagen 3 → Tier 3 original)
+          const genResult = await generateGenerativeInfographic(sourceBuffer, {
+            title: mktResult.content.title,
+            price: priceNum,
+            bullets: allBullets,
+            format: "square",
+          });
+
+          webpBuffer = genResult.buffer;
+
+          // 5) Если Tier 3 (полный отказ AI) — применяем старый SVG-оверлей как подстраховку
+          if (genResult.tier === 3) {
+            const priceText = pricePerDay
+              ? `от ${priceNum.toLocaleString("ru-RU")} ₽/сут`
+              : "Цена по запросу";
+            webpBuffer = await buildMarketplaceInfographic(
+              file.buffer,
+              mktResult.content,
+              priceText,
+            );
+          }
 
           responseExtra = {
             template: "marketplace",
+            generativeTier: genResult.tier,
+            preprocessed: preprocess,
             content: mktResult.content,
-            priceText,
             provider: mktResult.provider,
             actualProvider: mktResult.actualProvider,
-            fallback: mktResult.fallback,
+            fallback: mktResult.fallback || genResult.tier === 3,
             fallbackReason: mktResult.fallbackReason,
           };
         } else {
-          // ── Classic template (3 буллета) ─────────────────────────────────
+          // ── Classic template (3 буллета, SVG-overlay) ────────────────────
           const bulletsResult = await generateInfographicBullets(
             title,
             category,
             requestedProvider,
           );
-          webpBuffer = format === "horizontal"
-            ? await buildHorizontalImage(file.buffer, bulletsResult.bullets)
-            : await buildInfographicImage(file.buffer, bulletsResult.bullets);
-
+          webpBuffer = await buildInfographicImage(file.buffer, bulletsResult.bullets);
           responseExtra = {
             template: "classic",
             bullets: bulletsResult.bullets,

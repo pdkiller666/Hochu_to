@@ -292,6 +292,12 @@ function truncStr(s: string, max: number): string {
   return s.length > max ? s.slice(0, max - 1) + "\u2026" : s;
 }
 
+/**
+ * @deprecated Stage 41 — заменён на generateGenerativeInfographic() в lib/infographic.ts.
+ * НЕ удалять: используется как внутренний строительный блок buildMarketplaceInfographic()
+ * и как резервный вариант при полном отказе AI-pipeline (Tier 3 fallback).
+ * buildHorizontalImage() остаётся полностью активным для OG-формата 1200×630.
+ */
 function buildMarketplaceOverlaySvg(
   content: MarketplaceInfographicContent,
   priceText: string,
