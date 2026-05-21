@@ -43,10 +43,10 @@ const STEPS = [
 ];
 
 const CHIPS = [
-  { icon: Zap,    label: "Без эскроу-комиссий", color: "from-[#C65D3B]/20 to-[#C65D3B]/5 border-[#C65D3B]/30 text-[#8E3F23]" },
-  { icon: Shield, label: "Цифровые акты",        color: "from-[#4A8587]/20 to-[#4A8587]/5 border-[#4A8587]/30 text-[#2F5C5E]" },
-  { icon: Coins,  label: "Экономия до 80%",       color: "from-[#8E6B2B]/20 to-[#8E6B2B]/5 border-[#8E6B2B]/30 text-[#6B4F20]" },
-  { icon: Users,  label: "Долевое владение",      color: "from-violet-500/20 to-violet-500/5 border-violet-500/30 text-violet-700" },
+  { icon: Zap,    label: "Без эскроу-комиссий" },
+  { icon: Shield, label: "Цифровые акты" },
+  { icon: Coins,  label: "Экономия до 80%" },
+  { icon: Users,  label: "Долевое владение" },
 ];
 
 const fadeUp = {
@@ -159,10 +159,10 @@ export default function Pools() {
             transition={{ duration: 0.7, delay: 0.4 }}
             className="flex flex-wrap justify-center gap-3"
           >
-            {CHIPS.map(({ icon: Icon, label, color }) => (
+            {CHIPS.map(({ icon: Icon, label }) => (
               <span
                 key={label}
-                className={`inline-flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r ${color} border text-sm font-semibold shadow-sm backdrop-blur`}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/15 border border-white/30 text-white text-sm font-semibold shadow-sm backdrop-blur"
               >
                 <Icon className="w-4 h-4" />
                 {label}

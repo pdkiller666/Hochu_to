@@ -19,10 +19,10 @@ const fadeUp = {
 };
 
 const CHIPS = [
-  { icon: Shield,      label: "Взаимопомощь",       color: "from-[#C65D3B]/20 to-[#C65D3B]/5 border-[#C65D3B]/30 text-[#8E3F23]" },
-  { icon: Camera,      label: "Цифровые акты",       color: "from-[#4A8587]/20 to-[#4A8587]/5 border-[#4A8587]/30 text-[#2F5C5E]" },
-  { icon: Bot,         label: "ИИ-арбитраж",         color: "from-violet-500/20 to-violet-500/5 border-violet-500/30 text-violet-700" },
-  { icon: Fingerprint, label: "Эл. подпись",         color: "from-amber-500/20 to-amber-500/5 border-amber-500/30 text-amber-700" },
+  { icon: Shield,      label: "Взаимопомощь" },
+  { icon: Camera,      label: "Цифровые акты" },
+  { icon: Bot,         label: "ИИ-арбитраж" },
+  { icon: Fingerprint, label: "Эл. подпись" },
 ];
 
 const STATS = [
@@ -205,10 +205,10 @@ export default function GuaranteeFund() {
             transition={{ duration: 0.7, delay: 0.4 }}
             className="flex flex-wrap justify-center gap-3"
           >
-            {CHIPS.map(({ icon: Icon, label, color }) => (
+            {CHIPS.map(({ icon: Icon, label }) => (
               <span
                 key={label}
-                className={`inline-flex items-center gap-2 px-4 py-2 rounded-full bg-gradient-to-r ${color} border text-sm font-semibold shadow-sm backdrop-blur`}
+                className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/15 border border-white/30 text-white text-sm font-semibold shadow-sm backdrop-blur"
               >
                 <Icon className="w-4 h-4" />
                 {label}
