@@ -530,7 +530,19 @@ export function Header() {
           </div>
 
           {/* Search bar — flex-1 on all screens */}
-          <div className="flex flex-1 min-w-0 items-center bg-white border border-border md:border-2 rounded-xl px-3 py-1 md:py-1.5 shadow-sm focus-within:border-primary/60 focus-within:shadow-md transition-all h-[36px] md:h-[42px]">
+          <div className="flex flex-1 min-w-0 items-center bg-white border border-border md:border-2 rounded-xl px-2 py-1 md:py-1.5 shadow-sm focus-within:border-primary/60 focus-within:shadow-md transition-all h-[36px] md:h-[42px] gap-1">
+            <button
+              onClick={() => setShowCategories(v => !v)}
+              title={showCategories ? "Скрыть категории" : "Показать категории"}
+              className={cn(
+                "flex-shrink-0 w-6 h-6 rounded-lg flex items-center justify-center transition-all",
+                showCategories
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:bg-muted hover:text-foreground"
+              )}
+            >
+              <ChevronDown className={cn("w-3.5 h-3.5 transition-transform duration-200", showCategories && "rotate-180")} />
+            </button>
             <HeaderSearchBar className="w-full min-w-0" />
           </div>
 
@@ -798,27 +810,6 @@ export function Header() {
         )}
       </AnimatePresence>
 
-      {/* ── Arrow toggle button (appears on header hover) ── */}
-      <AnimatePresence>
-        {(headerHovered || showCategories) && (
-          <motion.button
-            initial={{ opacity: 0, y: -3 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -3 }}
-            transition={{ duration: 0.15 }}
-            onClick={() => setShowCategories(v => !v)}
-            className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 z-10 w-6 h-6 rounded-full bg-white/90 backdrop-blur border border-border/70 shadow-md flex items-center justify-center hover:border-primary/50 hover:shadow-lg transition-all cursor-pointer"
-            title={showCategories ? "Скрыть категории" : "Показать категории"}
-          >
-            <ChevronDown
-              className={cn(
-                "w-3.5 h-3.5 text-muted-foreground transition-transform duration-200",
-                showCategories && "rotate-180"
-              )}
-            />
-          </motion.button>
-        )}
-      </AnimatePresence>
 
       {/* Mobile Notification Panel — separate from nav menu */}
       <AnimatePresence>
