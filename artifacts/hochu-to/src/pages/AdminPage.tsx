@@ -13,7 +13,7 @@ import {
   X, Pencil, ExternalLink, Trash2, RefreshCw, UserCheck,
   BarChart2, ArrowUpDown, Flag, Shield, Megaphone, Award, Loader2,
   Coins, CreditCard, Save, RotateCcw, Banknote, ArrowDownToLine, ArrowUpFromLine, PiggyBank, Wallet,
-  Sparkles, Cpu,
+  Sparkles, Cpu, Layers, Link, XCircle, CheckCircle2, UserRound,
 } from "lucide-react";
 import { formatPrice } from "@/lib/utils";
 import { getSbpBankName } from "@/lib/sbp-banks";
@@ -4697,14 +4697,324 @@ function TelegramBotTab() {
   );
 }
 
+// ─── PoolsAdminTab ─────────────────────────────────────────────────────────────
+const POOL_STATUS_COLORS: Record<string, string> = {
+  funding:    "bg-blue-100 text-blue-700",
+  purchasing: "bg-yellow-100 text-yellow-700",
+  active:     "bg-emerald-100 text-emerald-700",
+  liquidated: "bg-stone-100 text-stone-600",
+  canceled:   "bg-red-100 text-red-600",
+};
+const POOL_STATUS_LABEL: Record<string, string> = {
+  funding:    "Сбор",
+  purchasing: "Покупка",
+  active:     "Активен",
+  liquidated: "Ликвидирован",
+  canceled:   "Отменён",
+};
+const SHARE_STATUS_LABEL: Record<string, string> = {
+  pending:             "Ожидает",
+  creator_confirmed:   "Подтверждён",
+  escrow_held:         "Эскроу",
+};
+const SHARE_STATUS_COLORS: Record<string, string> = {
+  pending:           "bg-stone-100 text-stone-600",
+  creator_confirmed: "bg-emerald-100 text-emerald-700",
+  escrow_held:       "bg-teal-100 text-teal-700",
+};
+
+function PoolsAdminTab() {
+  const [page, setPage]         = useState(1);
+  const [q, setQ]               = useState("");
+  const [dq, setDq]             = useState("");
+  const [status, setStatus]     = useState("");
+  const [rev, setRev]           = useState(0);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [overrideStatus, setOverrideStatus] = useState("");
+  const [overrideNote, setOverrideNote]     = useState("");
+  const [actionLoading, setActionLoading]   = useState(false);
+  const [actionMsg, setActionMsg]           = useState<{ ok: boolean; text: string } | null>(null);
+
+  useEffect(() => {
+    const t = setTimeout(() => { setDq(q); setPage(1); }, 400);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  const url = `${API}/api/admin/pools?page=${page}&q=${encodeURIComponent(dq)}&status=${status}&_r=${rev}`;
+  const { data, loading } = useFetch<any>(url, [page, dq, status, rev]);
+
+  const detailUrl = selectedId != null ? `${API}/api/admin/pools/${selectedId}` : null;
+  const { data: detail, loading: detailLoading, refresh: refreshDetail } = useFetch<any>(detailUrl, [selectedId, rev]);
+
+  const pools     = data?.pools     ?? [];
+  const stats     = data?.stats     ?? {};
+  const pages     = data?.pages     ?? 1;
+  const total     = data?.total     ?? 0;
+
+  async function doOverride() {
+    if (!selectedId || !overrideStatus) return;
+    setActionLoading(true); setActionMsg(null);
+    try {
+      const r = await fetch(`${API}/api/admin/pools/${selectedId}/status`, {
+        method: "PATCH",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ status: overrideStatus, note: overrideNote }),
+      });
+      const json = await r.json();
+      if (r.ok) {
+        setActionMsg({ ok: true, text: `Статус изменён на «${POOL_STATUS_LABEL[overrideStatus] ?? overrideStatus}»` });
+        setRev(v => v + 1);
+        refreshDetail();
+      } else {
+        setActionMsg({ ok: false, text: json.message ?? json.error ?? "Ошибка" });
+      }
+    } catch {
+      setActionMsg({ ok: false, text: "Сетевая ошибка" });
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  const statCards = [
+    { label: "Всего пулов",   value: total,                              color: "bg-stone-50 text-stone-600" },
+    { label: "Сбор",          value: stats.funding    ?? 0,              color: "bg-blue-50 text-blue-600" },
+    { label: "Активных",      value: stats.active     ?? 0,              color: "bg-emerald-50 text-emerald-700" },
+    { label: "Собрано (₽)",   value: formatPrice(stats.totalCollected ?? 0), color: "bg-[#C65D3B]/10 text-[#C65D3B]" },
+  ];
+
+  return (
+    <div className="space-y-5">
+      {/* Stat cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {statCards.map(s => (
+          <div key={s.label} className={`rounded-xl p-4 ${s.color}`}>
+            <p className="text-xs font-medium uppercase tracking-wide opacity-70">{s.label}</p>
+            <p className="text-2xl font-bold mt-1">{s.value}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-wrap gap-3 items-center">
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
+          <input value={q} onChange={e => setQ(e.target.value)} placeholder="Поиск по названию…"
+            className="w-full pl-9 pr-3 py-2 border border-stone-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#C65D3B]/30" />
+        </div>
+        <select value={status} onChange={e => { setStatus(e.target.value); setPage(1); }}
+          className="border border-stone-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C65D3B]/30">
+          <option value="">Все статусы</option>
+          {Object.entries(POOL_STATUS_LABEL).map(([v, l]) => (
+            <option key={v} value={v}>{l}</option>
+          ))}
+        </select>
+        <button onClick={() => setRev(v => v + 1)}
+          className="p-2 rounded-lg border border-stone-200 hover:bg-stone-50 transition">
+          <RefreshCw className="w-4 h-4 text-stone-500" />
+        </button>
+      </div>
+
+      {/* Table */}
+      {loading ? (
+        <div className="flex justify-center py-12">
+          <Loader2 className="w-6 h-6 animate-spin text-[#C65D3B]" />
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-xl border border-stone-200">
+          <table className="w-full text-sm">
+            <thead className="bg-stone-50 border-b border-stone-200">
+              <tr>
+                {["ID", "Название", "Создатель", "Статус", "Цель (₽)", "Собрано (₽)", "Доли", "Выкупы", "Создан"].map(h => (
+                  <th key={h} className="px-4 py-3 text-left text-xs uppercase tracking-wide text-stone-500 font-semibold">{h}</th>
+                ))}
+                <th className="px-4 py-3"></th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-stone-100">
+              {pools.length === 0 && (
+                <tr><td colSpan={10} className="px-4 py-8 text-center text-stone-400">Пулы не найдены</td></tr>
+              )}
+              {pools.map((p: any) => (
+                <tr key={p.id} className="hover:bg-stone-50 transition">
+                  <td className="px-4 py-3 text-stone-500 font-mono text-xs">#{p.id}</td>
+                  <td className="px-4 py-3 font-medium text-stone-800 max-w-[180px] truncate">{p.title}</td>
+                  <td className="px-4 py-3 text-stone-600">
+                    <div className="text-xs">{p.creatorName ?? "—"}</div>
+                    <div className="text-xs text-stone-400">{p.creatorEmail ?? ""}</div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${POOL_STATUS_COLORS[p.status] ?? "bg-stone-100 text-stone-600"}`}>
+                      {POOL_STATUS_LABEL[p.status] ?? p.status}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-stone-700">{formatPrice(p.targetAmountRub)} ₽</td>
+                  <td className="px-4 py-3 text-emerald-700 font-medium">{formatPrice(p.collectedRub)} ₽</td>
+                  <td className="px-4 py-3 text-center">{p.sharesCount}</td>
+                  <td className="px-4 py-3 text-center">{p.buyoutsCount > 0 ? <span className="text-amber-600 font-medium">{p.buyoutsCount}</span> : "—"}</td>
+                  <td className="px-4 py-3 text-stone-400 text-xs whitespace-nowrap">{p.createdAt ? format(new Date(p.createdAt), "dd.MM.yyyy") : "—"}</td>
+                  <td className="px-4 py-3">
+                    <button onClick={() => { setSelectedId(p.id); setOverrideStatus(""); setOverrideNote(""); setActionMsg(null); }}
+                      className="text-xs px-3 py-1.5 rounded-lg bg-stone-100 hover:bg-stone-200 text-stone-700 transition font-medium">
+                      Детали
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {pages > 1 && <Pagination page={page} pages={pages} onChange={setPage} />}
+
+      {/* Detail modal */}
+      {selectedId != null && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setSelectedId(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto"
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-stone-100">
+              <div className="flex items-center gap-2">
+                <Layers className="w-5 h-5 text-[#C65D3B]" />
+                <h3 className="font-semibold text-stone-800">Пул #{selectedId}</h3>
+              </div>
+              <button onClick={() => setSelectedId(null)} className="p-1.5 rounded-lg hover:bg-stone-100 transition">
+                <X className="w-4 h-4 text-stone-500" />
+              </button>
+            </div>
+
+            {detailLoading ? (
+              <div className="flex justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-[#C65D3B]" /></div>
+            ) : detail ? (
+              <div className="p-6 space-y-5">
+                {/* Pool info */}
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div className="col-span-2">
+                    <p className="text-xs text-stone-400 uppercase tracking-wide">Название</p>
+                    <p className="font-semibold text-stone-800 mt-0.5">{detail.pool.title}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-stone-400 uppercase tracking-wide">Статус</p>
+                    <span className={`mt-0.5 inline-block px-2 py-0.5 rounded-full text-xs font-medium ${POOL_STATUS_COLORS[detail.pool.status] ?? ""}`}>
+                      {POOL_STATUS_LABEL[detail.pool.status] ?? detail.pool.status}
+                    </span>
+                  </div>
+                  <div>
+                    <p className="text-xs text-stone-400 uppercase tracking-wide">Создатель</p>
+                    <p className="text-stone-700 mt-0.5">{detail.pool.creatorName} <span className="text-stone-400">({detail.pool.creatorEmail})</span></p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-stone-400 uppercase tracking-wide">Цель</p>
+                    <p className="font-medium text-stone-700 mt-0.5">{formatPrice(detail.pool.targetAmountRub)} ₽</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-stone-400 uppercase tracking-wide">Комиссия пула</p>
+                    <p className="text-stone-700 mt-0.5">{detail.pool.poolFeePercent ?? 0}%</p>
+                  </div>
+                  {detail.pool.itemUrl && (
+                    <div className="col-span-2">
+                      <p className="text-xs text-stone-400 uppercase tracking-wide">Ссылка на товар</p>
+                      <a href={detail.pool.itemUrl} target="_blank" rel="noopener noreferrer"
+                        className="text-[#4A8587] hover:underline text-xs flex items-center gap-1 mt-0.5">
+                        <Link className="w-3 h-3" />{detail.pool.itemUrl.slice(0, 60)}…
+                      </a>
+                    </div>
+                  )}
+                </div>
+
+                {/* Shares */}
+                <div>
+                  <h4 className="text-sm font-semibold text-stone-700 mb-2 flex items-center gap-1.5">
+                    <UserRound className="w-4 h-4" /> Доли участников ({detail.shares?.length ?? 0})
+                  </h4>
+                  {detail.shares?.length > 0 ? (
+                    <div className="space-y-1.5">
+                      {detail.shares.map((s: any) => (
+                        <div key={s.id} className="flex items-center justify-between px-3 py-2 bg-stone-50 rounded-lg text-sm">
+                          <div>
+                            <span className="font-medium text-stone-700">{s.userName ?? `user#${s.userId}`}</span>
+                            <span className="text-stone-400 text-xs ml-1">({s.userEmail})</span>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className="text-stone-600 font-medium">{s.sharePercentage}%</span>
+                            <span className="text-stone-600">{formatPrice(s.amountRub ?? 0)} ₽</span>
+                            <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${SHARE_STATUS_COLORS[s.paymentStatus] ?? "bg-stone-100 text-stone-600"}`}>
+                              {SHARE_STATUS_LABEL[s.paymentStatus] ?? s.paymentStatus}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : <p className="text-stone-400 text-sm">Участников нет</p>}
+                </div>
+
+                {/* Buyouts */}
+                {detail.buyouts?.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-semibold text-stone-700 mb-2">Запросы на выкуп ({detail.buyouts.length})</h4>
+                    <div className="space-y-1.5">
+                      {detail.buyouts.map((b: any) => (
+                        <div key={b.id} className="flex items-center justify-between px-3 py-2 bg-amber-50 rounded-lg text-sm">
+                          <span className="text-stone-700">Выкуп #{b.id} · инициатор #{b.initiatorId}</span>
+                          <div className="flex items-center gap-2">
+                            {b.offerAmountRub && <span className="font-medium">{formatPrice(b.offerAmountRub)} ₽</span>}
+                            <Badge cls={b.status === "completed" ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"} label={b.status} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Force status override */}
+                <div className="border border-stone-200 rounded-xl p-4 space-y-3">
+                  <h4 className="text-sm font-semibold text-stone-700 flex items-center gap-1.5">
+                    <ShieldAlert className="w-4 h-4 text-[#C65D3B]" /> Принудительная смена статуса
+                  </h4>
+                  <div className="flex gap-2 flex-wrap">
+                    {Object.entries(POOL_STATUS_LABEL).map(([v, l]) => (
+                      <button key={v} onClick={() => setOverrideStatus(v)}
+                        className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition ${
+                          overrideStatus === v
+                            ? "border-[#C65D3B] bg-[#C65D3B]/10 text-[#C65D3B]"
+                            : "border-stone-200 text-stone-600 hover:bg-stone-50"
+                        }`}>{l}</button>
+                    ))}
+                  </div>
+                  <input value={overrideNote} onChange={e => setOverrideNote(e.target.value)}
+                    placeholder="Причина/заметка (опционально)"
+                    className="w-full px-3 py-2 border border-stone-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#C65D3B]/30" />
+                  {actionMsg && (
+                    <div className={`flex items-center gap-2 text-sm px-3 py-2 rounded-lg ${actionMsg.ok ? "bg-emerald-50 text-emerald-700" : "bg-red-50 text-red-600"}`}>
+                      {actionMsg.ok ? <CheckCircle2 className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
+                      {actionMsg.text}
+                    </div>
+                  )}
+                  <button onClick={doOverride} disabled={!overrideStatus || actionLoading}
+                    className="w-full py-2 rounded-lg bg-[#C65D3B] text-white text-sm font-medium hover:bg-[#b54e2e] transition disabled:opacity-50 flex items-center justify-center gap-2">
+                    {actionLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                    Применить
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="p-6 text-center text-stone-400">Не удалось загрузить данные пула</div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main AdminPage ────────────────────────────────────────────────────────────
-type Tab = "overview" | "analytics" | "users" | "listings" | "bookings" | "support" | "reports" | "claims" | "audit" | "economy" | "payments" | "finance" | "payouts" | "ai" | "telegram" | "integrations";
+type Tab = "overview" | "analytics" | "users" | "listings" | "bookings" | "support" | "reports" | "claims" | "audit" | "economy" | "payments" | "finance" | "payouts" | "pools" | "ai" | "telegram" | "integrations";
 
 const TABS: { id: Tab; label: string; icon: any; roles?: string[] }[] = [
   { id: "overview",      label: "Обзор",            icon: LayoutDashboard },
   { id: "analytics",     label: "Аналитика",         icon: BarChart2,   roles: ["superadmin", "admin"] },
   { id: "finance",       label: "Денежные потоки",   icon: Banknote,    roles: ["superadmin"] },
   { id: "payouts",       label: "Выплаты",           icon: Wallet,      roles: ["superadmin"] },
+  { id: "pools",         label: "Пулы (со-владение)", icon: Layers,     roles: ["superadmin", "admin", "moderator"] },
   { id: "users",         label: "Пользователи",      icon: Users,       roles: ["superadmin", "admin"] },
   { id: "listings",      label: "Объявления",        icon: Package,     roles: ["superadmin", "admin", "moderator"] },
   { id: "bookings",      label: "Бронирования",      icon: CalendarDays,roles: ["superadmin", "admin", "moderator"] },
@@ -4785,6 +5095,7 @@ export default function AdminPage() {
         {tab === "payments" && <PaymentsTab />}
         {tab === "finance" && <FinanceTab />}
         {tab === "payouts" && <PayoutsTab />}
+        {tab === "pools" && <PoolsAdminTab />}
         {tab === "ai" && <AiSettingsTab />}
         {tab === "telegram" && <TelegramBotTab />}
         {tab === "integrations" && <IntegrationsTab />}

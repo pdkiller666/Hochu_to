@@ -7,6 +7,7 @@ import {
   db, bookingsTable, auditEventsTable, listingsTable, usersTable,
   notificationsTable, supportTicketsTable, supportMessagesTable,
   reviewsTable, regionsTable, categoriesTable,
+  poolsTable, poolSharesTable, buyoutRequestsTable,
 } from "@workspace/db";
 import { recordAuditEvent } from "../lib/audit-events.js";
 import { eq, desc, or, sql, and, lt, gte } from "drizzle-orm";
@@ -1589,6 +1590,169 @@ router.post("/sms/test-send", requireAuth, requireRole("superadmin"), async (req
       JSON.stringify({ phone: phone.replace(/\d(?=\d{4})/g, "*"), ok: result.ok, error: result.error }));
   }
   res.json({ ok: result.ok, messageId: result.messageId, error: result.error });
+});
+
+// ─── Admin: Пулы совместного владения ────────────────────────────────────────
+
+router.get("/pools", requireAuth, requireRole("superadmin", "admin", "moderator"), async (req, res) => {
+  try {
+    const page  = Math.max(1, parseInt(String(req.query.page ?? "1")));
+    const limit = 20;
+    const offset = (page - 1) * limit;
+    const q      = String(req.query.q ?? "").trim();
+    const status = String(req.query.status ?? "").trim();
+
+    const conditions: any[] = [];
+    if (status) conditions.push(eq(poolsTable.status, status as any));
+    if (q) {
+      conditions.push(
+        or(
+          sql`${poolsTable.title} ILIKE ${'%' + q + '%'}`,
+          sql`${poolsTable.description} ILIKE ${'%' + q + '%'}`,
+        )
+      );
+    }
+    const where = conditions.length > 0 ? and(...conditions) : undefined;
+
+    const [{ total }] = await db
+      .select({ total: sql<number>`count(*)::int` })
+      .from(poolsTable)
+      .where(where);
+
+    const pools = await db
+      .select({
+        id:               poolsTable.id,
+        title:            poolsTable.title,
+        status:           poolsTable.status,
+        targetAmountRub:  poolsTable.targetAmountRub,
+        collectionMethod: poolsTable.collectionMethod,
+        createdAt:        poolsTable.createdAt,
+        expiresAt:        poolsTable.expiresAt,
+        creatorId:        poolsTable.creatorId,
+        creatorName:      usersTable.name,
+        creatorEmail:     usersTable.email,
+        sharesCount:      sql<number>`(SELECT COUNT(*)   FROM pool_shares      WHERE pool_id = ${poolsTable.id})::int`,
+        collectedRub:     sql<number>`COALESCE((SELECT SUM(amount_rub) FROM pool_shares WHERE pool_id = ${poolsTable.id} AND payment_status IN ('creator_confirmed','escrow_held')), 0)::int`,
+        buyoutsCount:     sql<number>`(SELECT COUNT(*) FROM buyout_requests WHERE pool_id = ${poolsTable.id})::int`,
+      })
+      .from(poolsTable)
+      .leftJoin(usersTable, eq(usersTable.id, poolsTable.creatorId))
+      .where(where)
+      .orderBy(desc(poolsTable.createdAt))
+      .limit(limit)
+      .offset(offset);
+
+    const statsRows = await db
+      .select({ status: poolsTable.status, cnt: sql<number>`count(*)::int` })
+      .from(poolsTable)
+      .groupBy(poolsTable.status);
+
+    const byStatus: Record<string, number> = {};
+    for (const r of statsRows) byStatus[r.status] = r.cnt;
+
+    const [{ totalCollected }] = await db
+      .select({ totalCollected: sql<number>`COALESCE(SUM(amount_rub),0)::int` })
+      .from(poolSharesTable)
+      .where(sql`${poolSharesTable.paymentStatus} IN ('creator_confirmed','escrow_held')`);
+
+    res.json({
+      pools,
+      total,
+      pages: Math.max(1, Math.ceil(total / limit)),
+      page,
+      stats: { ...byStatus, totalCollected },
+    });
+  } catch (e) {
+    res.status(500).json({ error: "internal_error" });
+  }
+});
+
+router.get("/pools/:id", requireAuth, requireRole("superadmin", "admin", "moderator"), async (req, res) => {
+  try {
+    const poolId = parseInt(req.params.id);
+    if (isNaN(poolId)) return res.status(400).json({ error: "bad_id" });
+
+    const [pool] = await db
+      .select({
+        id:                    poolsTable.id,
+        title:                 poolsTable.title,
+        description:           poolsTable.description,
+        itemUrl:               poolsTable.itemUrl,
+        status:                poolsTable.status,
+        targetAmountRub:       poolsTable.targetAmountRub,
+        collectionMethod:      poolsTable.collectionMethod,
+        poolFeePercent:        poolsTable.poolFeePercent,
+        maintenanceFundBalance: poolsTable.maintenanceFundBalance,
+        wearAndTearMeter:      poolsTable.wearAndTearMeter,
+        createdAt:             poolsTable.createdAt,
+        expiresAt:             poolsTable.expiresAt,
+        creatorId:             poolsTable.creatorId,
+        creatorName:           usersTable.name,
+        creatorEmail:          usersTable.email,
+      })
+      .from(poolsTable)
+      .leftJoin(usersTable, eq(usersTable.id, poolsTable.creatorId))
+      .where(eq(poolsTable.id, poolId));
+
+    if (!pool) return res.status(404).json({ error: "not_found" });
+
+    const shareUsers = db.select({
+      id:             poolSharesTable.id,
+      userId:         poolSharesTable.userId,
+      userName:       usersTable.name,
+      userEmail:      usersTable.email,
+      sharePercentage: poolSharesTable.sharePercentage,
+      amountRub:      poolSharesTable.amountRub,
+      paymentStatus:  poolSharesTable.paymentStatus,
+      createdAt:      poolSharesTable.createdAt,
+    })
+      .from(poolSharesTable)
+      .leftJoin(usersTable, eq(usersTable.id, poolSharesTable.userId))
+      .where(eq(poolSharesTable.poolId, poolId))
+      .orderBy(desc(poolSharesTable.createdAt));
+
+    const buyoutsQ = db
+      .select()
+      .from(buyoutRequestsTable)
+      .where(eq(buyoutRequestsTable.poolId, poolId))
+      .orderBy(desc(buyoutRequestsTable.createdAt));
+
+    const [shares, buyouts] = await Promise.all([shareUsers, buyoutsQ]);
+
+    res.json({ pool, shares, buyouts });
+  } catch (e) {
+    res.status(500).json({ error: "internal_error" });
+  }
+});
+
+router.patch("/pools/:id/status", requireAuth, requireRole("superadmin", "admin"), async (req: AuthRequest, res) => {
+  try {
+    const poolId = parseInt(req.params.id);
+    if (isNaN(poolId)) return res.status(400).json({ error: "bad_id" });
+
+    const { status, note } = req.body ?? {};
+    const allowed = ["canceled", "funding", "purchasing", "active", "liquidated"];
+    if (!status || !allowed.includes(status)) {
+      return res.status(400).json({ error: "invalid_status", allowed });
+    }
+
+    const [updated] = await db
+      .update(poolsTable)
+      .set({ status: status as any })
+      .where(eq(poolsTable.id, poolId))
+      .returning({ id: poolsTable.id, status: poolsTable.status });
+
+    if (!updated) return res.status(404).json({ error: "not_found" });
+
+    if (req.userId) {
+      await recordAuditEvent(req.userId, "pool", poolId, "admin_status_override",
+        JSON.stringify({ newStatus: status, note: note ?? null }));
+    }
+
+    res.json({ ok: true, pool: updated });
+  } catch (e) {
+    res.status(500).json({ error: "internal_error" });
+  }
 });
 
 export default router;

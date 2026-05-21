@@ -786,3 +786,64 @@ bash scripts/github-push.sh "fix(ai): restore working gemini-flash-latest model 
 - Payment gateway hooks ready (total_price calculated at booking)
 - SEO: unique title/meta per page, Russian-language content
  
+
+---
+
+## Stage 39 — Fintech Core & Escrow Engine (02.05.2026)
+- **Атомарные кошельки** (SELECT FOR UPDATE): `wallets` + `wallet_transactions` таблицы в DB
+- **Escrow-движок** (`artifacts/api-server/src/lib/escrow.ts`): hold/release/payout, комиссия Math.ceil
+- **paymentProvider** в `platform_settings` (mock|yookassa), переключается из AdminPage Settings
+- **API** `/wallet/*`: balance, history, admin stats/payouts (gated + auth)
+- **Dashboard WalletSection**: таб «Кошелёк» за флагом `isCommercialMode`
+
+---
+
+## Stage 33 — AI-Arbitration Full Implementation + Hardening (19.05.2026)
+
+### 33-A: Разблокировка и стабилизация
+- **GEMINI_API_KEY** добавлен в Replit Secrets — арбитратор разблокирован.
+- **sharp** установлен: resize 1280×1280 JPEG 80% перед отправкой в Gemini (снижает payload в 10×).
+- **Таймаут** 15s → 40s (`GEMINI_VISION_TIMEOUT_MS`).
+- **Retry + fallback-цепочка**: `gemini-flash-latest` → `gemini-1.5-flash-latest` → `gemini-2.0-flash-lite` → `gemini-2.0-flash`; до 3 попыток каждая при 503/429 с backoff.
+- **maxOutputTokens** 512 → 1024 (предотвращает обрезку JSON).
+- **Устойчивый JSON-парсер**: при битом JSON — regex-fallback по полям `faultEstimatePercent`, `confidence`, `verdictDraft`, `photoConsistency`.
+- **Логирование**: `logger.info` с `rawLen` и `rawSnippet` для дебага вердиктов.
+
+### 33-B: Новые endpoints (claims.ts)
+- `GET /admin/claims/ai-verdicts-log` — история всех ИИ-вердиктов (admin only, для обучения модели).
+- `POST /claims/:id/accept-verdict` — модератор принимает вердикт (`ai_verdict.accepted=true` + audit `ai_verdict_accepted`).
+- `POST /claims/:id/manual-review` — перевод в `admin_review` без ИИ-суммы + audit `status_changed`.
+
+### 33-C: Admin UI (AdminPage.tsx)
+- **`ClaimDigitalActsPhotos`** — новый компонент: side-by-side сетка фото ДО (check_in) / ПОСЛЕ (check_out) над блоком AI-вердикта; данные из `GET /api/bookings/:id/digital-acts`.
+- **Кнопки «Принять вердикт» / «Пересмотреть вручную»** — зелёная/серая, badge `✓ Принят`, feedback-баннеры.
+
+### 33-D: Photo Consistency Check (Hardening)
+- **Промпт v2**: добавлен обязательный STEP 1 — проверка совместимости фото.
+- **`photoConsistency`** поле в ответе: `ok` | `incompatible` | `unreadable`.
+  - `incompatible` → разные предметы / посторонние изображения → `faultEstimate=0` принудительно, UI: 🚨 баннер.
+  - `unreadable` → тёмные/размытые фото → `faultEstimate=0`, UI: ⚠️ баннер с просьбой перезагрузить.
+- **Тест**: check-in ≠ check-out фото → `photoConsistency: incompatible`, `verdictDraft` объясняет по-русски.
+- **`AiVerdictResult`** интерфейс расширен: `photoConsistency?: "ok" | "incompatible" | "unreadable"`.
+
+### Статус (19.05.2026)
+- End-to-end тест одинаковых фото: `confidence: high`, `faultEstimate: 0%`, вердикт на русском ✅
+- End-to-end тест разных фото: `photoConsistency: incompatible`, `faultEstimate: 0%` ✅
+- Тестовые данные в БД: claim id=1 (damage, 15 000 ₽) + digital_acts для booking id=3 ✅
+
+---
+
+## Stage 40 — Wallet Pro (19.05.2026)
+- **TS-fixes**: `wallet_topup` / `wallet_withdraw` в NotifType; `WalletPayoutMethod` (конфликт имён); `return` в admin-endpoint; SQL rows в `/admin/stats`
+- **Тест**: все 7 wallet-эндпоинтов проверены curl-ами, все 200
+
+---
+
+## Stage 30-Refactoring — OpenRouter AI Gateway (19.05.2026)
+- **Единый SDK**: `openai` пакет с `baseURL=openrouter.ai` вместо 4 разных fetch-провайдеров
+- **Цепочка**: OpenRouter → Direct DeepSeek (fallback, Stage 33.0 сохранён) → mock
+- **Маппинг**: `openrouter`=deepseek/deepseek-chat, `openai`=openai/gpt-4o-mini, `gemini`=google/gemini-flash-1.5, `amvera`=deepseek/deepseek-chat (legacy alias)
+- **Vision-арбитратор**: изолирован, прямой Gemini API (base64), не тронут
+- **Удалить с Amvera**: `AMVERA_API_TOKEN`, `OPENAI_API_KEY` → добавить `OPENROUTER_API_KEY`
+- **AdminPage**: 5 карточек провайдеров; `openrouter` ⭐ Новый, `amvera` Legacy
+- **AdminPage PayoutsTab**: `WalletStatsCard` — агрегированная статистика кошельков
