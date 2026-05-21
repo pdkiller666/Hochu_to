@@ -97,7 +97,7 @@ export default function Pools() {
             className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-white/15 border border-white/25 text-white text-sm font-bold mb-8 backdrop-blur"
           >
             <Sparkles className="w-4 h-4 fill-white/80" />
-            Совместные покупки · Soft Launch Beta
+            Co-Sharing · Soft Launch Beta
           </motion.div>
 
           <motion.h1

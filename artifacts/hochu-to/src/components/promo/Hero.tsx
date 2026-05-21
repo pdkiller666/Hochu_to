@@ -6,7 +6,7 @@ const chips = [
   { icon: FileCheck2, label: "Цифровые акты", color: "from-[#4A8587]/20 to-[#4A8587]/5 border-[#4A8587]/30 text-[#2F5C5E]" },
   { icon: Camera, label: "Фото-фиксация", color: "from-[#C65D3B]/20 to-[#C65D3B]/5 border-[#C65D3B]/30 text-[#8E3F23]" },
   { icon: Handshake, label: "Понятная передача", color: "from-[#8E6B2B]/20 to-[#8E6B2B]/5 border-[#8E6B2B]/30 text-[#6B4F20]" },
-  { icon: Users, label: "Совместные покупки", color: "from-[#C65D3B]/20 to-[#C65D3B]/5 border-[#C65D3B]/30 text-[#8E3F23]" },
+  { icon: Users, label: "Co-Sharing", color: "from-[#C65D3B]/20 to-[#C65D3B]/5 border-[#C65D3B]/30 text-[#8E3F23]" },
 ];
 
 const avatars = [

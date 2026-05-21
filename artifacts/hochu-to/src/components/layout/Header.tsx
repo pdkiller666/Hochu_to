@@ -476,7 +476,7 @@ export function Header() {
   const navLinks = [
     { name: "Каталог", path: "/catalog" },
     { name: "Как арендовать", path: "/how-to-rent" },
-    { name: "Совместные покупки", path: "/pools" },
+    { name: "Co-Sharing", path: "/pools" },
     { name: "О нас", path: "/about" },
   ];
 
@@ -556,7 +556,7 @@ export function Header() {
           >
             <span className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/10 to-white/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-500 pointer-events-none" />
             <Users className="w-4 h-4 flex-shrink-0" />
-            <span className="hidden lg:block">Совм. покупки</span>
+            <span className="hidden lg:block">Co-Sharing</span>
           </Link>
 
           {/* Desktop Auth Actions */}
