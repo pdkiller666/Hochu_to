@@ -506,27 +506,29 @@ export function Header() {
           </Link>
 
           {/* Region selector — before search, like Avito */}
-          <div className="hidden lg:flex items-center gap-1 flex-shrink-0 max-w-[160px] border border-border rounded-xl px-2.5 py-1.5 bg-muted/40 hover:border-primary/40 transition-colors cursor-pointer">
+          <div className="hidden lg:flex items-center gap-1 flex-shrink-0 border border-border rounded-xl px-2 py-1.5 bg-muted/40 hover:border-primary/40 hover:bg-muted/60 transition-all duration-200 cursor-pointer group">
             <MapPin className="w-3.5 h-3.5 text-primary flex-shrink-0" />
-            <select
-              className="bg-transparent border-none outline-none font-medium cursor-pointer appearance-none text-foreground min-w-0 flex-1 truncate text-[13px]"
-              value={selectedSlug}
-              onChange={(e) => handleRegionChange(e.target.value)}
-              title={selectedName}
-            >
-              <option value="">Все регионы</option>
-              {regions?.map(r => (
-                <option key={r.id} value={r.slug}>{r.name}</option>
-              ))}
-            </select>
-            <button
-              onClick={handleGeoDetect}
-              disabled={geoLoading}
-              title="Определить по геолокации"
-              className="p-0.5 rounded hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors disabled:opacity-50 flex-shrink-0"
-            >
-              {geoLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Crosshair className="w-3.5 h-3.5" />}
-            </button>
+            <div className="flex items-center gap-1 max-w-0 overflow-hidden group-hover:max-w-[148px] transition-[max-width] duration-200 ease-in-out pointer-events-none group-hover:pointer-events-auto">
+              <select
+                className="bg-transparent border-none outline-none font-medium cursor-pointer appearance-none text-foreground text-[13px] whitespace-nowrap min-w-[80px] max-w-[110px] pl-1"
+                value={selectedSlug}
+                onChange={(e) => handleRegionChange(e.target.value)}
+                title={selectedName}
+              >
+                <option value="">Все регионы</option>
+                {regions?.map(r => (
+                  <option key={r.id} value={r.slug}>{r.name}</option>
+                ))}
+              </select>
+              <button
+                onClick={handleGeoDetect}
+                disabled={geoLoading}
+                title="Определить по геолокации"
+                className="p-0.5 rounded hover:bg-primary/10 text-muted-foreground hover:text-primary transition-colors disabled:opacity-50 flex-shrink-0"
+              >
+                {geoLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Crosshair className="w-3.5 h-3.5" />}
+              </button>
+            </div>
           </div>
 
           {/* Search bar — flex-1 on all screens */}
