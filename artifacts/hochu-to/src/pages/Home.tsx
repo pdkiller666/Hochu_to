@@ -24,10 +24,10 @@ const POPULAR_CATEGORIES = [
 ];
 
 const AVATARS = [
-  { initials: "АИ", bg: "#C65D3B" },
-  { initials: "МС", bg: "#4A8587" },
-  { initials: "ДК", bg: "#8E6B2B" },
-  { initials: "ЕП", bg: "#5A7A52" },
+  "/avatars/avatar-1.png",
+  "/avatars/avatar-2.png",
+  "/avatars/avatar-3.png",
+  "/avatars/avatar-4.png",
 ];
 
 const FEATURE_CHIPS = [
@@ -111,14 +111,13 @@ export default function Home() {
             className="inline-flex items-center gap-3 px-5 py-2.5 rounded-full bg-white shadow-md border border-[#C65D3B]/15 mb-10"
           >
             <div className="flex -space-x-2">
-              {AVATARS.map((av, i) => (
-                <div
+              {AVATARS.map((src, i) => (
+                <img
                   key={i}
-                  className="w-7 h-7 rounded-full border-2 border-white flex items-center justify-center text-white font-bold text-[9px] flex-shrink-0"
-                  style={{ backgroundColor: av.bg }}
-                >
-                  {av.initials}
-                </div>
+                  src={src}
+                  alt=""
+                  className="w-7 h-7 rounded-full border-2 border-white object-cover flex-shrink-0"
+                />
               ))}
             </div>
             <span className="text-sm font-semibold text-[#2B2B2B]">

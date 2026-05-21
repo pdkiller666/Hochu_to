@@ -1,5 +1,28 @@
 uploads = []
-generated = []
+
+[[generated]]
+id = "q3GvHcrMXsfhyU6WFSijf"
+uri = "file://artifacts/hochu-to/public/avatars/avatar-1.png"
+type = "image"
+title = "friendly young russian man portrait"
+
+[[generated]]
+id = "fuLmUg7hc_2je6JzpbH7f"
+uri = "file://artifacts/hochu-to/public/avatars/avatar-2.png"
+type = "image"
+title = "cheerful russian woman portrait"
+
+[[generated]]
+id = "YP1RRyKX4JmaEb1_baikG"
+uri = "file://artifacts/hochu-to/public/avatars/avatar-3.png"
+type = "image"
+title = "confident russian man beard portrait"
+
+[[generated]]
+id = "F9L7HCXBjzZQl7_RM-n5t"
+uri = "file://artifacts/hochu-to/public/avatars/avatar-4.png"
+type = "image"
+title = "young russian woman blonde portrait"
 
 [[outputs]]
 id = "wDn3ebXiLjUBLkBTI68t4"
