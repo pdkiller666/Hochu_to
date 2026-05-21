@@ -265,7 +265,7 @@ export default function Home() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-bold uppercase tracking-widest text-white/60 mb-1">Новая функция</p>
-                  <h3 className="font-bold text-[24px]">Пул-шеринг</h3>
+                  <h3 className="font-bold text-[24px]">Co-Sharing</h3>
                   <p className="text-sm text-white/75 mt-1">Покупайте вещи вместе — экономия до 80% на технике мечты.</p>
                 </div>
                 <ArrowRight className="w-5 h-5 text-white/50 group-hover:text-white group-hover:translate-x-1 transition-all flex-shrink-0" />
@@ -487,7 +487,7 @@ export default function Home() {
             </div>
 
             <div className="flex-1 text-white text-center md:text-left relative z-10">
-              <p className="text-sm font-semibold uppercase tracking-widest text-white/70 mb-2">Новая функция</p>
+              <p className="text-sm font-semibold uppercase tracking-widest text-white/70 mb-2">Co-Sharing - Новая функция</p>
               <h2 className="text-2xl md:text-3xl lg:text-4xl font-extrabold mb-3">
                 Вместе дешевле —<br className="hidden sm:block" /> Совместные покупки
               </h2>
