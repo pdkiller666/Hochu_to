@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db, bookingsTable, listingsTable, usersTable, contactPurchasesTable, claimsTable, payoutRequestsTable } from "@workspace/db";
-import { eq, or, desc, and, sql, gte } from "drizzle-orm";
+import { walletTransactionsTable, poolsTable } from "@workspace/db/schema";
+import { eq, or, desc, and, sql, gte, inArray } from "drizzle-orm";
 import { requireAuth, AuthRequest } from "../middleware/auth.js";
 
 const router = Router();
@@ -29,7 +30,8 @@ type EntryType =
   | "contact_topup"      // пополнение баланса контактов (top-up)
   | "payout_request"     // владелец: оформлена заявка на выплату
   | "payout_paid"        // владелец: выплата фактически переведена
-  | "payout_rejected";   // владелец: заявка отклонена (средства возвращены к доступному балансу)
+  | "payout_rejected"    // владелец: заявка отклонена (средства возвращены к доступному балансу)
+  | "pool_rental_income";// совладелец пула: доход со своей доли за аренду
 
 interface FinanceEntry {
   id: string;
@@ -80,6 +82,19 @@ router.get("/me/finance", requireAuth, async (req: AuthRequest, res) => {
     .from(payoutRequestsTable)
     .where(eq(payoutRequestsTable.ownerId, userId))
     .orderBy(desc(payoutRequestsTable.createdAt));
+
+  // Доходы совладельца пула с аренды (pool_rental wallet transactions)
+  const poolRentalTxs = await db
+    .select()
+    .from(walletTransactionsTable)
+    .where(
+      and(
+        eq(walletTransactionsTable.userId, userId),
+        eq(walletTransactionsTable.referenceType, "pool_rental" as any),
+        eq(walletTransactionsTable.type, "payout" as any),
+      )
+    )
+    .orderBy(desc(walletTransactionsTable.createdAt));
 
   const entries: FinanceEntry[] = [];
   let lifetimeEarned = 0;
@@ -330,6 +345,24 @@ router.get("/me/finance", requireAuth, async (req: AuthRequest, res) => {
             : `Заявка на выплату создана (${methodLabel})`,
       });
     }
+  }
+
+  // ── Доходы совладельца пула с аренды ────────────────────────────────────
+  for (const tx of poolRentalTxs) {
+    const amt = parseFloat(String(tx.amount ?? "0"));
+    if (amt <= 0) continue;
+    entries.push({
+      id: `wt${tx.id}`,
+      date: tx.createdAt.toISOString(),
+      type: "pool_rental_income",
+      direction: "in",
+      amount: amt,
+      status: "settled",
+      bookingId: tx.referenceId ?? undefined,
+      bookingNumber: tx.bookingNumber ?? undefined,
+      description: tx.description ?? "Доход с аренды пула (ваша доля)",
+    });
+    lifetimeEarned += amt;
   }
 
   entries.sort((a, b) => (a.date < b.date ? 1 : -1));

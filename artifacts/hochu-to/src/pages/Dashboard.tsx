@@ -25,8 +25,9 @@ import {
   Coins, ArrowDownToLine, ArrowUpFromLine, ShieldCheck, Banknote,
   Shield, KeyRound, ScrollText, Activity, ExternalLink, BarChart2, ChevronRight,
   CreditCard, Smartphone, X, Star as StarIcon, ShieldAlert, AlertTriangle, FileText,
-  Crown, Zap, Sparkles, Award,
+  Crown, Zap, Sparkles, Award, Layers,
 } from "lucide-react";
+import { PoolsDashboardSection } from "@/components/ui/PoolsDashboardSection";
 import PromoteListingModal from "@/components/PromoteListingModal";
 import { DigitalActUpload, type DigitalActKind } from "@/components/DigitalActUpload";
 import { formatPrice } from "@/lib/utils";
@@ -179,9 +180,9 @@ export default function Dashboard() {
   const isBetaMode = publicSettings?.isCommercialMode === false;
   const isCommercialMode = !isBetaMode;
 
-  type DashTab = "incoming" | "outgoing" | "listings" | "profile" | "history" | "support" | "contacts" | "finance" | "wallet";
+  type DashTab = "incoming" | "outgoing" | "listings" | "profile" | "history" | "support" | "contacts" | "finance" | "wallet" | "pools";
   // В Бета-режиме «finance» и «contacts» выключены; «wallet» доступен с демо-баннером.
-  const baseTabs: DashTab[] = ["incoming", "outgoing", "listings", "profile", "history", "support"];
+  const baseTabs: DashTab[] = ["incoming", "outgoing", "listings", "profile", "history", "support", "pools"];
   const validTabs: DashTab[] = isBetaMode ? [...baseTabs, "wallet"] : [...baseTabs, "contacts", "finance", "wallet"];
   const urlTab = initialTab && validTabs.includes(initialTab as DashTab) ? (initialTab as DashTab) : null;
   const [activeTab, setActiveTab] = usePersistedState<DashTab>("dashboard_tab", urlTab ?? "incoming");
@@ -1677,6 +1678,7 @@ export default function Dashboard() {
       { id: "listings" as const, label: "Мои объявления", icon: LayoutGrid, badge: 0 },
     ] : []),
     { id: "history" as const, label: "История сделок", icon: BadgeCheck, badge: badgeHistory },
+    { id: "pools" as const, label: "Мои пулы", icon: Layers, badge: 0 },
     // Кошелёк виден всегда (в beta — с демо-баннером)
     { id: "wallet" as const, label: "Кошелёк", icon: Wallet, badge: 0 },
     // В Бета-режиме скрываем «Финансы» и «Баланс контактов» (платный доступ).
@@ -2487,6 +2489,13 @@ export default function Dashboard() {
                     })}
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* ── POOLS — Совместное владение ── */}
+            {activeTab === "pools" && (
+              <div className="max-w-2xl w-full">
+                <PoolsDashboardSection />
               </div>
             )}
 

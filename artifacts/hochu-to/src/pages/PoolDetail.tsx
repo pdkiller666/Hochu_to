@@ -1,6 +1,7 @@
 import { Layout } from "@/components/layout/Layout";
 import { Link, useParams, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { BookingCalendar, type BookedRange } from "@/components/BookingCalendar";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -234,6 +235,11 @@ export default function PoolDetailPage() {
         {/* Stage 26 — Оценочная стоимость (амортизация по факту аренд) */}
         {pool.status === "active" && pool.listing && (
           <ResidualValueBlock pool={pool} />
+        )}
+
+        {/* Календарь занятости — кто и когда берёт вещь */}
+        {pool.status === "active" && pool.listing && (
+          <PoolCalendarBlock listingId={pool.listing.id} pool={pool} />
         )}
 
         {/* Экономика пула — история доходов с аренды */}
@@ -1317,6 +1323,75 @@ function ActivatePoolBlock({ pool }: { pool: PoolDetail }) {
           }}
         />
       )}
+    </div>
+  );
+}
+
+// ─── CS-4: Календарь занятости пула ────────────────────────────────────────
+function PoolCalendarBlock({ listingId, pool }: { listingId: number; pool: PoolDetail }) {
+  const { data: unavailable, isLoading } = useQuery<Array<{ startDate: string; endDate: string; status: string }>>({
+    queryKey: ["pool-unavailable", listingId],
+    queryFn: async () => {
+      const res = await fetch(`/api/listings/${listingId}/unavailable-dates`);
+      if (!res.ok) return [];
+      return res.json();
+    },
+    staleTime: 60_000,
+  });
+
+  const custId = pool.listing?.custodianId;
+  const custodianShare = custId ? pool.shares.find(s => s.userId === custId) : null;
+  const custodianName = custodianShare?.userName ?? (custId ? `Участник #${custId}` : null);
+
+  const bookedRanges: BookedRange[] = (unavailable ?? []).map(d => ({
+    startDate: d.startDate,
+    endDate: d.endDate,
+    status: (d.status === "confirmed" ? "confirmed" : "pending") as "confirmed" | "pending",
+  }));
+
+  return (
+    <div className="bg-white border border-border rounded-2xl p-5">
+      <div className="flex items-center gap-3 mb-4">
+        <div className="w-9 h-9 rounded-xl bg-accent/10 flex items-center justify-center shrink-0">
+          <CalendarDays className="w-5 h-5 text-accent" />
+        </div>
+        <div>
+          <h3 className="text-sm font-semibold text-foreground">Расписание использования</h3>
+          <p className="text-xs text-stone-500 mt-0.5">Занятые даты по всем бронированиям совладельцев</p>
+        </div>
+      </div>
+
+      {custodianName && (
+        <div className="flex items-center gap-2 mb-4 px-3 py-2 bg-accent/5 border border-accent/20 rounded-xl text-xs">
+          <MapPin className="w-3.5 h-3.5 text-accent shrink-0" />
+          <span className="text-stone-600">Вещь сейчас у: <strong className="text-foreground">{custodianName}</strong></span>
+        </div>
+      )}
+
+      {isLoading ? (
+        <div className="flex items-center gap-2 text-stone-400 text-sm py-4 justify-center">
+          <Loader2 className="w-4 h-4 animate-spin" /> Загрузка календаря…
+        </div>
+      ) : (
+        <BookingCalendar
+          bookedRanges={bookedRanges}
+          startDate=""
+          endDate=""
+          onSelect={() => {}}
+        />
+      )}
+
+      <div className="mt-3 flex items-center gap-4 text-[11px] text-stone-400">
+        <span className="flex items-center gap-1.5">
+          <span className="w-3 h-3 rounded-sm bg-primary/80 inline-block" /> Подтверждено
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-3 h-3 rounded-sm bg-amber-300 inline-block" /> Ожидает
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-3 h-3 rounded-sm bg-stone-100 border border-stone-200 inline-block" /> Свободно
+        </span>
+      </div>
     </div>
   );
 }

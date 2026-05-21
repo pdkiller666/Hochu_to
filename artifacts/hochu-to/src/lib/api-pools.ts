@@ -119,6 +119,29 @@ export function listPools(status: PoolStatus = "funding"): Promise<PoolListItem[
   return jsonFetch<PoolListItem[]>(`/api/pools?status=${encodeURIComponent(status)}`);
 }
 
+export interface MyPoolItem {
+  id: number;
+  title: string;
+  status: PoolStatus;
+  targetAmountRub: number;
+  collectedAmountRub: number;
+  creatorId: number;
+  createdAt: string;
+  expiresAt: string | null;
+  maintenanceFundBalance: number;
+  isCreator: boolean;
+  myShare: {
+    shareId: number;
+    sharePercentage: string;
+    amountRub: number;
+    paymentStatus: PoolPaymentStatus;
+  } | null;
+}
+
+export function getMyPools(): Promise<MyPoolItem[]> {
+  return jsonFetch<MyPoolItem[]>("/api/pools/mine");
+}
+
 export function getPool(id: number): Promise<PoolDetail> {
   return jsonFetch<PoolDetail>(`/api/pools/${id}`);
 }

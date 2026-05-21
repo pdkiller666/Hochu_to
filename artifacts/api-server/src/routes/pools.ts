@@ -208,6 +208,118 @@ router.post("/", requireAuth, async (req: AuthRequest, res: Response) => {
   }
 });
 
+// ── GET /api/pools/mine — пулы текущего пользователя ──────────────────────
+// (создатель ИЛИ дольщик). Должен стоять ДО /:id чтобы "mine" не захватил id.
+router.get("/mine", requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const userId = req.userId!;
+
+    // Доли текущего пользователя
+    const myShares = await db
+      .select({
+        poolId: poolSharesTable.poolId,
+        shareId: poolSharesTable.id,
+        sharePercentage: poolSharesTable.sharePercentage,
+        amountRub: poolSharesTable.amountRub,
+        paymentStatus: poolSharesTable.paymentStatus,
+      })
+      .from(poolSharesTable)
+      .where(eq(poolSharesTable.userId, userId));
+
+    // Пулы где я — создатель
+    const createdPools = await db
+      .select({
+        id: poolsTable.id,
+        title: poolsTable.title,
+        status: poolsTable.status,
+        targetAmountRub: poolsTable.targetAmountRub,
+        creatorId: poolsTable.creatorId,
+        createdAt: poolsTable.createdAt,
+        expiresAt: poolsTable.expiresAt,
+        maintenanceFundBalance: poolsTable.maintenanceFundBalance,
+      })
+      .from(poolsTable)
+      .where(eq(poolsTable.creatorId, userId))
+      .orderBy(desc(poolsTable.createdAt));
+
+    // Пулы где я — дольщик, но НЕ создатель
+    const createdIds = new Set(createdPools.map((p) => p.id));
+    const memberPoolIds = myShares
+      .map((s) => s.poolId)
+      .filter((pid) => !createdIds.has(pid));
+
+    let memberPools: typeof createdPools = [];
+    if (memberPoolIds.length > 0) {
+      memberPools = await db
+        .select({
+          id: poolsTable.id,
+          title: poolsTable.title,
+          status: poolsTable.status,
+          targetAmountRub: poolsTable.targetAmountRub,
+          creatorId: poolsTable.creatorId,
+          createdAt: poolsTable.createdAt,
+          expiresAt: poolsTable.expiresAt,
+          maintenanceFundBalance: poolsTable.maintenanceFundBalance,
+        })
+        .from(poolsTable)
+        .where(inArray(poolsTable.id, memberPoolIds))
+        .orderBy(desc(poolsTable.createdAt));
+    }
+
+    const allPools = [...createdPools, ...memberPools];
+
+    // Собранные суммы по всем пулам пакетом
+    const allIds = allPools.map((p) => p.id);
+    let sums: Array<{ poolId: number; total: string }> = [];
+    if (allIds.length > 0) {
+      sums = await db
+        .select({
+          poolId: poolSharesTable.poolId,
+          total: sql<string>`COALESCE(SUM(${poolSharesTable.amountRub}), 0)::text`,
+        })
+        .from(poolSharesTable)
+        .where(
+          and(
+            inArray(poolSharesTable.poolId, allIds),
+            inArray(poolSharesTable.paymentStatus, COLLECTED_STATUSES as any),
+          ),
+        )
+        .groupBy(poolSharesTable.poolId);
+    }
+    const sumByPool = new Map(sums.map((s) => [s.poolId, Number(s.total)]));
+    const shareByPool = new Map(myShares.map((s) => [s.poolId, s]));
+
+    res.json(
+      allPools.map((p) => {
+        const myShare = shareByPool.get(p.id) ?? null;
+        return {
+          id: p.id,
+          title: p.title,
+          status: p.status,
+          targetAmountRub: Number(p.targetAmountRub),
+          collectedAmountRub: sumByPool.get(p.id) ?? 0,
+          creatorId: p.creatorId,
+          createdAt: p.createdAt,
+          expiresAt: p.expiresAt,
+          maintenanceFundBalance: parseFloat(String(p.maintenanceFundBalance ?? "0")),
+          isCreator: p.creatorId === userId,
+          myShare: myShare
+            ? {
+                shareId: myShare.shareId,
+                sharePercentage: myShare.sharePercentage,
+                amountRub: Number(myShare.amountRub),
+                paymentStatus: myShare.paymentStatus,
+              }
+            : null,
+        };
+      }),
+    );
+  } catch (e) {
+    logger.error({ err: e }, "GET /pools/mine failed");
+    res.status(500).json({ error: "internal_error" });
+  }
+});
+
 // ── GET /api/pools/:id ─────────────────────────────────────────────────────
 router.get("/:id", async (req, res) => {
   try {

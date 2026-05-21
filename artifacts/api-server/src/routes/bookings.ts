@@ -879,8 +879,8 @@ router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
     const escrowSettings = await getPlatformSettings();
     const bookingNum = updated.bookingNumber ?? undefined;
 
-    // Pool rental income distribution — активна всегда (не зависит от isCommercialMode)
-    if (status === "completed" && listingForCoOwner?.poolId) {
+    // Pool rental income distribution — только при isCommercialMode=true (иначе phantom credits в beta)
+    if (status === "completed" && listingForCoOwner?.poolId && escrowSettings.isCommercialMode) {
       const ownerPayoutAmt = parseFloat(String(updated.ownerPayout ?? "0"));
       if (ownerPayoutAmt > 0) {
         void payoutPoolShareholders({
