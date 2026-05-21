@@ -305,11 +305,9 @@ export default function ListingForm() {
       const content = j.content;
       toast({
         title: "Продающее фото готово! 🪄",
-        description: j.fallback
-          ? "Карточка собрана (запасной текст — LLM временно недоступна)."
-          : content
-            ? `${content.title} · ${[...(content.leftItems ?? []), ...(content.rightItems ?? [])].slice(0, 3).join(" · ")}`
-            : "Marketplace-инфографика успешно создана.",
+        description: content
+          ? `${content.title} · ${[...(content.leftItems ?? []), ...(content.rightItems ?? [])].slice(0, 3).join(" · ")}`
+          : "Marketplace-инфографика успешно создана.",
       });
     } catch (err: any) {
       toast({
@@ -1199,7 +1197,7 @@ export default function ListingForm() {
                         <button
                           type="button"
                           onClick={() => setMainPhoto(i)}
-                          className="absolute bottom-1 left-1 right-7 bg-black/60 hover:bg-primary text-white text-[10px] font-bold px-1.5 py-0.5 rounded-md opacity-0 group-hover:opacity-100 transition-opacity truncate"
+                          className="absolute bottom-1 left-1 right-7 bg-black/60 hover:bg-primary text-white text-[10px] font-bold px-1.5 py-0.5 rounded-md sm:opacity-0 sm:group-hover:opacity-100 transition-opacity truncate"
                         >
                           Главным
                         </button>
@@ -1208,7 +1206,7 @@ export default function ListingForm() {
                       <button
                         type="button"
                         onClick={(e) => { e.stopPropagation(); openCropModal(i); }}
-                        className="absolute top-1 left-1 w-5 h-5 bg-black/60 hover:bg-emerald-600 text-white rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-[9px] font-bold leading-none"
+                        className="absolute top-1 left-1 w-7 h-7 sm:w-5 sm:h-5 bg-black/60 hover:bg-emerald-600 text-white rounded flex items-center justify-center sm:opacity-0 sm:group-hover:opacity-100 transition-opacity text-sm sm:text-[9px] font-bold leading-none"
                         title="Обрезать фото"
                       >
                         ✂
@@ -1217,7 +1215,7 @@ export default function ListingForm() {
                       <button
                         type="button"
                         onClick={(e) => { e.stopPropagation(); setPickerIdx(pickerIdx === i ? null : i); }}
-                        className="absolute top-7 left-1 w-5 h-5 bg-black/60 hover:bg-primary text-white rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity text-[9px] font-bold leading-none"
+                        className="absolute top-9 sm:top-7 left-1 w-7 h-7 sm:w-5 sm:h-5 bg-black/60 hover:bg-primary text-white rounded flex items-center justify-center sm:opacity-0 sm:group-hover:opacity-100 transition-opacity text-base sm:text-[9px] font-bold leading-none"
                         title="Кадрирование"
                       >
                         ⛶
@@ -1225,9 +1223,9 @@ export default function ListingForm() {
                       <button
                         type="button"
                         onClick={() => removePhoto(i)}
-                        className="absolute top-1 right-1 w-6 h-6 bg-black/60 hover:bg-red-500 text-white rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                        className="absolute top-1 right-1 w-8 h-8 sm:w-6 sm:h-6 bg-black/60 hover:bg-red-500 text-white rounded-full flex items-center justify-center sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
                       >
-                        <X className="w-3 h-3" />
+                        <X className="w-4 h-4 sm:w-3 sm:h-3" />
                       </button>
                       {/* Position picker overlay */}
                       {pickerIdx === i && (

@@ -112,13 +112,105 @@ CRITICAL: All Cyrillic text must be perfectly sharp and legible. The final card 
 // ─── Tier helpers ─────────────────────────────────────────────────────────────
 
 /**
- * Tier 1: OpenRouter — text-only LLM, image generation недоступна.
- * Всегда cascade → Tier 2.
+ * Tier 1: OpenRouter — google/gemini-2.5-flash-image (image input + image output).
+ * Отправляет фото-референс + промпт, получает сгенерированную карточку товара.
+ * Модели на OpenRouter: google/gemini-2.5-flash-image, google/gemini-3.1-flash-image-preview
  */
-async function tryOpenRouter(_prompt: string, _imageBuffer: Buffer): Promise<Buffer> {
-  throw new Error(
-    "OpenRouter does not support image generation — cascading to Tier 2 (Gemini)",
-  );
+async function tryOpenRouter(prompt: string, imageBuffer: Buffer): Promise<Buffer> {
+  const apiKey = process.env.OPENROUTER_API_KEY?.trim();
+  if (!apiKey) throw new Error("OPENROUTER_API_KEY not set");
+
+  const jpegBuf = await sharp(imageBuffer)
+    .rotate()
+    .resize(1024, 1024, { fit: "inside", withoutEnlargement: true })
+    .jpeg({ quality: 85 })
+    .toBuffer();
+  const imageBase64 = jpegBuf.toString("base64");
+
+  const MODELS = [
+    "google/gemini-2.5-flash-image",
+    "google/gemini-3.1-flash-image-preview",
+  ];
+
+  let lastErr = "";
+  for (const model of MODELS) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 90_000);
+    try {
+      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+          "HTTP-Referer": "https://hochu.to",
+          "X-Title": "Хочу_То Infographic Generator",
+        },
+        body: JSON.stringify({
+          model,
+          messages: [{
+            role: "user",
+            content: [
+              { type: "text", text: prompt },
+              { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
+            ],
+          }],
+        }),
+        signal: ctrl.signal,
+      });
+      clearTimeout(timer);
+
+      if (res.status === 404 || res.status === 400) {
+        const txt = await res.text().catch(() => "");
+        lastErr = `${model}: HTTP ${res.status} — ${txt.slice(0, 150)}`;
+        logger.warn({ model, status: res.status }, "infographic.openrouter: model unavailable, trying next");
+        continue;
+      }
+      if (!res.ok) {
+        const txt = await res.text().catch(() => "");
+        throw new Error(`${model}: HTTP ${res.status}: ${txt.slice(0, 200)}`);
+      }
+
+      const data: any = await res.json();
+      const content = data?.choices?.[0]?.message?.content;
+      if (!content) throw new Error(`${model}: empty response`);
+
+      // content может быть строкой или массивом частей
+      const parts: any[] = Array.isArray(content) ? content : [];
+      const imgPart = parts.find((p: any) =>
+        p.type === "image_url" && p.image_url?.url,
+      );
+
+      if (!imgPart) {
+        // Иногда модель возвращает только текст (не смогла сгенерировать)
+        lastErr = `${model}: no image in response (parts: ${parts.length}, type: ${typeof content})`;
+        logger.warn({ model, lastErr }, "infographic.openrouter: no image part");
+        continue;
+      }
+
+      // Извлекаем изображение: data URI или внешний URL
+      const imgUrl: string = imgPart.image_url.url;
+      let imgBuffer: Buffer;
+      if (imgUrl.startsWith("data:")) {
+        const base64Data = imgUrl.split(",")[1];
+        imgBuffer = Buffer.from(base64Data, "base64");
+      } else {
+        const imgRes = await fetch(imgUrl);
+        if (!imgRes.ok) throw new Error(`${model}: failed to fetch image URL: ${imgRes.status}`);
+        imgBuffer = Buffer.from(await imgRes.arrayBuffer());
+      }
+
+      logger.info({ model }, "infographic.openrouter: image generated successfully");
+      return imgBuffer;
+    } catch (e: any) {
+      clearTimeout(timer);
+      if (e?.name === "AbortError") { lastErr = `${model}: timeout`; continue; }
+      lastErr = e?.message || String(e);
+      if (lastErr.includes("HTTP 404") || lastErr.includes("HTTP 400") || lastErr.includes("no image")) continue;
+      throw e;
+    }
+  }
+
+  throw new Error(`OpenRouter image generation failed: ${lastErr}`);
 }
 
 /**

@@ -290,28 +290,50 @@ router.post(
           ].slice(0, 6);
           const priceNum = pricePerDay ? Math.round(pricePerDay) : 0;
 
-          // 4) Generative AI (Tier 1 OpenRouter → Tier 2 Gemini/Imagen3 → Tier 3 original)
-          const genResult = await generateGenerativeInfographic(sourceBuffer, {
-            title: mktResult.content.title,
-            price: priceNum,
-            bullets: allBullets,
-            description: description ?? undefined,
-            category: category ?? undefined,
-            format: "square",
-          });
+          // 4) Generative AI → Tier 2.5 SVG-overlay fallback
+          // Tier 1/2 (OpenRouter/Gemini image gen) недоступны на бесплатном плане —
+          // сразу используем надёжный buildMarketplaceInfographic (sharp + SVG overlay).
+          // При появлении платного Gemini — генеративный tier подключится автоматически.
+          let genResult: Awaited<ReturnType<typeof generateGenerativeInfographic>> | null = null;
+          try {
+            genResult = await generateGenerativeInfographic(sourceBuffer, {
+              title: mktResult.content.title,
+              price: priceNum,
+              bullets: allBullets,
+              description: description ?? undefined,
+              category: category ?? undefined,
+              format: "square",
+            });
+          } catch { /* cascade to SVG */ }
 
-          webpBuffer = genResult.buffer;
-
-          responseExtra = {
-            template: "marketplace",
-            generativeTier: genResult.tier,
-            preprocessed: preprocess,
-            content: mktResult.content,
-            provider: mktResult.provider,
-            actualProvider: mktResult.actualProvider,
-            fallback: mktResult.fallback || genResult.tier === 3,
-            fallbackReason: mktResult.fallbackReason,
-          };
+          // Tier 2.5: если genResult === null или tier=3 (деградация без overlay),
+          // используем buildMarketplaceInfographic — это красивый SVG marketplace card
+          if (!genResult || genResult.tier === 3) {
+            const priceText = priceNum > 0 ? `от ${priceNum.toLocaleString("ru-RU")} ₽/сут` : "";
+            webpBuffer = await buildMarketplaceInfographic(sourceBuffer, mktResult.content, priceText);
+            responseExtra = {
+              template: "marketplace",
+              generativeTier: "svg",
+              preprocessed: preprocess,
+              content: mktResult.content,
+              provider: mktResult.provider,
+              actualProvider: mktResult.actualProvider,
+              fallback: mktResult.fallback,
+              fallbackReason: mktResult.fallbackReason,
+            };
+          } else {
+            webpBuffer = genResult.buffer;
+            responseExtra = {
+              template: "marketplace",
+              generativeTier: genResult.tier,
+              preprocessed: preprocess,
+              content: mktResult.content,
+              provider: mktResult.provider,
+              actualProvider: mktResult.actualProvider,
+              fallback: mktResult.fallback,
+              fallbackReason: mktResult.fallbackReason,
+            };
+          }
         } else {
           // ── Classic template (3 буллета, SVG-overlay) ────────────────────
           const bulletsResult = await generateInfographicBullets(
