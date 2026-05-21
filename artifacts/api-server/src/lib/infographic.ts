@@ -2,16 +2,17 @@
  * Stage 41 — Generative Infographic Service
  *
  * generateGenerativeInfographic(): 3-tier fallback chain
- *   Tier 1 — OpenRouter (LLM-only, всегда throws → cascade to Tier 2)
+ *   Tier 1 — OpenRouter /images/generate (DALL-E 3 / Flux) — text-to-image,
+ *             детальный промпт на основе товарных данных, без референса
  *   Tier 2 — Google Gemini 2.0 Flash multimodal image generation
- *             (принимает фото-референс + текстовый промпт → генерирует карточку)
+ *             (фото-референс + промпт → генерирует карточку)
  *   Tier 3 — graceful degradation: возвращает исходный imageBuffer в WebP
  *
- * buildImagePrompt(): строит детальный промпт для карточки товара.
+ * buildImagePrompt(): строит детальный промпт для image generation.
  * preprocessForAI(): опциональный препроцессинг (resize + sharpen + saturation).
  *
  * Audit-логирование: структурированные Pino-записи (tier, durationMs, err).
- * SHA-256 disk-cache 24ч в /tmp/infographic-cache/ (shared с image-service).
+ * SHA-256 disk-cache 24ч в /tmp/infographic-cache/.
  */
 import { createHash } from "crypto";
 import { promises as fs } from "fs";
@@ -50,16 +51,6 @@ function makeCacheKey(imageBuffer: Buffer, prompt: string): string {
 
 // ─── Prompt builder ────────────────────────────────────────────────────────────
 
-/**
- * buildImagePrompt — строит детальный промпт для Gemini image generation.
- *
- * Модель получает фото-референс (само изображение вещи) + этот промпт.
- * Она должна самостоятельно распознать вещь, взять характеристики из description
- * (или придумать подходящие), и нарисовать готовую карточку товара.
- *
- * Промпт на английском — модель лучше следует инструкциям.
- * Пользовательский контент (title, bullets, description) вставляется как есть (на русском).
- */
 export function buildImagePrompt(item: {
   title: string;
   price: number;
@@ -75,69 +66,60 @@ export function buildImagePrompt(item: {
   const featuresBlock = item.bullets.length > 0
     ? `KEY FEATURES to display (use these exact Russian phrases):\n` +
       item.bullets.slice(0, 5).map((b, i) => `  ${i + 1}. ${b}`).join("\n")
-    : `KEY FEATURES: examine the product in the reference photo carefully and generate 4-5 concise Russian rental advantages (e.g. комплектация, состояние, удобство использования).`;
+    : `KEY FEATURES: generate 4-5 concise Russian rental advantages for this product.`;
 
   const descBlock = item.description && item.description.trim().length > 10
-    ? `PRODUCT DESCRIPTION (extract key rental features from this):\n"${item.description.slice(0, 500)}"`
-    : `No description provided — infer the product's key rental benefits from the reference image.`;
+    ? `PRODUCT DESCRIPTION (extract key rental features):\n"${item.description.slice(0, 500)}"`
+    : "";
 
   const categoryHint = item.category ? `Category: ${item.category}. ` : "";
 
-  return `You are a professional graphic designer creating marketplace product cards for "Хочу_То" — a Russian item rental platform (like Avito/Ozon quality).
+  return `Professional marketplace product card image (1080×1080 square) for Russian rental platform "Хочу_То".
 
-TASK: Create a complete, publication-ready product card image (1080×1080 square).
-
-REFERENCE PHOTO: The attached image shows the actual rental item. ${categoryHint}Use it as the main product visual.
-
-PRODUCT CARD CONTENT:
-- TITLE (large bold Cyrillic, top area): "${item.title}"
-${priceRu ? `- PRICE BADGE (rounded pill, terracotta/orange #C65D3B color): "${priceRu}"` : ""}
+PRODUCT: "${item.title}"
+${categoryHint}${priceRu ? `RENTAL PRICE: ${priceRu}` : ""}
 ${featuresBlock}
 ${descBlock}
 
-VISUAL DESIGN REQUIREMENTS:
-- Place the product prominently in center/foreground — sharp, well-lit, professional
-- Background: clean studio setting or atmospheric context matching the item type (outdoor gear → nature backdrop; tools → workshop; electronics → minimal desk)
-- Two semi-transparent panels (white and dark) on the sides or bottom — use them for the features list
-- Title text: bold, white or dark (high contrast), Montserrat-style sans-serif, perfectly readable
-- Price badge: terracotta/orange pill shape, white bold text, lower-left area
-- Features: clean numbered or bulleted list in Cyrillic, readable font, no blur
-- Small brand text "Хочу_То" in bottom corner
-- Overall feel: premium Russian marketplace (Avito/Wildberries top seller level)
-- No watermarks, no device frames, no lorem ipsum
+VISUAL DESIGN:
+- Clean studio photo of the product as the main visual (center/foreground, sharp, professional)
+- Background: clean studio or atmospheric context matching item type
+- Semi-transparent dark panel at bottom showing product features as a clean list
+- Large bold white title at top: "${item.title}"
+${priceRu ? `- Orange price badge (color #C65D3B): "${priceRu}"` : ""}
+- Small "Хочу_То" brand watermark in corner
+- Premium Russian marketplace quality (Avito/Wildberries top seller level)
+- All Cyrillic text sharp and perfectly legible
+- No lorem ipsum, no device frames
 
-CRITICAL: All Cyrillic text must be perfectly sharp and legible. The final card should look like it was made by a professional designer, not auto-generated.`;
+OUTPUT: Complete, ready-to-post product card image.`;
 }
 
-// ─── Tier helpers ─────────────────────────────────────────────────────────────
+// ─── Tier 1: OpenRouter /images/generate ──────────────────────────────────────
 
 /**
- * Tier 1: OpenRouter — google/gemini-2.5-flash-image (image input + image output).
- * Отправляет фото-референс + промпт, получает сгенерированную карточку товара.
- * Модели на OpenRouter: google/gemini-2.5-flash-image, google/gemini-3.1-flash-image-preview
+ * Tier 1: OpenRouter images/generate endpoint.
+ * Использует DALL-E 3 или Flux — настоящие image generation модели.
+ * Не требует референс-фото (text-to-image), но генерирует красивую карточку.
+ * Fallback модели пробуются по очереди.
  */
-async function tryOpenRouter(prompt: string, imageBuffer: Buffer): Promise<Buffer> {
+async function tryOpenRouter(prompt: string, _imageBuffer: Buffer): Promise<Buffer> {
   const apiKey = process.env.OPENROUTER_API_KEY?.trim();
   if (!apiKey) throw new Error("OPENROUTER_API_KEY not set");
 
-  const jpegBuf = await sharp(imageBuffer)
-    .rotate()
-    .resize(1024, 1024, { fit: "inside", withoutEnlargement: true })
-    .jpeg({ quality: 85 })
-    .toBuffer();
-  const imageBase64 = jpegBuf.toString("base64");
-
+  // Пробуем модели по порядку (DALL-E 3 → Flux Pro → Flux 1.1)
   const MODELS = [
-    "google/gemini-2.5-flash-image",
-    "google/gemini-3.1-flash-image-preview",
+    "openai/dall-e-3",
+    "black-forest-labs/flux-1.1-pro",
+    "black-forest-labs/flux-pro",
   ];
 
   let lastErr = "";
   for (const model of MODELS) {
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 90_000);
+    const timer = setTimeout(() => ctrl.abort(), 60_000);
     try {
-      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      const res = await fetch("https://openrouter.ai/api/v1/images/generate", {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${apiKey}`,
@@ -147,19 +129,17 @@ async function tryOpenRouter(prompt: string, imageBuffer: Buffer): Promise<Buffe
         },
         body: JSON.stringify({
           model,
-          messages: [{
-            role: "user",
-            content: [
-              { type: "text", text: prompt },
-              { type: "image_url", image_url: { url: `data:image/jpeg;base64,${imageBase64}` } },
-            ],
-          }],
+          prompt,
+          n: 1,
+          size: "1024x1024",
+          quality: "standard",
+          response_format: "url",
         }),
         signal: ctrl.signal,
       });
       clearTimeout(timer);
 
-      if (res.status === 404 || res.status === 400) {
+      if (res.status === 404 || res.status === 400 || res.status === 402) {
         const txt = await res.text().catch(() => "");
         lastErr = `${model}: HTTP ${res.status} — ${txt.slice(0, 150)}`;
         logger.warn({ model, status: res.status }, "infographic.openrouter: model unavailable, trying next");
@@ -171,41 +151,28 @@ async function tryOpenRouter(prompt: string, imageBuffer: Buffer): Promise<Buffe
       }
 
       const data: any = await res.json();
-      const content = data?.choices?.[0]?.message?.content;
-      if (!content) throw new Error(`${model}: empty response`);
+      const imgUrl: string | undefined = data?.data?.[0]?.url;
+      const b64: string | undefined = data?.data?.[0]?.b64_json;
 
-      // content может быть строкой или массивом частей
-      const parts: any[] = Array.isArray(content) ? content : [];
-      const imgPart = parts.find((p: any) =>
-        p.type === "image_url" && p.image_url?.url,
-      );
-
-      if (!imgPart) {
-        // Иногда модель возвращает только текст (не смогла сгенерировать)
-        lastErr = `${model}: no image in response (parts: ${parts.length}, type: ${typeof content})`;
-        logger.warn({ model, lastErr }, "infographic.openrouter: no image part");
-        continue;
+      if (b64) {
+        logger.info({ model }, "infographic.openrouter: image generated (b64)");
+        return Buffer.from(b64, "base64");
       }
-
-      // Извлекаем изображение: data URI или внешний URL
-      const imgUrl: string = imgPart.image_url.url;
-      let imgBuffer: Buffer;
-      if (imgUrl.startsWith("data:")) {
-        const base64Data = imgUrl.split(",")[1];
-        imgBuffer = Buffer.from(base64Data, "base64");
-      } else {
+      if (imgUrl) {
         const imgRes = await fetch(imgUrl);
-        if (!imgRes.ok) throw new Error(`${model}: failed to fetch image URL: ${imgRes.status}`);
-        imgBuffer = Buffer.from(await imgRes.arrayBuffer());
+        if (!imgRes.ok) throw new Error(`${model}: failed to fetch generated image: ${imgRes.status}`);
+        logger.info({ model }, "infographic.openrouter: image generated (url)");
+        return Buffer.from(await imgRes.arrayBuffer());
       }
 
-      logger.info({ model }, "infographic.openrouter: image generated successfully");
-      return imgBuffer;
+      lastErr = `${model}: empty response (no url, no b64)`;
+      logger.warn({ model, data: JSON.stringify(data).slice(0, 200) }, "infographic.openrouter: no image in response");
+      continue;
     } catch (e: any) {
       clearTimeout(timer);
       if (e?.name === "AbortError") { lastErr = `${model}: timeout`; continue; }
       lastErr = e?.message || String(e);
-      if (lastErr.includes("HTTP 404") || lastErr.includes("HTTP 400") || lastErr.includes("no image")) continue;
+      if (lastErr.includes("HTTP 404") || lastErr.includes("HTTP 400") || lastErr.includes("HTTP 402")) continue;
       throw e;
     }
   }
@@ -213,20 +180,17 @@ async function tryOpenRouter(prompt: string, imageBuffer: Buffer): Promise<Buffe
   throw new Error(`OpenRouter image generation failed: ${lastErr}`);
 }
 
+// ─── Tier 2: Gemini multimodal image generation ───────────────────────────────
+
 /**
- * Tier 2: Gemini 2.0 Flash multimodal image generation.
- *
- * Отправляет фото-референс + промпт в модель, которая умеет генерировать изображения.
- * Endpoint: generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-preview-image-generation
- * Fallback: imagen-3.0-generate-001 (text-to-image, без референса)
- *
- * Auth: ?key=GEMINI_API_KEY (стандарт Gemini REST)
+ * Tier 2: Gemini 2.0 Flash — multimodal image generation.
+ * Принимает фото-референс + промпт, генерирует карточку товара.
+ * Использует актуальные модели с поддержкой IMAGE output.
  */
 async function tryGeminiImageGen(prompt: string, imageBuffer: Buffer): Promise<Buffer> {
   const apiKey = process.env.GEMINI_API_KEY?.trim();
   if (!apiKey) throw new Error("GEMINI_API_KEY not set");
 
-  // Конвертируем фото-референс в JPEG base64 для inline данных
   const jpegBuf = await sharp(imageBuffer)
     .rotate()
     .resize(1024, 1024, { fit: "inside", withoutEnlargement: true })
@@ -234,17 +198,18 @@ async function tryGeminiImageGen(prompt: string, imageBuffer: Buffer): Promise<B
     .toBuffer();
   const imageBase64 = jpegBuf.toString("base64");
 
-  // Модели с поддержкой image generation (пробуем по очереди)
+  // Актуальные модели с image generation output (пробуем по очереди)
   const MODELS = [
-    "gemini-2.0-flash-preview-image-generation",
     "gemini-2.0-flash-exp",
+    "gemini-2.0-flash-preview-image-generation",
+    "gemini-2.0-flash",
   ];
 
   let lastErr = "";
 
   for (const model of MODELS) {
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 60_000);
+    const timer = setTimeout(() => ctrl.abort(), 90_000);
     try {
       const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
@@ -259,8 +224,9 @@ async function tryGeminiImageGen(prompt: string, imageBuffer: Buffer): Promise<B
               ],
             }],
             generationConfig: {
-              responseModalities: ["IMAGE"],
-              temperature: 0.9,
+              // TEXT + IMAGE: модель может дополнить картинку текстом — нужны оба
+              responseModalities: ["TEXT", "IMAGE"],
+              temperature: 0.8,
             },
           }),
           signal: ctrl.signal,
@@ -270,8 +236,8 @@ async function tryGeminiImageGen(prompt: string, imageBuffer: Buffer): Promise<B
 
       if (res.status === 404 || res.status === 400) {
         const txt = await res.text().catch(() => "");
-        lastErr = `${model}: HTTP ${res.status} — ${txt.slice(0, 150)}`;
-        logger.warn({ model, status: res.status }, "infographic: model not available, trying next");
+        lastErr = `${model}: HTTP ${res.status} — ${txt.slice(0, 200)}`;
+        logger.warn({ model, status: res.status, lastErr }, "infographic.gemini: model not available");
         continue;
       }
       if (!res.ok) {
@@ -280,12 +246,16 @@ async function tryGeminiImageGen(prompt: string, imageBuffer: Buffer): Promise<B
       }
 
       const data: any = await res.json();
-      // Ищем image part в ответе
       const parts: any[] = data?.candidates?.[0]?.content?.parts ?? [];
       const imgPart = parts.find((p: any) => p.inlineData?.mimeType?.startsWith("image/"));
+
       if (!imgPart?.inlineData?.data) {
-        throw new Error(`${model}: no image in response (parts: ${parts.length})`);
+        const textPart = parts.find((p: any) => p.text);
+        lastErr = `${model}: no image in response (parts: ${parts.length}, has_text: ${!!textPart})`;
+        logger.warn({ model, lastErr }, "infographic.gemini: no image part");
+        continue;
       }
+
       logger.info({ model }, "infographic.gemini: image generated successfully");
       return Buffer.from(imgPart.inlineData.data, "base64");
     } catch (e: any) {
@@ -293,16 +263,16 @@ async function tryGeminiImageGen(prompt: string, imageBuffer: Buffer): Promise<B
       if (e?.name === "AbortError") { lastErr = `${model}: timeout`; continue; }
       lastErr = e?.message || String(e);
       if (lastErr.includes("HTTP 404") || lastErr.includes("HTTP 400")) continue;
-      throw e; // другие ошибки — сразу наверх
+      throw e;
     }
   }
 
-  // Fallback: Imagen 3 text-to-image (без референса, но всё равно лучше ничего)
-  logger.warn({ lastErr }, "infographic.gemini: all multimodal models failed, trying Imagen3 text-to-image");
+  // Fallback: Imagen 3 text-to-image (без референса, но стабильно)
+  logger.warn({ lastErr }, "infographic.gemini: all multimodal models failed, trying Imagen3");
   return tryImagen3TextOnly(prompt, apiKey);
 }
 
-/** Imagen 3 text-to-image fallback (без фото-референса) */
+/** Imagen 3 text-to-image fallback */
 async function tryImagen3TextOnly(prompt: string, apiKey: string): Promise<Buffer> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 45_000);
@@ -327,6 +297,7 @@ async function tryImagen3TextOnly(prompt: string, apiKey: string): Promise<Buffe
     const data: any = await res.json();
     const b64: string | undefined = data?.predictions?.[0]?.bytesBase64Encoded;
     if (!b64) throw new Error("Imagen3: empty prediction");
+    logger.info("infographic.imagen3: image generated successfully");
     return Buffer.from(b64, "base64");
   } finally {
     clearTimeout(timer);
@@ -344,8 +315,8 @@ export interface GenerativeInfographicResult {
 /**
  * generateGenerativeInfographic — 3-tier fallback chain.
  *
- * Tier 1: OpenRouter (stub → cascade)
- * Tier 2: Gemini 2.0 multimodal + Imagen 3 fallback
+ * Tier 1: OpenRouter /images/generate (DALL-E 3 / Flux) — надёжная генерация
+ * Tier 2: Gemini 2.0 Flash multimodal + Imagen 3 fallback
  * Tier 3: возвращает исходное изображение в WebP (без оверлеев)
  */
 export async function generateGenerativeInfographic(
@@ -365,12 +336,12 @@ export async function generateGenerativeInfographic(
   const cached = await getCached(cacheKey);
   if (cached) {
     logger.info({ cacheKey: cacheKey.slice(0, 16) }, "infographic.generative: cache hit");
-    return { buffer: cached, tier: 2 };
+    return { buffer: cached, tier: 1 };
   }
 
   const startedAt = Date.now();
 
-  // ── Tier 1: OpenRouter ─────────────────────────────────────────────────────
+  // ── Tier 1: OpenRouter /images/generate ─────────────────────────────────────
   try {
     const raw = await tryOpenRouter(prompt, imageBuffer);
     const out = await sharp(raw).webp({ quality: 90 }).toBuffer();
@@ -381,7 +352,7 @@ export async function generateGenerativeInfographic(
     logger.warn({ tier: 1, err: e1?.message }, "infographic: tier 1 failed → Gemini");
   }
 
-  // ── Tier 2: Gemini multimodal image generation ─────────────────────────────
+  // ── Tier 2: Gemini multimodal image generation ──────────────────────────────
   try {
     const raw = await tryGeminiImageGen(prompt, imageBuffer);
     const out = await sharp(raw).webp({ quality: 92 }).toBuffer();
@@ -392,7 +363,7 @@ export async function generateGenerativeInfographic(
     logger.warn({ tier: 2, err: e2?.message, durationMs: Date.now() - startedAt }, "infographic: tier 2 failed → degradation");
   }
 
-  // ── Tier 3: Graceful degradation ───────────────────────────────────────────
+  // ── Tier 3: Graceful degradation ─────────────────────────────────────────────
   logger.error({ tier: 3, durationMs: Date.now() - startedAt }, "infographic: all tiers failed — original image");
   const fallback = await sharp(imageBuffer)
     .rotate()
@@ -404,10 +375,6 @@ export async function generateGenerativeInfographic(
 
 // ─── Preprocessing ─────────────────────────────────────────────────────────────
 
-/**
- * preprocessForAI — опциональный препроцессинг перед отправкой в AI.
- * Resize до 1024×1024, повышение резкости и насыщенности.
- */
 export async function preprocessForAI(imageBuffer: Buffer): Promise<Buffer> {
   return sharp(imageBuffer)
     .rotate()

@@ -20,6 +20,40 @@ const router = Router();
 
 const isProduction = process.env.NODE_ENV === "production";
 
+// ─── Rate limiting: защита от брутфорса ──────────────────────────────────────
+// Хранится в памяти, сбрасывается при рестарте сервера (достаточно для бета).
+// Ключ = IP-адрес клиента.
+
+type RateBucket = { count: number; resetAt: number };
+const loginBuckets = new Map<string, RateBucket>();
+const registerBuckets = new Map<string, RateBucket>();
+
+function checkRateLimit(
+  buckets: Map<string, RateBucket>,
+  ip: string,
+  maxAttempts: number,
+  windowMs: number,
+): { allowed: boolean; retryAfterSec: number } {
+  const now = Date.now();
+  const b = buckets.get(ip);
+  if (!b || b.resetAt <= now) {
+    buckets.set(ip, { count: 1, resetAt: now + windowMs });
+    return { allowed: true, retryAfterSec: 0 };
+  }
+  if (b.count >= maxAttempts) {
+    return { allowed: false, retryAfterSec: Math.ceil((b.resetAt - now) / 1000) };
+  }
+  b.count++;
+  return { allowed: true, retryAfterSec: 0 };
+}
+
+// Очистка устаревших записей каждые 10 минут
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of loginBuckets) if (v.resetAt <= now) loginBuckets.delete(k);
+  for (const [k, v] of registerBuckets) if (v.resetAt <= now) registerBuckets.delete(k);
+}, 10 * 60_000).unref?.();
+
 /**
  * Настройки refresh-cookie зависят от окружения:
  *
@@ -78,6 +112,14 @@ function formatUser(user: typeof usersTable.$inferSelect, regionName?: string) {
 
 // Роут регистрации
 router.post("/register", async (req, res) => {
+  const ip = (req.ip ?? req.socket?.remoteAddress ?? "unknown").replace("::ffff:", "");
+  const rl = checkRateLimit(registerBuckets, ip, 5, 60 * 60_000); // 5 per hour
+  if (!rl.allowed) {
+    res.setHeader("Retry-After", String(rl.retryAfterSec));
+    res.status(429).json({ error: "rate_limited", message: `Слишком много попыток. Повторите через ${Math.ceil(rl.retryAfterSec / 60)} мин.` });
+    return;
+  }
+
   const parsed = RegisterUserBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "validation_error", message: parsed.error.message });
@@ -123,6 +165,14 @@ router.post("/register", async (req, res) => {
 
 // Роут логина
 router.post("/login", async (req, res) => {
+  const ip = (req.ip ?? req.socket?.remoteAddress ?? "unknown").replace("::ffff:", "");
+  const rl = checkRateLimit(loginBuckets, ip, 10, 15 * 60_000); // 10 per 15 min
+  if (!rl.allowed) {
+    res.setHeader("Retry-After", String(rl.retryAfterSec));
+    res.status(429).json({ error: "rate_limited", message: `Слишком много попыток входа. Повторите через ${Math.ceil(rl.retryAfterSec / 60)} мин.` });
+    return;
+  }
+
   const parsed = LoginUserBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "validation_error", message: parsed.error.message });

@@ -69,6 +69,7 @@ channel = "stable-25_05"
 
 [userenv.shared]
 GITHUB_TOKEN = "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"
+AUTH_JWT_SECRET = "eb9fd8bd7fb2779f753a79d7e6e1a83e7bd508bb910fb52040c16a168552db5f"
 
 [[ports]]
 localPort = 5000
