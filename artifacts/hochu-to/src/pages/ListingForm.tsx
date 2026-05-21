@@ -15,7 +15,7 @@ import { useLocation, useRoute } from "wouter";
 import { useCreateListing, useUpdateListing, useGetListingById, useGetCategories, useGetRegions } from "@workspace/api-client-react";
 import { useAuthState, getAuthHeaders } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
-import { ChevronLeft, ChevronDown, ChevronUp, Loader2, ImagePlus, X, ShieldCheck, ShieldOff, AlertTriangle, Info, HandCoins, Link2, Check, Sparkles, Maximize2, Minimize2 } from "lucide-react";
+import { ChevronLeft, ChevronDown, ChevronUp, Loader2, ImagePlus, Camera, X, ShieldCheck, ShieldOff, AlertTriangle, Info, HandCoins, Link2, Check, Sparkles, Maximize2, Minimize2 } from "lucide-react";
 import { Link } from "wouter";
 import { LocationPicker } from "@/components/ui/LocationPicker";
 import { CollapsibleMap } from "@/components/ui/CollapsibleMap";
@@ -41,6 +41,9 @@ export default function ListingForm() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraCaptureRef = useRef<HTMLInputElement>(null);
+  const infoCameraCaptureRef = useRef<HTMLInputElement>(null);
+  const infoMenuRef = useRef<HTMLDivElement>(null);
 
   const { data: categories } = useGetCategories();
   const { data: regions } = useGetRegions();
@@ -198,8 +201,11 @@ export default function ListingForm() {
 
   // ─── Stage 30B: AI Visual Magic ───────────────────────────────────────────
   const [infoGenerating, setInfoGenerating] = useState(false);
+  const [showInfoSourceMenu, setShowInfoSourceMenu] = useState(false);
   const infoFileInputRef = useRef<HTMLInputElement>(null);
   const infoInputId = "infographic-upload-input";
+  const infoCameraInputId = "infographic-camera-input";
+  const cameraInputId = "photo-camera-input";
 
   // ─── Stage 30J UX: сворачиваемые секции формы ───────────────────────────
   // При редактировании владелец обычно правит точечно (например, цену) —
@@ -220,21 +226,48 @@ export default function ListingForm() {
   // высоту до полноэкранной.
   const [descriptionExpanded, setDescriptionExpanded] = useState(false);
 
-  const onInfographicClick = () => {
+  const validateInfoClick = (): boolean => {
     if (!formData.title.trim()) {
       toast({
         title: "Сначала введите название",
         description: "Нейросеть подберёт буллеты по названию вещи.",
         variant: "destructive",
       });
-      return;
+      return false;
     }
     if (photos.length >= 10) {
       toast({ title: "Максимум 10 фото", variant: "destructive" });
-      return;
+      return false;
     }
+    return true;
+  };
+
+  const onInfographicClick = () => {
+    if (!validateInfoClick()) return;
+    setShowInfoSourceMenu(v => !v);
+  };
+
+  const onInfoGallery = () => {
+    setShowInfoSourceMenu(false);
     infoFileInputRef.current?.click();
   };
+
+  const onInfoCamera = () => {
+    setShowInfoSourceMenu(false);
+    infoCameraCaptureRef.current?.click();
+  };
+
+  // Закрыть меню при клике вне его
+  useEffect(() => {
+    if (!showInfoSourceMenu) return;
+    const handler = (e: MouseEvent) => {
+      if (infoMenuRef.current && !infoMenuRef.current.contains(e.target as Node)) {
+        setShowInfoSourceMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showInfoSourceMenu]);
 
   const handleInfographicFile = async (
     e: React.ChangeEvent<HTMLInputElement>,
@@ -1005,25 +1038,62 @@ export default function ListingForm() {
                   <Link2 className="w-4 h-4" />
                   По ссылке
                 </button>
-                <button
-                  type="button"
-                  onClick={onInfographicClick}
-                  disabled={infoGenerating || photos.length >= 10}
-                  title="Создаст брендированную карточку 1080×1080 с тремя буллетами от ИИ"
-                  className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-gradient-to-r from-violet-500 to-purple-600 text-white text-sm font-bold hover:opacity-90 transition-opacity disabled:opacity-50 disabled:pointer-events-none shadow-md shadow-violet-200"
-                  data-testid="button-infographic"
-                >
-                  {infoGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                  {infoGenerating ? "Готовим..." : "✨ Создать инфографику"}
-                </button>
+                {/* ── AI Инфографика: выбор источника фото ── */}
+                <div ref={infoMenuRef} className="relative">
+                  <button
+                    type="button"
+                    onClick={onInfographicClick}
+                    disabled={infoGenerating || photos.length >= 10}
+                    title="Создаст брендированную карточку 1080×1080 с буллетами от ИИ"
+                    className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-gradient-to-r from-violet-500 to-purple-600 text-white text-sm font-bold hover:opacity-90 transition-opacity disabled:opacity-50 disabled:pointer-events-none shadow-md shadow-violet-200"
+                    data-testid="button-infographic"
+                  >
+                    {infoGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                    {infoGenerating ? "Готовим..." : "✨ Создать инфографику"}
+                  </button>
+                  {showInfoSourceMenu && (
+                    <div className="absolute left-0 top-full mt-1.5 z-30 bg-white border border-border rounded-2xl shadow-xl overflow-hidden min-w-[190px]">
+                      <button
+                        type="button"
+                        onClick={onInfoGallery}
+                        className="flex items-center gap-2.5 w-full px-4 py-3 text-sm font-medium hover:bg-primary/5 hover:text-primary transition-colors"
+                      >
+                        <ImagePlus className="w-4 h-4 shrink-0" />
+                        Из галереи
+                      </button>
+                      <div className="h-px bg-border mx-3" />
+                      <button
+                        type="button"
+                        onClick={onInfoCamera}
+                        className="flex items-center gap-2.5 w-full px-4 py-3 text-sm font-medium hover:bg-primary/5 hover:text-primary transition-colors"
+                      >
+                        <Camera className="w-4 h-4 shrink-0" />
+                        Сфотографировать
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* ── Добавить фото: галерея + камера ── */}
                 <label
                   htmlFor={uploadInputId}
                   aria-disabled={uploading || photos.length >= 10}
                   className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-primary text-white text-sm font-bold cursor-pointer hover:bg-primary/90 transition-colors aria-disabled:opacity-50 aria-disabled:pointer-events-none"
                 >
                   {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImagePlus className="w-4 h-4" />}
-                  {uploading ? "Загрузка..." : "Добавить фото"}
+                  {uploading ? "Загрузка..." : "Из галереи"}
                 </label>
+                <label
+                  htmlFor={cameraInputId}
+                  aria-disabled={uploading || photos.length >= 10}
+                  title="Сфотографировать"
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-primary text-white text-sm font-bold cursor-pointer hover:bg-primary/90 transition-colors aria-disabled:opacity-50 aria-disabled:pointer-events-none sm:hidden"
+                >
+                  <Camera className="w-4 h-4" />
+                  <span className="sr-only">Сфотографировать</span>
+                </label>
+
+                {/* Hidden file inputs */}
                 <input
                   id={uploadInputId}
                   ref={fileInputRef}
@@ -1035,10 +1105,29 @@ export default function ListingForm() {
                   onChange={handleFilesChange}
                 />
                 <input
+                  id={cameraInputId}
+                  ref={cameraCaptureRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  disabled={uploading || photos.length >= 10}
+                  className="sr-only"
+                  onChange={handleFilesChange}
+                />
+                <input
                   id={infoInputId}
                   ref={infoFileInputRef}
                   type="file"
                   accept="image/*"
+                  className="sr-only"
+                  onChange={handleInfographicFile}
+                />
+                <input
+                  id={infoCameraInputId}
+                  ref={infoCameraCaptureRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
                   className="sr-only"
                   onChange={handleInfographicFile}
                 />
@@ -1087,9 +1176,9 @@ export default function ListingForm() {
                 <span className="text-sm font-medium">Нажмите чтобы выбрать фото</span>
               </label>
             ) : (
-              {/* Mobile: горизонтальная карусель; sm+: сетка */}
               <div className="flex overflow-x-auto gap-3 snap-x snap-mandatory pb-2 -mx-1 px-1
                               sm:grid sm:grid-cols-4 sm:overflow-visible sm:pb-0 sm:mx-0 sm:px-0">
+                {/* Mobile: горизонтальная карусель; sm+: сетка 4 колонки */}
                 {photos.map((url, i) => {
                   const currentPos = photoPositions[i] ?? "center";
                   return (
