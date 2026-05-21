@@ -354,7 +354,7 @@ router.get("/admin/finance", requireAuth, async (req: AuthRequest, res) => {
     .from(usersTable)
     .where(eq(usersTable.id, req.userId!))
     .limit(1);
-  if (actor?.role !== "admin") {
+  if (!["admin", "superadmin", "moderator", "arbiter"].includes(actor?.role ?? "")) {
     res.status(403).json({ error: "forbidden" });
     return;
   }
