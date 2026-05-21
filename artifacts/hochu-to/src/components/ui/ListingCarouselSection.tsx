@@ -17,7 +17,6 @@ interface ListingCarouselSectionProps {
   catalogLink?: string;
   limit?: number;
   bgClassName?: string;
-  /** Если true — добавляет фильтр quality=true (фото есть + описание ≥ 50 симв.). */
   quality?: boolean;
 }
 
@@ -40,45 +39,29 @@ function useListings(sort: string, limit: number, region: string, quality?: bool
 
   useEffect(() => {
     setLoading(true);
-
     const run = async () => {
       if (!region) {
-        const all = await fetchListings(sort, limit, undefined, quality);
-        setListings(all);
+        setListings(await fetchListings(sort, limit, undefined, quality));
         setGeoMode("all");
         return;
       }
-
-      // 1. Пробуем региональные
       const regional = await fetchListings(sort, limit, region, quality);
-
       if (regional.length === 0) {
-        // Нет ни одного — полный фолбэк на все регионы
-        const all = await fetchListings(sort, limit, undefined, quality);
-        setListings(all);
+        setListings(await fetchListings(sort, limit, undefined, quality));
         setGeoMode("fallback");
         return;
       }
-
       if (regional.length >= limit) {
-        // Полностью заполнен регион
         setListings(regional);
         setGeoMode("regional");
         return;
       }
-
-      // 2. Есть, но меньше limit — добираем из всех регионов
       const all = await fetchListings(sort, limit, undefined, quality);
       const regionalIds = new Set(regional.map((l) => l.id));
-      const extra = all.filter((l) => !regionalIds.has(l.id));
-      const combined = [...regional, ...extra].slice(0, limit);
-      setListings(combined);
+      setListings([...regional, ...all.filter((l) => !regionalIds.has(l.id))].slice(0, limit));
       setGeoMode("mixed");
     };
-
-    run()
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    run().catch(() => {}).finally(() => setLoading(false));
   }, [sort, limit, region, quality]);
 
   return { listings, loading, geoMode };
@@ -99,6 +82,8 @@ function SkeletonCard() {
     </div>
   );
 }
+
+const SCROLL_SPEED = 0.6; // px per animation frame
 
 export function ListingCarouselSection({
   title,
@@ -122,7 +107,9 @@ export function ListingCarouselSection({
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
-  const [canScrollRight, setCanScrollRight] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(true);
+  const isPausedRef = useRef(false);
+  const rafRef = useRef<number | null>(null);
 
   const checkScroll = useCallback(() => {
     const el = scrollRef.current;
@@ -142,6 +129,35 @@ export function ListingCarouselSection({
       window.removeEventListener("resize", checkScroll);
     };
   }, [listings, checkScroll]);
+
+  // Auto-scroll loop
+  useEffect(() => {
+    if (loading || listings.length === 0) return;
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const tick = () => {
+      if (!isPausedRef.current && el) {
+        const maxScroll = el.scrollWidth - el.clientWidth;
+        if (maxScroll <= 0) {
+          rafRef.current = requestAnimationFrame(tick);
+          return;
+        }
+        if (el.scrollLeft >= maxScroll - 2) {
+          // smoothly jump back to start
+          el.scrollLeft = 0;
+        } else {
+          el.scrollLeft += SCROLL_SPEED;
+        }
+      }
+      rafRef.current = requestAnimationFrame(tick);
+    };
+
+    rafRef.current = requestAnimationFrame(tick);
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    };
+  }, [loading, listings]);
 
   const scroll = (direction: "left" | "right") => {
     const el = scrollRef.current;
@@ -164,14 +180,12 @@ export function ListingCarouselSection({
       : null;
 
   return (
-    <section className={cn("py-12", bgClassName)}>
+    <section className={cn("py-12 overflow-x-clip", bgClassName)}>
+      {/* Header — stays within max-width */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
-            {icon && (
-              <span className="text-2xl leading-none select-none">{icon}</span>
-            )}
+            {icon && <span className="text-2xl leading-none select-none">{icon}</span>}
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-xl sm:text-2xl font-bold">{title}</h2>
@@ -181,9 +195,7 @@ export function ListingCarouselSection({
                   </span>
                 )}
               </div>
-              {subtitle && (
-                <p className="text-sm text-muted-foreground mt-0.5">{subtitle}</p>
-              )}
+              {subtitle && <p className="text-sm text-muted-foreground mt-0.5">{subtitle}</p>}
             </div>
           </div>
 
@@ -214,7 +226,6 @@ export function ListingCarouselSection({
             >
               <ChevronRight className="w-4 h-4" />
             </button>
-
             {seeAllLink && (
               <Link
                 href={seeAllLink}
@@ -227,45 +238,49 @@ export function ListingCarouselSection({
           </div>
         </div>
 
-        {/* Geo hint */}
         {geoHint && (
           <div className={cn(
-            "flex items-center gap-1.5 mb-4 text-xs",
+            "flex items-center gap-1.5 mb-3 text-xs",
             geoHint.accent ? "text-amber-600" : "text-muted-foreground"
           )}>
             <MapPin className={cn("w-3.5 h-3.5 flex-shrink-0", geoHint.accent ? "text-amber-500" : "text-primary")} />
             <span>{geoHint.text}</span>
           </div>
         )}
-
-        {/* Scrollable row */}
-        <div
-          ref={scrollRef}
-          className="flex gap-4 overflow-x-auto pb-2 scroll-smooth"
-          style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
-        >
-          {loading
-            ? Array.from({ length: skeletonCount }).map((_, i) => (
-                <div key={i} data-card className="flex-none w-[260px] sm:w-[280px]">
-                  <SkeletonCard />
-                </div>
-              ))
-            : listings.map((listing) => (
-                <div key={listing.id} data-card className="flex-none w-[260px] sm:w-[280px]">
-                  <ListingCard listing={listing} />
-                </div>
-              ))}
-        </div>
-
-        {/* Mobile "see all" */}
-        {seeAllLink && (
-          <div className="mt-4 text-center sm:hidden">
-            <Link href={seeAllLink} className="btn-secondary text-sm py-2 px-6">
-              Смотреть все
-            </Link>
-          </div>
-        )}
       </div>
+
+      {/* Scrollable row — full-width with internal padding, no right-edge clip */}
+      <div
+        ref={scrollRef}
+        className="flex gap-4 overflow-x-auto pb-3 scroll-smooth px-4 sm:px-6 lg:px-8"
+        style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+        onMouseEnter={() => { isPausedRef.current = true; }}
+        onMouseLeave={() => { isPausedRef.current = false; }}
+        onTouchStart={() => { isPausedRef.current = true; }}
+        onTouchEnd={() => { setTimeout(() => { isPausedRef.current = false; }, 3000); }}
+      >
+        {loading
+          ? Array.from({ length: skeletonCount }).map((_, i) => (
+              <div key={i} data-card className="flex-none w-[260px] sm:w-[280px]">
+                <SkeletonCard />
+              </div>
+            ))
+          : listings.map((listing) => (
+              <div key={listing.id} data-card className="flex-none w-[260px] sm:w-[280px]">
+                <ListingCard listing={listing} />
+              </div>
+            ))}
+        {/* Right-edge spacer so last card isn't flush with viewport */}
+        <div className="flex-none w-4 sm:w-6 lg:w-8 shrink-0" aria-hidden />
+      </div>
+
+      {seeAllLink && (
+        <div className="mt-4 text-center sm:hidden px-4">
+          <Link href={seeAllLink} className="btn-secondary text-sm py-2 px-6">
+            Смотреть все
+          </Link>
+        </div>
+      )}
     </section>
   );
 }
