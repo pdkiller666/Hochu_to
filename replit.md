@@ -108,6 +108,9 @@ artifacts-monorepo/
 - **/how-to-rent** — Instructions for renters
 - **/how-to-list** — Instructions for owners  
 - **/guarantee-fund** — APEX (Asset Protection & Escrow eXchange) — полная страница Гарантийного фонда: терракотовый герой с анимацией, механика фонда (4 шага), Цифровой акт (мок-карточка), категории арбитража A/Б, ИИ-арбитраж (Gemini Vision мок), шаги подачи заявки, антифрод-лимиты, CTA. Файл: `GuaranteeFund.tsx` (отдельный, не Instructions.tsx)
+- **/co-sharing** — Каталог пулов (список + фильтры по статусу)
+- **/co-sharing/create** — Создание нового пула (`PoolCreate.tsx`): auth-гейт для гостей, форма с URL товара, целевой суммой, реквизитами СБП
+- **/co-sharing/:id** — Детальная страница пула (`PoolDetail.tsx`): прогресс сбора, список акционеров, `ContributeBlock` (СБП-deeplink + tel: ссылка), `PoolCalendarBlock` (занятые даты из `/unavailable-dates` + текущий хранитель), `ResidualValueBlock` (остаточная стоимость), `IncomeBlock` (доходы с аренды), `MarketplaceBlock` (вторичный рынок долей), `BuyoutBlock` (выкуп)
 - **/about** — About us
 - **/contacts** — Contact form + social links
 - **/privacy** — Privacy policy
@@ -142,7 +145,7 @@ All routes prefixed with `/api`:
 - `GET /bookings/:id/messages` — Get chat messages for a booking (requires auth, must be owner or renter)
 - `POST /bookings/:id/messages` — Send a chat message (body: `{content}`)
 - `GET /messages/unread-counts` — Returns unread message counts per booking `{bookingId: count}`
-- `GET /me/finance` — Личный финансовый журнал (derived ledger): `{summary, entries[]}` из bookings + contact_purchases. Без миграций.
+- `GET /me/finance` — Личный финансовый журнал (derived ledger): `{summary, entries[]}` из bookings + contact_purchases + **wallet_transactions(pool_rental)**. Тип `pool_rental_income` — доход совладельца пула с аренды (CS-6).
 - `GET /admin/finance?period=today|week|month|all` — Сводка денежных потоков платформы: revenue, fund, payouts, counts, recent[50].
 - **Payouts (Stage 17a)** — заявки владельцев на вывод заработка:
   - `GET/POST/PATCH/DELETE /me/payout-methods` — CRUD реквизитов (карта/СБП).
@@ -160,6 +163,18 @@ All routes prefixed with `/api`:
   - `POST /claims/:id/accept-verdict` — модератор принимает ИИ-вердикт (`ai_verdict.accepted=true` + audit).
   - `POST /claims/:id/manual-review` — перевод в `admin_review` без ИИ-суммы + audit.
   - `GET /admin/claims/ai-verdicts-log` — история всех вердиктов (admin only).
+- **Co-Sharing / Pools (CS-1–CS-6, 21.05.2026):**
+  - `GET /pools` — список пулов (фильтр по статусу/создателю)
+  - `POST /pools` — создать пул (auth required)
+  - `GET /pools/mine` — мои пулы (как создатель или акционер), для Dashboard-таба
+  - `GET /pools/:id` — детали пула: shares, listing, events
+  - `PATCH /pools/:id` — обновить пул
+  - `POST /pools/:id/contribute` — подать заявку на долю (SBP deeplink + auth gate)
+  - `POST /pools/:id/confirm-share/:shareId` — создатель подтверждает платёж → `pool_share_confirmed` уведомление
+  - `POST /pools/:id/activate` — активировать пул через Genesis Digital Act → `pool_active` уведомление всем акционерам
+  - `GET /pools/:id/income` — история доходов совладельца с аренды
+  - `GET /pools/:id/events` — аудит-лог пула
+  - Buyout routes (`/buyouts`): создание запроса на выкуп доли, подтверждение, ликвидация
 
 ## Database Schema
 
@@ -185,6 +200,14 @@ Tables (`lib/db/src/schema/`):
 - `joint_purchases` — Заявки на совместные закупки
 - `contacts` — Заявки с формы «Контакты»
 - `newsletter` — Подписчики
+- **Co-Sharing (CS-1–CS-6):**
+  - `pools` — пулы совместного владения: `title`, `targetAmountRub`, `status (funding|purchasing|active|liquidated|canceled)`, `collectionMethod`, `maintenanceFundBalance`, `poolFeePercent`, `wearAndTearMeter`
+  - `pool_shares` — доли участников: `userId`, `poolId`, `sharePercentage`, `amountPaid`, `paymentStatus (pending|creator_confirmed|escrow_held)`, `paymentRef`
+  - `pool_events` — аудит-лог событий пула
+  - `buyout_requests` — запросы на выкуп доли: `poolId`, `initiatorId`, `participantId`, `status (pending|awaiting_payment|confirmed|completed|cancelled)`, `offerAmountRub`
+  - `wallets` — кошельки пользователей: `availableBalance`, `frozenBalance`
+  - `wallet_transactions` — транзакции кошелька: `type (payout|commission|hold|release)`, `referenceType (pool_rental|booking|...)`, `bookingNumber`, `description`
+  - На `listings` добавлены: `poolId` (FK), `custodianId` (кто сейчас хранит вещь), `wearAndTearMeter` (счётчик аренд)
 
 ## Quick Setup (новый Replit-аккаунт)
 
@@ -570,6 +593,7 @@ DB поле `boosted_until` (timestamp). Сортировка `?sort=new` уже
 - **Поддержка** (тикеты с категорией и перепиской)
 - **Жалобы** (reports) — на объявления и пользователей
 - **Совместные закупки** (заявки + страница)
+- **Co-Sharing / Pools (CS-1–CS-6, 21.05.2026):** полный модуль совместного владения вещами. CS-1: SBP-deeplink в ContributeBlock, auth-гейт в PoolCreate, UI-полировка. CS-2: уведомления `pool_share_confirmed` + `pool_active`. CS-3: таб «Мои пулы» в Dashboard (GET /pools/mine + PoolsDashboardSection). CS-4: `PoolCalendarBlock` в PoolDetail — занятые даты из `/unavailable-dates` + имя хранителя. CS-5: при ликвидации пула устанавливается `isAvailable=true` для листинга. CS-6: `payoutPoolShareholders` гейтован `isCommercialMode=true`; тип `pool_rental_income` добавлен в `/me/finance` journal из `wallet_transactions`.
 - **GeoIP** для авто-выбора региона
 - **Health endpoint + Vite proxy** для dev
 - **Деплой**: GitHub → Amvera (прямой git push), пуш через `bash scripts/github-push.sh` + `git push amvera main`
@@ -622,6 +646,8 @@ DB поле `boosted_until` (timestamp). Сортировка `?sort=new` уже
 - **Stage 33.x — AI Video-анализ споров** — следующий этап AI-арбитражора. Видео ≤100МБ из `digital_acts` + промежуточная стадия «AI задаёт уточняющие вопросы участникам» (отложено от Stage 33.0).
 
 ### ✅ Закрытые этапы (последние)
+
+- **Co-Sharing CS-1–CS-6** (**✅ 21.05.2026**) — полный аудит и дореализация модуля совместного владения. CS-1: SBP tel:-deeplink + auth-гейт PoolCreate + UI-чипы. CS-2: уведомления `pool_share_confirmed`/`pool_active` в бэкенде. CS-3: GET /pools/mine + Dashboard-таб «Мои пулы» (PoolsDashboardSection). CS-4: PoolCalendarBlock с /unavailable-dates + custodian-индикатор. CS-5: ликвидация пула выставляет `isAvailable=true`. CS-6: phantom-credit гейт (`isCommercialMode`) + `pool_rental_income` в /me/finance.
 
 - **Telegram prod-fix** (**✅ 13.05.2026**) — Отладка Telegram на деплое Amvera. 4 бага: (1) добавлен `.trim()` к токену в `initTelegramBot()` (env с `\n` → 401), (2) `launch({ dropPendingUpdates: true })` + retry 15s при 409 Conflict при рестарте контейнера, (3) исправлен field mismatch в `GET /admin/telegram/status` (`env` → `telegramEnv`), (4) добавлен `botUsername` в `GET /api/telegram/status` — Dashboard показывает кликабельную ссылку `@username` в OTP-инструкциях. Обновлены инварианты в AGENT_INSTRUCTIONS.md. **После деплоя**: задать `TELEGRAM_BOT_TOKEN` в Amvera Variables + AdminPage → Telegram-бот → переключить env Dev → Prod.
 
