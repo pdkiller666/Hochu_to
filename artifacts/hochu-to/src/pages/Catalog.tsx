@@ -222,7 +222,7 @@ export default function Catalog() {
     <Layout>
       {/* ── Sticky filter bar ── */}
       <div
-        className={`sticky top-[114px] md:top-16 z-30 bg-background/95 backdrop-blur-md transition-shadow duration-200 ${
+        className={`sticky top-[52px] md:top-16 z-30 bg-background/95 backdrop-blur-md transition-shadow duration-200 ${
           isScrolled ? "shadow-md border-b border-border/80" : "border-b border-border/40"
         }`}
       >

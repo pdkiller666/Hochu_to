@@ -478,7 +478,7 @@ export function Header() {
   return (
     <header className="sticky top-0 z-50 w-full bg-white border-b border-border shadow-sm">
       <div className="max-w-screen-xl mx-auto px-3 sm:px-4 lg:px-6">
-        <div className="flex items-center h-[62px] gap-2 lg:gap-3">
+        <div className="flex items-center h-[52px] md:h-[62px] gap-2 lg:gap-3">
 
           {/* Logo */}
           <Link href="/" className="flex-shrink-0 flex items-center gap-2 group mr-1">
@@ -514,13 +514,10 @@ export function Header() {
             </button>
           </div>
 
-          {/* Search bar — dominant, flex-1 */}
-          <div className="hidden md:flex flex-1 min-w-0 items-center bg-white border-2 border-border rounded-xl px-3 py-1.5 shadow-sm focus-within:border-primary/60 focus-within:shadow-md transition-all h-[42px]">
+          {/* Search bar — flex-1 on all screens */}
+          <div className="flex flex-1 min-w-0 items-center bg-white border border-border md:border-2 rounded-xl px-3 py-1 md:py-1.5 shadow-sm focus-within:border-primary/60 focus-within:shadow-md transition-all h-[36px] md:h-[42px]">
             <HeaderSearchBar className="w-full min-w-0" />
           </div>
-
-          {/* Mobile spacer */}
-          <div className="flex-1 md:hidden" />
 
           {/* + Разместить вещь CTA */}
           <Link
@@ -710,24 +707,24 @@ export function Header() {
               <>
                 <Link
                   href="/favorites"
-                  className="relative p-3 text-foreground"
+                  className="relative p-2 text-foreground"
                   title="Избранное"
                 >
-                  <Heart className="w-5 h-5" />
+                  <Heart className="w-[18px] h-[18px]" />
                   {favCount > 0 && (
-                    <span className="absolute top-2 right-2 w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] font-bold flex items-center justify-center">
+                    <span className="absolute top-1 right-1 w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] font-bold flex items-center justify-center">
                       {favCount > 9 ? "9+" : favCount}
                     </span>
                   )}
                 </Link>
                 <button
                   onClick={() => { setMobileNotifOpen(v => !v); setIsMobileMenuOpen(false); }}
-                  className="relative p-3 text-foreground"
+                  className="relative p-2 text-foreground"
                   title="Уведомления"
                 >
-                  <Bell className="w-5 h-5" />
+                  <Bell className="w-[18px] h-[18px]" />
                   {unreadCount > 0 && (
-                    <span className="absolute top-2 right-2 w-4 h-4 rounded-full bg-destructive text-white text-[9px] font-bold flex items-center justify-center">
+                    <span className="absolute top-1 right-1 w-4 h-4 rounded-full bg-destructive text-white text-[9px] font-bold flex items-center justify-center">
                       {unreadCount > 9 ? "9+" : unreadCount}
                     </span>
                   )}
@@ -736,7 +733,7 @@ export function Header() {
             )}
             <button
               onClick={() => { setIsMobileMenuOpen(v => !v); setMobileNotifOpen(false); }}
-              className="text-foreground p-3 -mr-1"
+              className="text-foreground p-2 -mr-1"
             >
               {isMobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </button>
@@ -744,12 +741,6 @@ export function Header() {
         </div>
       </div>
 
-      {/* Mobile Search Row — always visible, part of sticky header */}
-      <div className="md:hidden px-3 pb-2.5">
-        <div className="flex items-center bg-white border border-border rounded-xl px-3 py-2.5 shadow-sm focus-within:ring-2 focus-within:ring-primary/30 focus-within:border-primary/50 transition-all">
-          <HeaderSearchBar className="w-full" />
-        </div>
-      </div>
 
       {/* Mobile Notification Panel — separate from nav menu */}
       <AnimatePresence>
