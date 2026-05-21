@@ -290,27 +290,17 @@ router.post(
           ].slice(0, 6);
           const priceNum = pricePerDay ? Math.round(pricePerDay) : 0;
 
-          // 4) Generative AI (Tier 1 OpenRouter → Tier 2 Imagen 3 → Tier 3 original)
+          // 4) Generative AI (Tier 1 OpenRouter → Tier 2 Gemini/Imagen3 → Tier 3 original)
           const genResult = await generateGenerativeInfographic(sourceBuffer, {
             title: mktResult.content.title,
             price: priceNum,
             bullets: allBullets,
+            description: description ?? undefined,
+            category: category ?? undefined,
             format: "square",
           });
 
           webpBuffer = genResult.buffer;
-
-          // 5) Если Tier 3 (полный отказ AI) — применяем старый SVG-оверлей как подстраховку
-          if (genResult.tier === 3) {
-            const priceText = pricePerDay
-              ? `от ${priceNum.toLocaleString("ru-RU")} ₽/сут`
-              : "Цена по запросу";
-            webpBuffer = await buildMarketplaceInfographic(
-              file.buffer,
-              mktResult.content,
-              priceText,
-            );
-          }
 
           responseExtra = {
             template: "marketplace",

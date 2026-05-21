@@ -883,14 +883,20 @@ router.put("/:id", requireAuth, async (req: AuthRequest, res) => {
     if (status === "completed" && listingForCoOwner?.poolId && escrowSettings.isCommercialMode) {
       const ownerPayoutAmt = parseFloat(String(updated.ownerPayout ?? "0"));
       if (ownerPayoutAmt > 0) {
-        void payoutPoolShareholders({
+        payoutPoolShareholders({
           poolId: listingForCoOwner.poolId,
           renterId: updated.renterId,
           bookingId: updated.id,
           bookingNumber: bookingNum,
           ownerPayout: ownerPayoutAmt,
           poolFeePercent: parseFloat(String(escrowSettings.poolFeeSelfManagedPercent ?? "5")),
-        });
+        }).catch(err =>
+          console.error("[bookings PUT] payoutPoolShareholders failed (non-fatal)", {
+            bookingId: updated.id,
+            poolId: listingForCoOwner.poolId,
+            err,
+          }),
+        );
       }
     }
 

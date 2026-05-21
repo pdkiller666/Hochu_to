@@ -1087,11 +1087,15 @@ export default function ListingForm() {
                 <span className="text-sm font-medium">Нажмите чтобы выбрать фото</span>
               </label>
             ) : (
-              <div className="grid grid-cols-3 sm:grid-cols-4 gap-3">
+              {/* Mobile: горизонтальная карусель; sm+: сетка */}
+              <div className="flex overflow-x-auto gap-3 snap-x snap-mandatory pb-2 -mx-1 px-1
+                              sm:grid sm:grid-cols-4 sm:overflow-visible sm:pb-0 sm:mx-0 sm:px-0">
                 {photos.map((url, i) => {
                   const currentPos = photoPositions[i] ?? "center";
                   return (
-                    <div key={url + i} className="relative aspect-square rounded-xl overflow-hidden bg-muted border-2 border-border group transition-all"
+                    <div key={url + i}
+                      className="relative flex-shrink-0 snap-start w-[78vw] aspect-square
+                                 sm:w-auto sm:flex-shrink rounded-xl overflow-hidden bg-muted border-2 border-border group transition-all"
                       style={i === 0 ? { borderColor: "var(--primary)" } : {}}>
                       <img
                         src={getPhotoSrc(url)}
@@ -1178,7 +1182,12 @@ export default function ListingForm() {
                 {photos.length < 10 && (
                   <label
                     htmlFor={uploadInputId}
-                    className="aspect-square rounded-xl border-2 border-dashed border-border flex items-center justify-center text-muted-foreground hover:border-primary hover:text-primary transition-colors cursor-pointer"
+                    className="flex-shrink-0 snap-start w-[78vw] aspect-square
+                               sm:w-auto sm:flex-shrink
+                               rounded-xl border-2 border-dashed border-border
+                               flex items-center justify-center
+                               text-muted-foreground hover:border-primary hover:text-primary
+                               transition-colors cursor-pointer"
                   >
                     <ImagePlus className="w-6 h-6" />
                   </label>

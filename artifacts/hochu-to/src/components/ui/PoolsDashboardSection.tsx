@@ -152,7 +152,7 @@ export function PoolsDashboardSection() {
             Ваши пулы — созданные и с долевым участием
           </p>
         </div>
-        <Link href="/pools/new">
+        <Link href="/pools/create">
           <button className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary/90 text-white rounded-xl text-sm font-bold transition-colors shadow-sm">
             <Plus className="w-4 h-4" />
             Создать пул
