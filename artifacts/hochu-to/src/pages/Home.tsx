@@ -81,7 +81,6 @@ export default function Home() {
 
   return (
     <Layout>
-
       {/* ══════════════════════════════════════════
           HERO
       ══════════════════════════════════════════ */}
@@ -170,7 +169,7 @@ export default function Home() {
           >
             <Link
               href="/catalog"
-              className="relative inline-flex items-center justify-center gap-2 px-9 py-4 rounded-2xl bg-[#C65D3B] text-white font-bold text-lg shadow-xl shadow-[#C65D3B]/30 hover:bg-[#a04829] hover:shadow-2xl hover:shadow-[#C65D3B]/35 hover:-translate-y-1 transition-all duration-200 overflow-hidden group"
+              className="relative inline-flex items-center justify-center gap-2 px-9 py-4 rounded-2xl bg-[#C65D3B] font-bold text-lg shadow-xl shadow-[#C65D3B]/30 hover:bg-[#a04829] hover:shadow-2xl hover:shadow-[#C65D3B]/35 hover:-translate-y-1 transition-all duration-200 overflow-hidden group text-[#ffffff]"
             >
               <span className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/10 to-white/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-500" />
               Смотреть каталог
@@ -203,7 +202,6 @@ export default function Home() {
           </motion.div>
         </div>
       </section>
-
       {/* ══════════════════════════════════════════
           STICKY CATEGORY BAR
       ══════════════════════════════════════════ */}
@@ -231,12 +229,10 @@ export default function Home() {
           </div>
         </div>
       </div>
-
       {/* ══════════════════════════════════════════
           TICKER
       ══════════════════════════════════════════ */}
       <Ticker />
-
       {/* ══════════════════════════════════════════
           КАРУСЕЛЬ 1 — Хиты аренды
       ══════════════════════════════════════════ */}
@@ -249,7 +245,6 @@ export default function Home() {
         catalogLink="/catalog?sort=popular"
         bgClassName="bg-background"
       />
-
       {/* ══════════════════════════════════════════
           PROMO BANNERS (двойной)
       ══════════════════════════════════════════ */}
@@ -273,7 +268,7 @@ export default function Home() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-xs font-bold uppercase tracking-widest text-white/60 mb-1">Защита сделки</p>
-                  <h3 className="font-bold text-lg leading-tight">Гарантийный фонд</h3>
+                  <h3 className="font-bold text-[#2b2b2b] bg-[transparent] border-t-[#2b2b2b] border-r-[#2b2b2b] border-b-[#2b2b2b] border-l-[#2b2b2b] text-[24px]">Гарантийный фонд</h3>
                   <p className="text-sm text-white/75 mt-1">Компенсация ущерба при спорах. 98% сделок без проблем.</p>
                 </div>
                 <ArrowRight className="w-5 h-5 text-white/50 group-hover:text-white group-hover:translate-x-1 transition-all flex-shrink-0" />
@@ -306,7 +301,6 @@ export default function Home() {
           </div>
         </div>
       </section>
-
       {/* ══════════════════════════════════════════
           КАРУСЕЛЬ 2 — Новинки
       ══════════════════════════════════════════ */}
@@ -320,7 +314,6 @@ export default function Home() {
         bgClassName="bg-white"
         quality
       />
-
       {/* ══════════════════════════════════════════
           КАК ЭТО РАБОТАЕТ
       ══════════════════════════════════════════ */}
@@ -415,12 +408,10 @@ export default function Home() {
           </motion.div>
         </div>
       </section>
-
       {/* ══════════════════════════════════════════
           STATS BAR (анимированные счётчики)
       ══════════════════════════════════════════ */}
       <StatsBar />
-
       {/* ══════════════════════════════════════════
           КАРУСЕЛЬ 3 — Высокий рейтинг
       ══════════════════════════════════════════ */}
@@ -433,7 +424,6 @@ export default function Home() {
         catalogLink="/catalog?sort=rating"
         bgClassName="bg-background"
       />
-
       {/* ══════════════════════════════════════════
           КАТЕГОРИИ
       ══════════════════════════════════════════ */}
@@ -491,7 +481,6 @@ export default function Home() {
           </div>
         </div>
       </section>
-
       {/* ══════════════════════════════════════════
           КАРУСЕЛЬ 4 — Выгодные предложения
       ══════════════════════════════════════════ */}
@@ -504,7 +493,6 @@ export default function Home() {
         catalogLink="/catalog?sort=price_asc"
         bgClassName="bg-background"
       />
-
       {/* ══════════════════════════════════════════
           СОВМЕСТНЫЕ ЗАКУПКИ
       ══════════════════════════════════════════ */}
@@ -564,7 +552,6 @@ export default function Home() {
           </motion.div>
         </div>
       </section>
-
       {/* ══════════════════════════════════════════
           OWNER CTA (тёмный)
       ══════════════════════════════════════════ */}
@@ -646,7 +633,6 @@ export default function Home() {
           </motion.div>
         </div>
       </section>
-
     </Layout>
   );
 }
