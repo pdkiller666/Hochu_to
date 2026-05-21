@@ -1,5 +1,5 @@
 import { Link, useLocation, useSearch } from "wouter";
-import { MapPin, Menu, X, LogOut, Crosshair, Loader2, Bell, Heart, Shield, Search, ChevronRight, LayoutGrid, ChevronDown, Plus, LayoutDashboard, Users } from "lucide-react";
+import { MapPin, Menu, X, LogOut, Crosshair, Loader2, Bell, Heart, Shield, Search, ChevronRight, LayoutGrid, ChevronDown, Plus, LayoutDashboard, Users, Hammer, Tent, Trees, PartyPopper, Baby, Laptop } from "lucide-react";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuthState, getToken, getAuthHeaders } from "@/lib/auth";
@@ -292,10 +292,21 @@ function HeaderSearchBar({ className, inputClassName }: SearchBarProps) {
   );
 }
 
+const HEADER_CATEGORIES = [
+  { name: "Стройка и ремонт", icon: Hammer,      slug: "construction", color: "bg-orange-100 text-orange-600" },
+  { name: "Туризм и спорт",   icon: Tent,         slug: "tourism",      color: "bg-teal-100 text-teal-600"   },
+  { name: "Сад и огород",     icon: Trees,        slug: "garden",       color: "bg-green-100 text-green-600" },
+  { name: "Праздники",        icon: PartyPopper,  slug: "holidays",     color: "bg-purple-100 text-purple-600"},
+  { name: "Детские товары",   icon: Baby,         slug: "children",     color: "bg-pink-100 text-pink-600"   },
+  { name: "Электроника",      icon: Laptop,       slug: "electronics",  color: "bg-blue-100 text-blue-600"   },
+];
+
 export function Header() {
   const [location, navigate] = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [showCategories, setShowCategories] = useState(false);
+  const [headerHovered, setHeaderHovered] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
   const { isAuthenticated, logout, token } = useAuthState();
   const [geoLoading, setGeoLoading] = useState(false);
@@ -476,7 +487,11 @@ export function Header() {
   const isAdmin = user ? ["superadmin","admin","moderator","support","arbiter"].includes(user.role) : false;
 
   return (
-    <header className="sticky top-0 z-50 w-full bg-white border-b border-border shadow-sm">
+    <header
+      className="sticky top-0 z-50 w-full bg-white border-b border-border shadow-sm relative"
+      onMouseEnter={() => setHeaderHovered(true)}
+      onMouseLeave={() => setHeaderHovered(false)}
+    >
       <div className="max-w-screen-xl mx-auto px-3 sm:px-4 lg:px-6">
         <div className="flex items-center h-[52px] md:h-[62px] gap-2 lg:gap-3">
 
@@ -743,6 +758,67 @@ export function Header() {
         </div>
       </div>
 
+      {/* ── Collapsible category carousel ── */}
+      <AnimatePresence>
+        {showCategories && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+            className="overflow-hidden"
+          >
+            <div className="bg-white/75 backdrop-blur-md border-t border-border/40">
+              <div className="max-w-7xl mx-auto px-3 sm:px-4">
+                <div className="flex gap-2 overflow-x-auto py-2.5 scrollbar-none [-ms-overflow-style:none] [scrollbar-width:none]">
+                  {HEADER_CATEGORIES.map(({ slug, icon: Icon, name, color }) => (
+                    <Link
+                      key={slug}
+                      href={`/catalog?category=${slug}`}
+                      onClick={() => setShowCategories(false)}
+                      className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border bg-white/80 hover:border-primary hover:text-primary text-xs sm:text-sm font-semibold transition-colors whitespace-nowrap shadow-sm"
+                    >
+                      <div className={cn("w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0", color)}>
+                        <Icon className="w-3 h-3" />
+                      </div>
+                      {name}
+                    </Link>
+                  ))}
+                  <Link
+                    href="/catalog"
+                    onClick={() => setShowCategories(false)}
+                    className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary text-white text-xs sm:text-sm font-semibold whitespace-nowrap shadow-sm hover:bg-primary/90 transition-colors"
+                  >
+                    Все →
+                  </Link>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Arrow toggle button (appears on header hover) ── */}
+      <AnimatePresence>
+        {(headerHovered || showCategories) && (
+          <motion.button
+            initial={{ opacity: 0, y: -3 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -3 }}
+            transition={{ duration: 0.15 }}
+            onClick={() => setShowCategories(v => !v)}
+            className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 z-10 w-6 h-6 rounded-full bg-white/90 backdrop-blur border border-border/70 shadow-md flex items-center justify-center hover:border-primary/50 hover:shadow-lg transition-all cursor-pointer"
+            title={showCategories ? "Скрыть категории" : "Показать категории"}
+          >
+            <ChevronDown
+              className={cn(
+                "w-3.5 h-3.5 text-muted-foreground transition-transform duration-200",
+                showCategories && "rotate-180"
+              )}
+            />
+          </motion.button>
+        )}
+      </AnimatePresence>
 
       {/* Mobile Notification Panel — separate from nav menu */}
       <AnimatePresence>
