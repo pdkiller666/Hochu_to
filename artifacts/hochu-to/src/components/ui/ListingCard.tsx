@@ -186,14 +186,17 @@ export function ListingCard({ listing }: ListingCardProps) {
           </div>
         )}
 
-        <div className="flex items-center gap-1 text-muted-foreground text-xs mb-2">
-          <MapPin className="w-3 h-3 shrink-0" />
-          <span className="truncate">
-            {city
-              ? listing.regionName || ""
-              : listing.regionName || "Регион не указан"}
-          </span>
-        </div>
+        {(() => {
+          const region = listing.regionName || "";
+          const sameAsCity = city && region.trim().toLowerCase() === city.trim().toLowerCase();
+          if (sameAsCity) return null;
+          return (
+            <div className="flex items-center gap-1 text-muted-foreground text-xs mb-2">
+              <MapPin className="w-3 h-3 shrink-0" />
+              <span className="truncate">{region || (!city ? "Регион не указан" : "")}</span>
+            </div>
+          );
+        })()}
 
         <div className="mt-auto pt-2.5 border-t border-border space-y-2">
           {(() => {
