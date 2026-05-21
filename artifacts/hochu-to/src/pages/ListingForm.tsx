@@ -202,6 +202,7 @@ export default function ListingForm() {
   // ─── Stage 30B: AI Visual Magic ───────────────────────────────────────────
   const [infoGenerating, setInfoGenerating] = useState(false);
   const [showInfoSourceMenu, setShowInfoSourceMenu] = useState(false);
+  const [preprocessEnabled, setPreprocessEnabled] = useState(true);
   const infoFileInputRef = useRef<HTMLInputElement>(null);
   const infoInputId = "infographic-upload-input";
   const infoCameraInputId = "infographic-camera-input";
@@ -291,6 +292,8 @@ export default function ListingForm() {
       }
       // Stage 30C: per-request выбор LLM-провайдера.
       fd.append("provider", "auto");
+      // Stage 42: препроцессинг фото перед генеративным AI
+      fd.append("preprocess", preprocessEnabled ? "true" : "false");
 
       const res = await fetch(`${API_BASE}/api/ai/generate-infographic`, {
         method: "POST",
@@ -1037,6 +1040,7 @@ export default function ListingForm() {
                   По ссылке
                 </button>
                 {/* ── AI Инфографика: выбор источника фото ── */}
+                <div className="flex flex-col gap-1.5 items-start">
                 <div ref={infoMenuRef} className="relative">
                   <button
                     type="button"
@@ -1047,7 +1051,7 @@ export default function ListingForm() {
                     data-testid="button-infographic"
                   >
                     {infoGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                    {infoGenerating ? "Готовим..." : "✨ Создать инфографику"}
+                    {infoGenerating ? "Генерируем карточку… (до 15 сек)" : "✨ Создать инфографику"}
                   </button>
                   {showInfoSourceMenu && (
                     <div className="absolute left-0 top-full mt-1.5 z-30 bg-white border border-border rounded-2xl shadow-xl overflow-hidden min-w-[190px]">
@@ -1070,6 +1074,17 @@ export default function ListingForm() {
                       </button>
                     </div>
                   )}
+                </div>
+                {/* Stage 42: чекбокс препроцессинга */}
+                <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={preprocessEnabled}
+                    onChange={e => setPreprocessEnabled(e.target.checked)}
+                    className="w-3.5 h-3.5 rounded accent-violet-600"
+                  />
+                  <span className="text-[11px] text-stone-500">✨ AI-улучшение фото</span>
+                </label>
                 </div>
 
                 {/* ── Добавить фото: галерея + камера ── */}

@@ -1,31 +1,45 @@
 /**
- * Stage 41 — Generative Infographic Service
+ * Stage 42 — Full Generative Infographic Service
  *
  * generateGenerativeInfographic(): 3-tier fallback chain
- *   Tier 1 — OpenRouter /images/generate (DALL-E 3 / Flux) — text-to-image,
- *             детальный промпт на основе товарных данных, без референса
- *   Tier 2 — Google Gemini 2.0 Flash multimodal image generation
- *             (фото-референс + промпт → генерирует карточку)
- *   Tier 3 — graceful degradation: возвращает исходный imageBuffer в WebP
+ *   Tier 1 — OpenRouter /images/generate (DALL-E 3 / Flux Pro / etc.)
+ *             text-to-image, детальный промпт из MarketplaceInfographicContent
+ *   Tier 2 — Google Gemini multimodal + Imagen 3 sub-fallback (прямой API)
+ *             image-to-image (фото-референс + промпт) или text-to-image
+ *   Tier 3 — SVG overlay fallback (buildMarketplaceInfographic) — всегда работает
  *
- * buildImagePrompt(): строит детальный промпт для image generation.
- * preprocessForAI(): опциональный препроцессинг (resize + sharpen + saturation).
- *
- * Audit-логирование: структурированные Pino-записи (tier, durationMs, err).
- * SHA-256 disk-cache 24ч в /tmp/infographic-cache/.
+ * Persistent cache: SHA-256(imageBuffer + prompt) → CACHE_DIR/<hash>.webp
+ * CACHE_DIR = /data/cache/infographic (prod) или ./uploads/../cache/infographic (dev)
+ * TTL: 24 ч
  */
 import { createHash } from "crypto";
 import { promises as fs } from "fs";
+import path from "path";
 import sharp from "sharp";
 import { logger } from "./logger.js";
+import type { MarketplaceInfographicContent } from "./ai-service.js";
+import { buildMarketplaceInfographic } from "./image-service.js";
+import { UPLOADS_DIR } from "./uploadsDir.js";
 
-// ─── Cache ────────────────────────────────────────────────────────────────────
+// ─── Persistent cache ──────────────────────────────────────────────────────────
 
-const CACHE_DIR = "/tmp/infographic-cache";
+const CACHE_DIR = path.join(UPLOADS_DIR, "..", "cache", "infographic");
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+async function ensureCacheDir(): Promise<void> {
+  await fs.mkdir(CACHE_DIR, { recursive: true });
+}
+ensureCacheDir().catch(() => {});
 
 async function getCached(key: string): Promise<Buffer | null> {
   try {
-    return await fs.readFile(`${CACHE_DIR}/${key}.webp`);
+    const fp = path.join(CACHE_DIR, `${key}.webp`);
+    const stat = await fs.stat(fp);
+    if (Date.now() - stat.mtimeMs > CACHE_TTL_MS) {
+      await fs.unlink(fp).catch(() => {});
+      return null;
+    }
+    return await fs.readFile(fp);
   } catch {
     return null;
   }
@@ -33,8 +47,7 @@ async function getCached(key: string): Promise<Buffer | null> {
 
 async function putCached(key: string, data: Buffer): Promise<void> {
   try {
-    await fs.mkdir(CACHE_DIR, { recursive: true });
-    await fs.writeFile(`${CACHE_DIR}/${key}.webp`, data);
+    await fs.writeFile(path.join(CACHE_DIR, `${key}.webp`), data);
   } catch { /* ignore */ }
 }
 
@@ -49,80 +62,100 @@ function makeCacheKey(imageBuffer: Buffer, prompt: string): string {
   );
 }
 
+// ─── OpenRouter models ─────────────────────────────────────────────────────────
+
+const DEFAULT_OPENROUTER_MODELS = [
+  "openai/dall-e-3",
+  "black-forest-labs/flux-1.1-pro",
+  "black-forest-labs/flux-pro",
+];
+
+function getOpenRouterModels(): string[] {
+  const env = process.env.OPENROUTER_IMAGE_MODELS?.trim();
+  if (env) return env.split(",").map((m) => m.trim()).filter(Boolean);
+  return DEFAULT_OPENROUTER_MODELS;
+}
+
 // ─── Prompt builder ────────────────────────────────────────────────────────────
 
-export function buildImagePrompt(item: {
-  title: string;
-  price: number;
-  bullets: string[];
-  description?: string;
-  category?: string;
-  format?: "square" | "horizontal";
-}): string {
-  const priceRu = item.price > 0
-    ? `от ${item.price.toLocaleString("ru-RU")} ₽/сутки`
-    : "";
+export function buildImagePrompt(
+  content: MarketplaceInfographicContent,
+  options?: {
+    price?: number;
+    category?: string;
+    description?: string;
+    format?: "square" | "horizontal";
+  },
+): string {
+  const priceRu =
+    options?.price && options.price > 0
+      ? `от ${options.price.toLocaleString("ru-RU")} ₽/сутки`
+      : "";
 
-  const featuresBlock = item.bullets.length > 0
-    ? `KEY FEATURES to display (use these exact Russian phrases):\n` +
-      item.bullets.slice(0, 5).map((b, i) => `  ${i + 1}. ${b}`).join("\n")
-    : `KEY FEATURES: generate 4-5 concise Russian rental advantages for this product.`;
+  const bullets = [...content.leftItems, ...content.rightItems].slice(0, 6);
+  const featuresBlock =
+    bullets.length > 0
+      ? `KEY FEATURES to display (use these exact Russian phrases):\n` +
+        bullets.map((b, i) => `  ${i + 1}. ${b}`).join("\n")
+      : `KEY FEATURES: generate 4-5 concise Russian rental advantages for this product.`;
 
-  const descBlock = item.description && item.description.trim().length > 10
-    ? `PRODUCT DESCRIPTION (extract key rental features):\n"${item.description.slice(0, 500)}"`
-    : "";
+  const descBlock =
+    options?.description && options.description.trim().length > 10
+      ? `PRODUCT DESCRIPTION (extract key rental features):\n"${options.description.slice(0, 500)}"`
+      : "";
 
-  const categoryHint = item.category ? `Category: ${item.category}. ` : "";
+  const categoryHint = options?.category ? `Category: ${options.category}. ` : "";
+  const aspectNote =
+    options?.format === "horizontal"
+      ? "Image size: 1200×630 (16:9 horizontal)."
+      : "Image size: 1080×1080 (square 1:1).";
 
-  return `Professional marketplace product card image (1080×1080 square) for Russian rental platform "Хочу_То".
+  return `Professional marketplace product card image for Russian rental platform "Хочу_То".
 
-PRODUCT: "${item.title}"
+PRODUCT: "${content.title}"
 ${categoryHint}${priceRu ? `RENTAL PRICE: ${priceRu}` : ""}
 ${featuresBlock}
 ${descBlock}
 
 VISUAL DESIGN:
+- ${aspectNote}
 - Clean studio photo of the product as the main visual (center/foreground, sharp, professional)
 - Background: clean studio or atmospheric context matching item type
 - Semi-transparent dark panel at bottom showing product features as a clean list
-- Large bold white title at top: "${item.title}"
-${priceRu ? `- Orange price badge (color #C65D3B): "${priceRu}"` : ""}
-- Small "Хочу_То" brand watermark in corner
+- Large bold white title at top: "${content.title}"
+${priceRu ? `- Orange price badge (color #C65D3B terracotta): "${priceRu}"` : ""}
+- Small "Хочу_То" brand watermark in bottom corner
 - Premium Russian marketplace quality (Avito/Wildberries top seller level)
 - All Cyrillic text sharp and perfectly legible
-- No lorem ipsum, no device frames
+- Brand colors: primary #C65D3B (terracotta orange), background accent #4A8587 (teal)
+- NO lorem ipsum, NO device frames, NO watermarks except "Хочу_То"
 
 OUTPUT: Complete, ready-to-post product card image.`;
 }
 
 // ─── Tier 1: OpenRouter /images/generate ──────────────────────────────────────
 
-/**
- * Tier 1: OpenRouter images/generate endpoint.
- * Использует DALL-E 3 или Flux — настоящие image generation модели.
- * Не требует референс-фото (text-to-image), но генерирует красивую карточку.
- * Fallback модели пробуются по очереди.
- */
-async function tryOpenRouter(prompt: string, _imageBuffer: Buffer): Promise<Buffer> {
+async function tryOpenRouter(
+  prompt: string,
+  format: "square" | "horizontal" = "square",
+): Promise<{ image: Buffer; provider: string } | null> {
   const apiKey = process.env.OPENROUTER_API_KEY?.trim();
-  if (!apiKey) throw new Error("OPENROUTER_API_KEY not set");
+  if (!apiKey) {
+    logger.warn("infographic.tier1: OPENROUTER_API_KEY not set, skipping");
+    return null;
+  }
 
-  // Пробуем модели по порядку (DALL-E 3 → Flux Pro → Flux 1.1)
-  const MODELS = [
-    "openai/dall-e-3",
-    "black-forest-labs/flux-1.1-pro",
-    "black-forest-labs/flux-pro",
-  ];
+  const size = format === "horizontal" ? "1792x1024" : "1024x1024";
+  const models = getOpenRouterModels();
 
-  let lastErr = "";
-  for (const model of MODELS) {
+  for (const model of models) {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 60_000);
     try {
       const res = await fetch("https://openrouter.ai/api/v1/images/generate", {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${apiKey}`,
+          Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json",
           "HTTP-Referer": "https://hochu.to",
           "X-Title": "Хочу_То Infographic Generator",
@@ -131,7 +164,7 @@ async function tryOpenRouter(prompt: string, _imageBuffer: Buffer): Promise<Buff
           model,
           prompt,
           n: 1,
-          size: "1024x1024",
+          size,
           quality: "standard",
           response_format: "url",
         }),
@@ -139,15 +172,21 @@ async function tryOpenRouter(prompt: string, _imageBuffer: Buffer): Promise<Buff
       });
       clearTimeout(timer);
 
-      if (res.status === 404 || res.status === 400 || res.status === 402) {
+      if (res.status === 400 || res.status === 402 || res.status === 404) {
         const txt = await res.text().catch(() => "");
-        lastErr = `${model}: HTTP ${res.status} — ${txt.slice(0, 150)}`;
-        logger.warn({ model, status: res.status }, "infographic.openrouter: model unavailable, trying next");
+        logger.warn(
+          { model, status: res.status, body: txt.slice(0, 150) },
+          "infographic.tier1: model unavailable, trying next",
+        );
         continue;
       }
       if (!res.ok) {
         const txt = await res.text().catch(() => "");
-        throw new Error(`${model}: HTTP ${res.status}: ${txt.slice(0, 200)}`);
+        logger.warn(
+          { model, status: res.status, body: txt.slice(0, 200) },
+          "infographic.tier1: HTTP error, trying next",
+        );
+        continue;
       }
 
       const data: any = await res.json();
@@ -155,42 +194,50 @@ async function tryOpenRouter(prompt: string, _imageBuffer: Buffer): Promise<Buff
       const b64: string | undefined = data?.data?.[0]?.b64_json;
 
       if (b64) {
-        logger.info({ model }, "infographic.openrouter: image generated (b64)");
-        return Buffer.from(b64, "base64");
+        logger.info({ model }, "infographic.tier1: image generated (b64)");
+        return { image: Buffer.from(b64, "base64"), provider: model };
       }
       if (imgUrl) {
         const imgRes = await fetch(imgUrl);
-        if (!imgRes.ok) throw new Error(`${model}: failed to fetch generated image: ${imgRes.status}`);
-        logger.info({ model }, "infographic.openrouter: image generated (url)");
-        return Buffer.from(await imgRes.arrayBuffer());
+        if (!imgRes.ok) {
+          logger.warn({ model, status: imgRes.status }, "infographic.tier1: failed to fetch image URL");
+          continue;
+        }
+        logger.info({ model }, "infographic.tier1: image generated (url)");
+        return { image: Buffer.from(await imgRes.arrayBuffer()), provider: model };
       }
 
-      lastErr = `${model}: empty response (no url, no b64)`;
-      logger.warn({ model, data: JSON.stringify(data).slice(0, 200) }, "infographic.openrouter: no image in response");
-      continue;
+      logger.warn(
+        { model, data: JSON.stringify(data).slice(0, 200) },
+        "infographic.tier1: empty response (no url, no b64)",
+      );
     } catch (e: any) {
       clearTimeout(timer);
-      if (e?.name === "AbortError") { lastErr = `${model}: timeout`; continue; }
-      lastErr = e?.message || String(e);
-      if (lastErr.includes("HTTP 404") || lastErr.includes("HTTP 400") || lastErr.includes("HTTP 402")) continue;
-      throw e;
+      if (e?.name === "AbortError") {
+        logger.warn({ model }, "infographic.tier1: timeout, trying next");
+        continue;
+      }
+      logger.warn({ model, err: e?.message }, "infographic.tier1: exception, trying next");
     }
   }
 
-  throw new Error(`OpenRouter image generation failed: ${lastErr}`);
+  logger.warn("infographic.tier1: all models exhausted");
+  return null;
 }
 
-// ─── Tier 2: Gemini multimodal image generation ───────────────────────────────
+// ─── Tier 2: Gemini multimodal + Imagen 3 ─────────────────────────────────────
 
-/**
- * Tier 2: Gemini 2.0 Flash — multimodal image generation.
- * Принимает фото-референс + промпт, генерирует карточку товара.
- * Использует актуальные модели с поддержкой IMAGE output.
- */
-async function tryGeminiImageGen(prompt: string, imageBuffer: Buffer): Promise<Buffer> {
+async function tryGeminiImageGen(
+  prompt: string,
+  imageBuffer: Buffer,
+): Promise<Buffer | null> {
   const apiKey = process.env.GEMINI_API_KEY?.trim();
-  if (!apiKey) throw new Error("GEMINI_API_KEY not set");
+  if (!apiKey) {
+    logger.warn("infographic.tier2: GEMINI_API_KEY not set, skipping");
+    return null;
+  }
 
+  // Конвертируем референс-фото в JPEG для отправки в Gemini
   const jpegBuf = await sharp(imageBuffer)
     .rotate()
     .resize(1024, 1024, { fit: "inside", withoutEnlargement: true })
@@ -198,16 +245,13 @@ async function tryGeminiImageGen(prompt: string, imageBuffer: Buffer): Promise<B
     .toBuffer();
   const imageBase64 = jpegBuf.toString("base64");
 
-  // Актуальные модели с image generation output (пробуем по очереди)
-  const MODELS = [
+  const MULTIMODAL_MODELS = [
     "gemini-2.0-flash-exp",
     "gemini-2.0-flash-preview-image-generation",
     "gemini-2.0-flash",
   ];
 
-  let lastErr = "";
-
-  for (const model of MODELS) {
+  for (const model of MULTIMODAL_MODELS) {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 90_000);
     try {
@@ -217,15 +261,16 @@ async function tryGeminiImageGen(prompt: string, imageBuffer: Buffer): Promise<B
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            contents: [{
-              parts: [
-                { text: prompt },
-                { inlineData: { mimeType: "image/jpeg", data: imageBase64 } },
-              ],
-            }],
+            contents: [
+              {
+                parts: [
+                  { text: prompt },
+                  { inlineData: { mimeType: "image/jpeg", data: imageBase64 } },
+                ],
+              },
+            ],
             generationConfig: {
-              // TEXT + IMAGE: модель может дополнить картинку текстом — нужны оба
-              responseModalities: ["TEXT", "IMAGE"],
+              responseModalities: ["IMAGE"],
               temperature: 0.8,
             },
           }),
@@ -236,44 +281,48 @@ async function tryGeminiImageGen(prompt: string, imageBuffer: Buffer): Promise<B
 
       if (res.status === 404 || res.status === 400) {
         const txt = await res.text().catch(() => "");
-        lastErr = `${model}: HTTP ${res.status} — ${txt.slice(0, 200)}`;
-        logger.warn({ model, status: res.status, lastErr }, "infographic.gemini: model not available");
+        logger.warn(
+          { model, status: res.status, txt: txt.slice(0, 200) },
+          "infographic.tier2: model not available",
+        );
         continue;
       }
       if (!res.ok) {
-        const txt = await res.text().catch(() => "");
-        throw new Error(`${model}: HTTP ${res.status}: ${txt.slice(0, 200)}`);
+        logger.warn({ model, status: res.status }, "infographic.tier2: HTTP error");
+        continue;
       }
 
       const data: any = await res.json();
       const parts: any[] = data?.candidates?.[0]?.content?.parts ?? [];
-      const imgPart = parts.find((p: any) => p.inlineData?.mimeType?.startsWith("image/"));
+      const imgPart = parts.find((p: any) =>
+        p.inlineData?.mimeType?.startsWith("image/"),
+      );
 
-      if (!imgPart?.inlineData?.data) {
-        const textPart = parts.find((p: any) => p.text);
-        lastErr = `${model}: no image in response (parts: ${parts.length}, has_text: ${!!textPart})`;
-        logger.warn({ model, lastErr }, "infographic.gemini: no image part");
-        continue;
+      if (imgPart?.inlineData?.data) {
+        logger.info({ model }, "infographic.tier2: multimodal image generated");
+        return Buffer.from(imgPart.inlineData.data, "base64");
       }
 
-      logger.info({ model }, "infographic.gemini: image generated successfully");
-      return Buffer.from(imgPart.inlineData.data, "base64");
+      logger.warn(
+        { model, partsCount: parts.length },
+        "infographic.tier2: no image part in response",
+      );
     } catch (e: any) {
       clearTimeout(timer);
-      if (e?.name === "AbortError") { lastErr = `${model}: timeout`; continue; }
-      lastErr = e?.message || String(e);
-      if (lastErr.includes("HTTP 404") || lastErr.includes("HTTP 400")) continue;
-      throw e;
+      if (e?.name === "AbortError") {
+        logger.warn({ model }, "infographic.tier2: timeout, trying next");
+        continue;
+      }
+      logger.warn({ model, err: e?.message }, "infographic.tier2: exception");
     }
   }
 
-  // Fallback: Imagen 3 text-to-image (без референса, но стабильно)
-  logger.warn({ lastErr }, "infographic.gemini: all multimodal models failed, trying Imagen3");
-  return tryImagen3TextOnly(prompt, apiKey);
+  // Sub-fallback: Imagen 3 text-to-image (без референса)
+  logger.warn("infographic.tier2: all multimodal models failed, trying Imagen 3");
+  return tryImagen3(prompt, apiKey);
 }
 
-/** Imagen 3 text-to-image fallback */
-async function tryImagen3TextOnly(prompt: string, apiKey: string): Promise<Buffer> {
+async function tryImagen3(prompt: string, apiKey: string): Promise<Buffer | null> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 45_000);
   try {
@@ -290,87 +339,128 @@ async function tryImagen3TextOnly(prompt: string, apiKey: string): Promise<Buffe
       },
     );
     clearTimeout(timer);
+
     if (!res.ok) {
       const txt = await res.text().catch(() => "");
-      throw new Error(`Imagen3 HTTP ${res.status}: ${txt.slice(0, 200)}`);
+      logger.warn(
+        { status: res.status, txt: txt.slice(0, 200) },
+        "infographic.tier2.imagen3: HTTP error",
+      );
+      return null;
     }
+
     const data: any = await res.json();
     const b64: string | undefined = data?.predictions?.[0]?.bytesBase64Encoded;
-    if (!b64) throw new Error("Imagen3: empty prediction");
-    logger.info("infographic.imagen3: image generated successfully");
+    if (!b64) {
+      logger.warn("infographic.tier2.imagen3: empty prediction");
+      return null;
+    }
+
+    logger.info("infographic.tier2.imagen3: image generated");
     return Buffer.from(b64, "base64");
-  } finally {
+  } catch (e: any) {
     clearTimeout(timer);
+    logger.warn({ err: e?.message }, "infographic.tier2.imagen3: failed");
+    return null;
   }
 }
 
 // ─── Core service ──────────────────────────────────────────────────────────────
 
 export interface GenerativeInfographicResult {
-  buffer: Buffer;
-  /** Какой tier реально отработал: 1=OpenRouter, 2=Gemini/Imagen3, 3=degradation */
+  image: Buffer;
+  /** 1=OpenRouter, 2=Gemini/Imagen3, 3=SVG overlay */
   tier: 1 | 2 | 3;
+  provider: string;
 }
 
 /**
- * generateGenerativeInfographic — 3-tier fallback chain.
+ * Stage 42: 3-tier generative infographic pipeline.
+ *   Tier 1 → OpenRouter /images/generate (DALL-E 3 / Flux)
+ *   Tier 2 → Gemini multimodal + Imagen 3 fallback
+ *   Tier 3 → SVG overlay (buildMarketplaceInfographic) — никогда не падает
  *
- * Tier 1: OpenRouter /images/generate (DALL-E 3 / Flux) — надёжная генерация
- * Tier 2: Gemini 2.0 Flash multimodal + Imagen 3 fallback
- * Tier 3: возвращает исходное изображение в WebP (без оверлеев)
+ * Никогда не бросает исключение — всегда возвращает результат.
  */
 export async function generateGenerativeInfographic(
   imageBuffer: Buffer,
-  itemData: {
-    title: string;
-    price: number;
-    bullets: string[];
-    description?: string;
-    category?: string;
+  content: MarketplaceInfographicContent,
+  options?: {
     format?: "square" | "horizontal";
+    preprocess?: boolean;
+    price?: number;
+    category?: string;
+    description?: string;
   },
 ): Promise<GenerativeInfographicResult> {
-  const prompt = buildImagePrompt(itemData);
-  const cacheKey = makeCacheKey(imageBuffer, prompt);
+  const format = options?.format ?? "square";
 
+  // 1. Опциональный препроцессинг
+  const sourceBuffer = options?.preprocess
+    ? await preprocessForAI(imageBuffer)
+    : imageBuffer;
+
+  // 2. Промпт из MarketplaceInfographicContent
+  const prompt = buildImagePrompt(content, {
+    price: options?.price,
+    category: options?.category,
+    description: options?.description,
+    format,
+  });
+
+  // 3. Disk-кэш
+  const cacheKey = makeCacheKey(sourceBuffer, prompt);
   const cached = await getCached(cacheKey);
   if (cached) {
-    logger.info({ cacheKey: cacheKey.slice(0, 16) }, "infographic.generative: cache hit");
-    return { buffer: cached, tier: 1 };
+    logger.info({ cacheKey: cacheKey.slice(0, 16) }, "infographic: cache hit");
+    return { image: cached, tier: 1, provider: "cache" };
   }
 
   const startedAt = Date.now();
 
-  // ── Tier 1: OpenRouter /images/generate ─────────────────────────────────────
+  // 4. Tier 1: OpenRouter
   try {
-    const raw = await tryOpenRouter(prompt, imageBuffer);
-    const out = await sharp(raw).webp({ quality: 90 }).toBuffer();
-    await putCached(cacheKey, out);
-    logger.info({ tier: 1, durationMs: Date.now() - startedAt }, "infographic: tier=1 success");
-    return { buffer: out, tier: 1 };
-  } catch (e1: any) {
-    logger.warn({ tier: 1, err: e1?.message }, "infographic: tier 1 failed → Gemini");
+    const result = await tryOpenRouter(prompt, format);
+    if (result) {
+      const out = await sharp(result.image).webp({ quality: 90 }).toBuffer();
+      await putCached(cacheKey, out);
+      logger.info(
+        { tier: 1, provider: result.provider, durationMs: Date.now() - startedAt },
+        "infographic: tier=1 success",
+      );
+      return { image: out, tier: 1, provider: result.provider };
+    }
+  } catch (e: any) {
+    logger.warn({ tier: 1, err: e?.message }, "infographic: tier 1 threw unexpectedly");
   }
 
-  // ── Tier 2: Gemini multimodal image generation ──────────────────────────────
+  // 5. Tier 2: Gemini
   try {
-    const raw = await tryGeminiImageGen(prompt, imageBuffer);
-    const out = await sharp(raw).webp({ quality: 92 }).toBuffer();
-    await putCached(cacheKey, out);
-    logger.info({ tier: 2, durationMs: Date.now() - startedAt }, "infographic: tier=2 success");
-    return { buffer: out, tier: 2 };
-  } catch (e2: any) {
-    logger.warn({ tier: 2, err: e2?.message, durationMs: Date.now() - startedAt }, "infographic: tier 2 failed → degradation");
+    const raw = await tryGeminiImageGen(prompt, sourceBuffer);
+    if (raw) {
+      const out = await sharp(raw).webp({ quality: 92 }).toBuffer();
+      await putCached(cacheKey, out);
+      logger.info(
+        { tier: 2, durationMs: Date.now() - startedAt },
+        "infographic: tier=2 success",
+      );
+      return { image: out, tier: 2, provider: "gemini" };
+    }
+  } catch (e: any) {
+    logger.warn({ tier: 2, err: e?.message }, "infographic: tier 2 threw unexpectedly");
   }
 
-  // ── Tier 3: Graceful degradation ─────────────────────────────────────────────
-  logger.error({ tier: 3, durationMs: Date.now() - startedAt }, "infographic: all tiers failed — original image");
-  const fallback = await sharp(imageBuffer)
-    .rotate()
-    .resize(1080, 1080, { fit: "cover", position: "centre" })
-    .webp({ quality: 85 })
-    .toBuffer();
-  return { buffer: fallback, tier: 3 };
+  // 6. Tier 3: SVG overlay — всегда работает
+  logger.warn(
+    { durationMs: Date.now() - startedAt },
+    "infographic: all AI tiers failed → SVG overlay (tier 3)",
+  );
+  const priceText =
+    options?.price && options.price > 0
+      ? `от ${options.price.toLocaleString("ru-RU")} ₽/сут`
+      : "";
+  const fallback = await buildMarketplaceInfographic(imageBuffer, content, priceText);
+  return { image: fallback, tier: 3, provider: "svg-overlay" };
 }
 
 // ─── Preprocessing ─────────────────────────────────────────────────────────────

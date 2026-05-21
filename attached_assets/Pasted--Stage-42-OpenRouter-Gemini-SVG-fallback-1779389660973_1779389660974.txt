@@ -1,0 +1,157 @@
+Промпт для агента: Stage 42 – Полностью генеративная инфографика (OpenRouter → Gemini → SVG fallback)
+
+Task: Stage 42 – Pivot to Full AI-Generative Product Cards with OpenRouter Primary + Gemini Direct Fallback
+
+Context:
+Агент предоставил отчёт current_infographic_analysis.md. В текущей реализации генеративный пайплайн (Tier 1 – OpenRouter, Tier 2 – Gemini) недоступен из-за отсутствия платных ключей, поэтому всегда срабатывает Tier 2.5 – SVG overlay.
+Пользователь хочет перейти на полностью генеративные карточки (как на примере с мангалом), используя:
+
+· Primary: OpenRouter API с перебором моделей для генерации изображений (DALL‑E 3, Flux Pro и др.)
+· Fallback: Прямой Gemini API (Imagen 3) – уже есть ключ
+· Последний fallback: Существующий SVG overlay (Tier 2.5) – для отказоустойчивости
+
+Цель:
+Реализовать надёжный image‑to‑image пайплайн, который генерирует готовую карточку (фото товара + наложенный текст и брендинг) с помощью AI, с автоматическим переключением между провайдерами и кэшированием результатов.
+
+---
+
+🚨 Критические правила безопасности
+
+· Не удалять старый код buildMarketplaceInfographic и buildMarketplaceOverlaySvg – они остаются как Tier 3 fallback.
+· Не изменять существующие эндпоинты и формат ответа API (клиент ожидает {url, generativeTier, content, ...}).
+· Все новые функции должны логировать ошибки через logger (pino) и писать в audit_events при успешной генерации (eventType ai_image_generation).
+· При отсутствии OPENROUTER_API_KEY система должна автоматически переходить на Gemini, затем на SVG overlay – без крашей.
+
+---
+
+📝 Требования к реализации
+
+Action 1: Переписать основной генеративный пайплайн (infographic.ts)
+
+Файл: artifacts/api-server/src/lib/infographic.ts
+
+Текущая структура уже содержит tryOpenRouter, tryGeminiImageGen, buildMarketplaceInfographic. Нужно:
+
+1. Изменить порядок вызова – сначала OpenRouter, затем Gemini, затем SVG overlay.
+2. Убрать заглушку // Tier 1/2 недоступны на бесплатном плане – сразу используем SVG (строки 294-296 в routes/ai.ts перенести логику выбора в infographic.ts).
+3. В generateGenerativeInfographic реализовать следующую логику:
+   ```typescript
+   export async function generateGenerativeInfographic(imageBuffer: Buffer, content: MarketplaceInfographicContent, options?: { format?: "square" | "horizontal", preprocess?: boolean }): Promise<{ image: Buffer; tier: 1 | 2 | 3; provider: string }> {
+     // 1. Предобработка фото (если preprocess === true)
+     let processedPhoto = imageBuffer;
+     if (options?.preprocess) processedPhoto = await preprocessForAI(imageBuffer);
+     
+     // 2. Сформировать промпт (использовать существующий buildImagePrompt, добавив параметр формата)
+     const prompt = buildImagePrompt({ ...content, format: options?.format });
+     
+     // 3. Tier 1 – OpenRouter (перебор моделей)
+     const orResult = await tryOpenRouter(processedPhoto, prompt, options?.format);
+     if (orResult.image) return { image: orResult.image, tier: 1, provider: orResult.provider };
+     
+     // 4. Tier 2 – Gemini Imagen 3 (прямой API)
+     const geminiResult = await tryGeminiImageGen(processedPhoto, prompt, options?.format);
+     if (geminiResult.image) return { image: geminiResult.image, tier: 2, provider: "gemini" };
+     
+     // 5. Tier 3 – старый SVG overlay (с использованием существующего buildMarketplaceInfographic)
+     const fallbackImage = await buildMarketplaceInfographic(imageBuffer, content, { format: options?.format });
+     return { image: fallbackImage, tier: 3, provider: "svg-overlay" };
+   }
+   ```
+4. Добавить поддержку формата в buildImagePrompt – передавать aspect_ratio: "1:1" или "16:9" в зависимости от format. Для OpenRouter использовать параметр size (например, "1024x1024" или "1200x630"), для Gemini – image_config.aspect_ratio.
+5. Улучшить tryOpenRouter:
+   · Добавить image_config для указания размера/пропорции.
+   · Перебирать модели из массива, но не жёстко зашивать – читать из process.env.OPENROUTER_IMAGE_MODELS (разделитель ,), дефолт: ["openai/dall-e-3", "black-forest-labs/flux-1.1-pro", "black-forest-labs/flux-pro"].
+   · При успехе логировать использованную модель.
+6. Улучшить tryGeminiImageGen:
+   · Добавить таймаут 90 секунд.
+   · Использовать responseModalities: ["IMAGE"] (вместо ["TEXT","IMAGE"]), чтобы экономить токены.
+   · Парсить результат: если модель вернула inlineData с mimeType начинающимся на image/ – сохранять.
+
+Action 2: Кэш для generateMarketplaceContent (ai-service.ts)
+
+Файл: artifacts/api-server/src/lib/ai-service.ts
+
+Сейчас функция generateMarketplaceContent не кэшируется, хотя её результат (структурированный JSON) стабилен для одинаковых (title, category, price, description). Добавить in‑memory кэш по образу BULLETS_CACHE:
+
+· Ключ: marketplace|${title.toLowerCase()}|${category?.toLowerCase() || ""}|${pricePerDay}|${description?.slice(0, 100)}
+· TTL: 24 часа
+· При кэш‑хите логировать "marketplace content cache hit"
+
+Action 3: Исправить обрезание текста в SVG overlay
+
+Файл: artifacts/api-server/src/lib/image-service.ts (функция buildMarketplaceOverlaySvg и truncStr)
+
+· Вместо жёсткого truncStr(item, 24) сделать автоматическое уменьшение шрифта для длинных строк. Например:
+  ```typescript
+  function fitTextToWidth(text: string, maxChars: number, baseFontSize: number): { text: string; fontSize: number } {
+    if (text.length <= maxChars) return { text, fontSize: baseFontSize };
+    let newSize = baseFontSize;
+    let truncated = text;
+    while (newSize > 12 && truncated.length > maxChars) {
+      newSize -= 2;
+      truncated = text.slice(0, maxChars * (newSize / baseFontSize)) + "…";
+    }
+    return { text: truncated, fontSize: newSize };
+  }
+  ```
+· Для заголовка (левая/правая панель) – аналогично, но с maxChars = 28 и базовым размером 27px.
+
+Action 4: Постоянное кэширование (вместо /tmp)
+
+Файлы: image-service.ts, infographic.ts
+
+Сменить CACHE_DIR = "/tmp/infographic-cache" на папку внутри UPLOADS_DIR/../cache, например path.join(UPLOADS_DIR, "../cache/infographic"). Это гарантирует, что кэш не сбрасывается при перезапуске контейнера Amvera.
+Создать папку при старте, если её нет.
+
+Action 5: Обновление фронтенда (ListingForm.tsx)
+
+· Добавить чекбокс "✨ AI-улучшение фото" (по умолчанию включён) – передавать preprocess: true в запрос.
+· Для премиум‑объявлений (если есть подписка) чекбокс должен быть всегда включён и нередактируем (или скрыт). Для бесплатных – опционально.
+· При нажатии кнопки "Создать инфографику" показывать индикатор загрузки с текстом "Генерируем карточку… (может занять до 15 секунд)".
+
+Action 6: Переменные окружения
+
+Добавить в docs/AGENT_INSTRUCTIONS.md и replit.md секцию:
+
+```bash
+# Обязательные для Stage 42
+OPENROUTER_API_KEY=sk-or-v1-...
+# Опционально (можно задать список моделей через запятую)
+OPENROUTER_IMAGE_MODELS=openai/dall-e-3,black-forest-labs/flux-1.1-pro
+
+# Уже есть – для Gemini fallback
+GEMINI_API_KEY=...
+```
+
+Action 7: Документация и логирование
+
+· Обновить docs/AGENT_INSTRUCTIONS.md – добавить раздел Stage 42 с описанием новой архитектуры.
+· В audit_events при успешной генерации (tier 1 или 2) писать:
+  ```json
+  { "eventType": "ai_image_generation", "metadata": { "tier": 1, "provider": "openrouter/dall-e-3", "duration_ms": 2340 } }
+  ```
+· При ошибках логировать через logger.error и не писать в аудит (чтобы не засорять).
+
+---
+
+✅ Критерии приёмки (Definition of Done)
+
+· При наличии OPENROUTER_API_KEY и GEMINI_API_KEY система генерирует карточки через OpenRouter (первая рабочая модель) и кэширует результат.
+· Если OpenRouter возвращает ошибку (402, 404, таймаут), автоматически переключается на Gemini Imagen 3 и генерирует карточку там.
+· Если оба генеративных провайдера недоступны, возвращается SVG overlay (как сейчас) – без ошибки 500.
+· Кэш для generateMarketplaceContent работает (повторный запрос с теми же параметрами не вызывает LLM).
+· Длинные названия в SVG overlay не обрезаются, а уменьшают шрифт (текст полностью виден).
+· Кэш изображений хранится в постоянной директории (не /tmp).
+· Фронтенд передаёт preprocess=true по умолчанию, пользователь видит индикатор загрузки.
+· Все изменения запушены на GitHub, документация обновлена.
+
+Commit message:
+feat(ai-visual): Stage 42 – full generative infographics with OpenRouter primary, Gemini fallback, and persistent caching
+
+---
+
+📌 Примечание для агента
+
+Перед началом реализации убедитесь, что у вас есть доступ к переменным окружения: OPENROUTER_API_KEY (попросите пользователя добавить в Secrets Replit / Amvera). Без него система будет работать через Tier 2 (Gemini) и Tier 3 (SVG). Код должен быть написан так, чтобы при отсутствии любого ключа просто пропускать соответствующий этап, а не падать.
+
+После завершения – запустить pnpm typecheck и убедиться, что нет новых ошибок TypeScript. Протестировать локально с мок‑ключом (если ключей нет, должно падать в SVG overlay).

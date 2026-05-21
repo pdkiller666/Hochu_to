@@ -21,12 +21,8 @@ import {
 import {
   buildInfographicImage,
   buildHorizontalImage,
-  buildMarketplaceInfographic,
 } from "../lib/image-service.js";
-import {
-  generateGenerativeInfographic,
-  preprocessForAI,
-} from "../lib/infographic.js";
+import { generateGenerativeInfographic } from "../lib/infographic.js";
 import { UPLOADS_DIR } from "../lib/uploadsDir.js";
 import { logger } from "../lib/logger.js";
 
@@ -268,8 +264,8 @@ router.post(
             fallbackReason: bulletsResult.fallbackReason,
           };
         } else if (template === "marketplace") {
-          // ── Stage 41: AI-Generative marketplace card (3-tier fallback) ──
-          // 1) LLM генерирует структуру (title + bullets) для промпта
+          // ── Stage 42: Full Generative marketplace card (OpenRouter → Gemini → SVG) ──
+          // 1) LLM генерирует структуру карточки (кэшируется 24ч)
           const mktResult = await generateMarketplaceContent(
             title,
             category,
@@ -278,62 +274,29 @@ router.post(
             requestedProvider,
           );
 
-          // 2) Опциональный препроцессинг (?preprocess=true)
-          const sourceBuffer = preprocess
-            ? await preprocessForAI(file.buffer)
-            : file.buffer;
-
-          // 3) Формируем bullets из контента LLM
-          const allBullets = [
-            ...mktResult.content.leftItems,
-            ...mktResult.content.rightItems,
-          ].slice(0, 6);
           const priceNum = pricePerDay ? Math.round(pricePerDay) : 0;
 
-          // 4) Generative AI → Tier 2.5 SVG-overlay fallback
-          // Tier 1/2 (OpenRouter/Gemini image gen) недоступны на бесплатном плане —
-          // сразу используем надёжный buildMarketplaceInfographic (sharp + SVG overlay).
-          // При появлении платного Gemini — генеративный tier подключится автоматически.
-          let genResult: Awaited<ReturnType<typeof generateGenerativeInfographic>> | null = null;
-          try {
-            genResult = await generateGenerativeInfographic(sourceBuffer, {
-              title: mktResult.content.title,
-              price: priceNum,
-              bullets: allBullets,
-              description: description ?? undefined,
-              category: category ?? undefined,
-              format: "square",
-            });
-          } catch { /* cascade to SVG */ }
+          // 2) Генерируем изображение: Tier 1 (OpenRouter) → Tier 2 (Gemini) → Tier 3 (SVG)
+          //    preprocess и fallback управляются внутри generateGenerativeInfographic
+          const genResult = await generateGenerativeInfographic(file.buffer, mktResult.content, {
+            format: "square",
+            preprocess,
+            price: priceNum,
+            category: category ?? undefined,
+            description: description ?? undefined,
+          });
 
-          // Tier 2.5: если genResult === null или tier=3 (деградация без overlay),
-          // используем buildMarketplaceInfographic — это красивый SVG marketplace card
-          if (!genResult || genResult.tier === 3) {
-            const priceText = priceNum > 0 ? `от ${priceNum.toLocaleString("ru-RU")} ₽/сут` : "";
-            webpBuffer = await buildMarketplaceInfographic(sourceBuffer, mktResult.content, priceText);
-            responseExtra = {
-              template: "marketplace",
-              generativeTier: "svg",
-              preprocessed: preprocess,
-              content: mktResult.content,
-              provider: mktResult.provider,
-              actualProvider: mktResult.actualProvider,
-              fallback: mktResult.fallback,
-              fallbackReason: mktResult.fallbackReason,
-            };
-          } else {
-            webpBuffer = genResult.buffer;
-            responseExtra = {
-              template: "marketplace",
-              generativeTier: genResult.tier,
-              preprocessed: preprocess,
-              content: mktResult.content,
-              provider: mktResult.provider,
-              actualProvider: mktResult.actualProvider,
-              fallback: mktResult.fallback,
-              fallbackReason: mktResult.fallbackReason,
-            };
-          }
+          webpBuffer = genResult.image;
+          responseExtra = {
+            template: "marketplace",
+            generativeTier: genResult.tier === 3 ? "svg" : genResult.tier,
+            preprocessed: preprocess,
+            content: mktResult.content,
+            provider: mktResult.provider,
+            actualProvider: mktResult.actualProvider,
+            fallback: mktResult.fallback,
+            fallbackReason: mktResult.fallbackReason,
+          };
         } else {
           // ── Classic template (3 буллета, SVG-overlay) ────────────────────
           const bulletsResult = await generateInfographicBullets(

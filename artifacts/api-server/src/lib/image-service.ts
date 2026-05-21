@@ -18,6 +18,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import sharp from "sharp";
 import type { MarketplaceInfographicContent } from "./ai-service.js";
+import { UPLOADS_DIR } from "./uploadsDir.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -27,7 +28,10 @@ const FONTS_DIR = path.join(__dirname, "../../src/assets/fonts");
 
 // ─── Disk cache ───────────────────────────────────────────────────────────────
 
-const CACHE_DIR = "/tmp/infographic-cache";
+const CACHE_DIR = (() => {
+  const base = path.join(UPLOADS_DIR, "..", "cache", "infographic");
+  return base;
+})();
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
 async function initCache(): Promise<void> {
@@ -176,6 +180,25 @@ function wrapBullet(s: string, maxChars = BULLET_MAX_CHARS): string[] {
   return [words[0], words.slice(1).join(" ")];
 }
 
+/**
+ * Подбирает размер шрифта и обрезает текст так, чтобы уместиться в maxChars символов.
+ * Уменьшает шрифт на 2px за итерацию вплоть до minFontSize.
+ */
+function fitTextToWidth(
+  text: string,
+  maxChars: number,
+  baseFontSize: number,
+  minFontSize = 14,
+): { text: string; fontSize: number } {
+  if (text.length <= maxChars) return { text, fontSize: baseFontSize };
+  for (let size = baseFontSize - 2; size >= minFontSize; size -= 2) {
+    const effectiveMax = Math.floor(maxChars * (size / baseFontSize));
+    if (text.length <= effectiveMax) return { text, fontSize: size };
+  }
+  const effectiveMax = Math.floor(maxChars * (minFontSize / baseFontSize));
+  return { text: text.slice(0, effectiveMax - 1) + "\u2026", fontSize: minFontSize };
+}
+
 function buildPhotoMaskSvg(w: number, h: number, r: number): string {
   return `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
     <rect x="0" y="0" width="${w}" height="${h}" rx="${r}" ry="${r}" fill="white" />
@@ -321,10 +344,11 @@ function buildMarketplaceOverlaySvg(
     .slice(0, 4)
     .map((item, i) => {
       const y = MKT_ITEM_START_Y + i * MKT_ITEM_SPACING;
+      const { text: ft, fontSize: fs } = fitTextToWidth(item, 28, MKT_ITEM_FONT);
       return (
         `<circle cx="${MKT_LEFT_X + 36}" cy="${y - 8}" r="8" fill="#C65D3B"/>` +
         `<text x="${MKT_LEFT_X + 56}" y="${y}" ` +
-        `font-family="${FONT_BODY}" font-size="${MKT_ITEM_FONT}" fill="#2B2B2B">${escapeXml(truncStr(item, 24))}</text>`
+        `font-family="${FONT_BODY}" font-size="${fs}" fill="#2B2B2B">${escapeXml(ft)}</text>`
       );
     })
     .join("\n  ");
@@ -333,10 +357,11 @@ function buildMarketplaceOverlaySvg(
     .slice(0, 4)
     .map((item, i) => {
       const y = MKT_ITEM_START_Y + i * MKT_ITEM_SPACING;
+      const { text: ft, fontSize: fs } = fitTextToWidth(item, 28, MKT_ITEM_FONT);
       return (
         `<circle cx="${MKT_RIGHT_X + 36}" cy="${y - 8}" r="8" fill="#C65D3B"/>` +
         `<text x="${MKT_RIGHT_X + 56}" y="${y}" ` +
-        `font-family="${FONT_BODY}" font-size="${MKT_ITEM_FONT}" fill="#F0EBE0">${escapeXml(truncStr(item, 24))}</text>`
+        `font-family="${FONT_BODY}" font-size="${fs}" fill="#F0EBE0">${escapeXml(ft)}</text>`
       );
     })
     .join("\n  ");

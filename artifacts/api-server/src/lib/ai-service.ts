@@ -1094,6 +1094,24 @@ function marketplaceMockContent(title: string, category?: string | null): Market
   };
 }
 
+// ─── Marketplace content cache (Stage 42) ────────────────────────────────────
+
+interface MarketplaceCacheEntry {
+  result: MarketplaceInfographicResult;
+  cachedAt: number;
+}
+const MARKETPLACE_CACHE = new Map<string, MarketplaceCacheEntry>();
+const MARKETPLACE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+function marketplaceCacheKey(
+  title: string,
+  category?: string | null,
+  pricePerDay?: number | null,
+  description?: string | null,
+): string {
+  return `marketplace|${title.toLowerCase()}|${(category ?? "").toLowerCase()}|${pricePerDay ?? ""}|${(description ?? "").slice(0, 100).toLowerCase()}`;
+}
+
 export async function generateMarketplaceContent(
   title: string,
   category?: string | null,
@@ -1101,6 +1119,14 @@ export async function generateMarketplaceContent(
   description?: string | null,
   requestedProvider?: string | null,
 ): Promise<MarketplaceInfographicResult> {
+  // Cache check
+  const cacheKey = marketplaceCacheKey(title, category, pricePerDay, description);
+  const cached = MARKETPLACE_CACHE.get(cacheKey);
+  if (cached && Date.now() - cached.cachedAt < MARKETPLACE_CACHE_TTL_MS) {
+    logger.info({ title: title.slice(0, 60) }, "ai-service: marketplace content cache hit");
+    return cached.result;
+  }
+
   const provider = await resolveProvider(requestedProvider);
 
   if (provider === "mock") {
@@ -1132,7 +1158,9 @@ export async function generateMarketplaceContent(
     if (!content) throw new Error("Failed to parse marketplace JSON from LLM response");
 
     logger.info({ provider, model, title: title.slice(0, 60) }, "ai-service: marketplace content generated");
-    return { content, provider, actualProvider: provider, fallback: false, model };
+    const result: MarketplaceInfographicResult = { content, provider, actualProvider: provider, fallback: false, model };
+    MARKETPLACE_CACHE.set(cacheKey, { result, cachedAt: Date.now() });
+    return result;
   } catch (err: any) {
     const reason = err?.message || String(err);
     logger.error({ provider, model, err: reason }, "ai-service: marketplace generation failed, falling back to mock");
