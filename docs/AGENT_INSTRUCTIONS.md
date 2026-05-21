@@ -9,7 +9,7 @@
 > Если ты агент, который только что принял проект — прочитай этот блок первым.
 
 ### Где мы сейчас
-- **Последний закрытый этап: Stage 39** — Fintech Core & Escrow Engine ✅
+- **Последний закрытый этап: Stage UI-2** (21.05.2026) — Mobile Header Compact + Clickable ListingCard Labels ✅
 - **Тестовые аккаунты**: `admin@hochu.to / AdminTest99!` (superadmin, id=1) · `tenant_test@test.ru / Test1234!` (renter, id=10)
 - **Бот**: `@Helper251223_bot` — онлайн, токен в секрете `TELEGRAM_BOT_TOKEN`
 - **API**: порт 8080 · **Фронт**: порт 5000 (workflow `Start application`)
@@ -2066,3 +2066,105 @@ Vision-арбитратор (`arbitrateWithGeminiVision`) — **не трону�
 8652775  Stage 33: sharp resize, retry/fallback models, side-by-side photos UI, new endpoints
 22d2862  Stage 33: increase AI analysis timeout, secure API key
 ```
+
+---
+
+## Stage UI-2 — Mobile Header Compact + Clickable ListingCard Labels (21.05.2026) ✅
+
+### Цель
+Три независимых UI-улучшения: компактный однострочный мобильный хедер, устранение перекрытия элементов на карточке объявления и кликабельные лейблы категории/города/региона.
+
+### 1. Компактный мобильный хедер (`Header.tsx`)
+
+**Было:** 2-строчный мобильный хедер (~114px) — строка 1: Logo + иконки; строка 2: поиск.
+
+**Стало:** Однострочный compact layout (~52px, как Avito/Ozon): `Logo icon | Search bar (flex-1, h-9, border) | Heart+Bell (p-2, icon size-[18px]) | Burger`.
+
+Ключевые изменения:
+- Родительский `div` мобильного ряда: убрана вертикальная stack-компоновка, всё в одном flex-row
+- Поисковая строка `HeaderSearchBar` встроена inline с `flex-1`
+- Иконки Heart/Bell/Burger: `p-2` вместо `p-3`, иконки `size-[18px]` вместо `size-5`
+- Каталог (`Catalog.tsx`): sticky sidebar `top-[114px]` → `top-[52px]`
+
+### 2. Устранение перекрытия на `ListingCard.tsx`
+
+**Было:** Бейдж «Свободно» (availability) мог перекрывать кнопку сердца; лейбл категории при длинном названии выходил за пределы карточки.
+
+**Стало:**
+- Бейдж «Свободно» / «Занято» **удалён** (дублировал информацию из других элементов и мешал вёрстке)
+- Лейбл категории: `max-w-[calc(100%-40px)]` — гарантированно не перекрывает кнопку избранного
+
+### 3. Кликабельные лейблы категории / города / региона (`ListingCard.tsx`)
+
+Все три лейбла теперь — `<button>` с `e.stopPropagation()` (чтобы клик не открывал карточку) + `navigate(url)`:
+
+| Лейбл | URL при клике |
+|-------|--------------|
+| Категория (иконка + текст) | `/catalog?category=<categorySlug>` |
+| City-чип (MapPin + city) | `/catalog?city=<city>` |
+| Регион | `/catalog?region=<regionSlug>` |
+
+### 4. API: новые поля `categorySlug` и `regionSlug` (`routes/listings.ts`)
+
+Добавлены в **все 3 SELECT-блока** файла:
+1. Основной список (`GET /listings`)
+2. Fallback «другие регионы»
+3. Детальная карточка (`GET /listings/:id`)
+
+```ts
+// Пример join-а в основном SELECT:
+categories.slug.as("categorySlug"),
+regions.slug.as("regionSlug"),
+```
+
+OpenAPI spec (`lib/api-spec/openapi.yaml`) — добавлены поля в схему `Listing`:
+```yaml
+categorySlug:
+  type: string
+  description: Slug категории для URL-навигации
+regionSlug:
+  type: string
+  description: Slug региона для URL-навигации
+```
+
+После правок spec выполнен кодоген:
+```bash
+pnpm --filter @workspace/api-spec run codegen
+```
+→ обновлены `lib/api-client-react/src/generated/` и `lib/api-zod/src/generated/`
+
+После правок бэкенда выполнена пересборка:
+```bash
+cd artifacts/api-server && node build.mjs
+```
+→ рестарт воркфлоу `API Server`
+
+### ⚠️ ИНВАРИАНТ — API Server rebuild
+
+Воркфлоу `API Server` запускает **pre-built** `dist/index.mjs` и **никогда не пересобирается сам**. Любое изменение в `artifacts/api-server/src/` **ТРЕБУЕТ** ручного:
+```bash
+cd artifacts/api-server && node build.mjs && # restart_workflow "API Server"
+```
+Этот инвариант не задокументирован явно нигде в предыдущих stage-блоках — фиксируется здесь.
+
+### Изменённые файлы
+| Файл | Что изменено |
+|------|-------------|
+| `artifacts/hochu-to/src/components/layout/Header.tsx` | Мобильный блок: single-row, `flex-1` search, `p-2`/`size-[18px]` иконки |
+| `artifacts/hochu-to/src/components/ui/ListingCard.tsx` | Удалён бейдж availability; `max-w-[calc(100%-40px)]` на лейбл категории; category/city/region → `<button>` с navigate |
+| `artifacts/hochu-to/src/pages/Catalog.tsx` | Sticky sidebar: `top-[114px]` → `top-[52px]` |
+| `artifacts/api-server/src/routes/listings.ts` | `categorySlug` + `regionSlug` в 3 SELECT-блоках |
+| `lib/api-spec/openapi.yaml` | `categorySlug` + `regionSlug` в схеме `Listing` |
+| `lib/api-client-react/src/generated/` | Авто-обновлено Orval кодогеном |
+| `lib/api-zod/src/generated/` | Авто-обновлено Orval кодогеном |
+| `artifacts/api-server/dist/index.mjs` | Пересобрано `node build.mjs` |
+
+### Тест-сьют (ручная проверка)
+- ✅ Мобиль: хедер занимает ~52px, поиск inline, иконки компактные
+- ✅ Desktop: хедер не изменился (~64px)
+- ✅ Каталог: sticky sidebar не прилипает за хедером
+- ✅ ListingCard: нет бейджа availability, лейбл категории не перекрывает сердце
+- ✅ Клик на категорию → `/catalog?category=electronics` (и др.)
+- ✅ Клик на city-чип → `/catalog?city=Москва`
+- ✅ Клик на регион → `/catalog?region=moscow`
+- ✅ API `/api/listings` возвращает `categorySlug` и `regionSlug` в каждом объекте

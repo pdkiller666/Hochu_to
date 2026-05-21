@@ -118,7 +118,7 @@ All routes prefixed with `/api`:
 - `GET/POST /auth/register|login|logout|me` — Authentication
 - `GET /regions` — Russian cities/regions
 - `GET /categories` — Item categories with count
-- `GET /listings` — Listings with filters (category, region, price, search, page)
+- `GET /listings` — Listings with filters (category, region, price, search, page). Каждый листинг в ответе содержит `categorySlug` (строка, e.g. `"electronics"`) и `regionSlug` (строка, e.g. `"moscow"`) для формирования clickable-ссылок в UI без доп. запросов. Оба поля добавлены в OpenAPI spec + Orval codegen.
 - `POST /listings` — Create listing (requires auth)
 - `GET/PUT/DELETE /listings/:id` — Listing CRUD
 - `GET /listings/:id/unavailable-dates` — Dates blocked by bookings
@@ -232,7 +232,7 @@ Marketplace-style sticky header (Avito/Wildberries pattern) — visible on all p
 
 **Desktop (md+):** Logo + centered Search bar (flex-grow) + Region pill + Nav (xl+) + Auth/Profile actions on a single 64px row.
 
-**Mobile (<md):** Two-row layout — row 1: Logo + Heart/Bell icons + Burger; row 2: full-width Search bar (always visible while scrolling). Total height ~114px.
+**Mobile (<md):** Single-row compact layout (~52px) — Logo icon | Search bar (flex-1, h-36px, thin border) | Heart+Bell (p-2, icon 18px) | Burger. Avito/Ozon pattern. Previous 2-row layout (~114px) was removed in Stage UI-2.
 
 **Search behavior:**
 - Submitting navigates to `/catalog?search=<query>` while preserving other URL params (region, category)
@@ -358,6 +358,12 @@ Located at `artifacts/api-server/src/lib/scheduler.ts`. Runs every hour via `nod
 - **Git push**: после каждой успешной итерации работы ОБЯЗАТЕЛЬНО выполнять `bash scripts/github-push.sh "описание"` — проект должен быть актуален на GitHub для деплоя через Amvera
 - Если `git add/commit` блокируется Replit (index.lock), скрипт всё равно пушит последний checkpoint-коммит
 - Деплой: GitHub `main` → Amvera webhook → Docker build
+- ⚠️ **КРИТИЧНО — API Server rebuild**: воркфлоу `API Server` запускает **pre-built** `./dist/index.mjs` и НЕ пересобирает код автоматически. После ЛЮБОГО изменения в `artifacts/api-server/src/` обязательно:
+  ```bash
+  cd artifacts/api-server && node build.mjs
+  ```
+  затем `restart_workflow "API Server"`. Без этого изменения в бэкенде не вступают в силу.
+- **Кодоген** (после правок `lib/api-spec/openapi.yaml`): `pnpm --filter @workspace/api-spec run codegen` → обновляет `lib/api-client-react/src/generated/` и `lib/api-zod/src/generated/`.
 
 ## SEO-хук (`useDocumentMeta`)
 
@@ -651,6 +657,7 @@ DB поле `boosted_until` (timestamp). Сортировка `?sort=new` уже
 - **Stage 33.0 — AI-Арбитражор (Vision Analysis)** (**✅ 30.04.2026**) — `POST /api/claims/:id/ai-verdict`, Gemini Vision, human-in-the-loop, audit trail в `audit_events`.
 - **Stage 33.1 — AI Arbitration Hardening** (**✅ 02.05.2026**) — `GEMINI_VISION_MODEL` через env (дефолт `gemini-flash-latest`), AbortController 15 сек, `ai_verdict_failed`/`ai_verdict_exception` audit-логи.
 - **Stage 32.1 — Trust Score V8 публичный** (**✅ 02.05.2026**) — `ownerTrustScore`/`ownerCompletedDealsCount` в `/listings`; виджет в `ListingDetail.tsx` и `OwnerProfile.tsx`.
+- **Stage UI-2 — Mobile Header + Clickable Labels** (**✅ 21.05.2026**) — Мобильный хедер переделан с 2-строчного (~114px) на compact single-row (~52px): Logo | Search (flex-1) | Heart+Bell | Burger. Каталог: sticky sidebar сдвинут с `top-[114px]` → `top-[52px]`. `ListingCard`: удалён дублирующий бейдж «Свободно», лейбл категории кликабелен (`/catalog?category=<slug>`), city-чип кликабелен (`/catalog?city=<city>`), регион кликабелен (`/catalog?region=<slug>`). API: добавлены поля `categorySlug` + `regionSlug` во все 3 SELECT-блока `routes/listings.ts`, OpenAPI spec обновлён + codegen перезапущен.
 
 
 ## Журналы этапов (архив)
