@@ -172,25 +172,33 @@ export function ListingCard({ listing }: ListingCardProps) {
           ) : null}
         </div>
 
-        {/* M-5: City chip */}
+        {/* M-5: City chip — кликабельна, фильтр по городу */}
         {city && (
           <div className="mb-1">
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-muted text-muted-foreground text-[10px] font-semibold rounded-full">
+            <button
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); navigate(`/catalog?city=${encodeURIComponent(city)}`); }}
+              className="inline-flex items-center gap-1 px-2 py-0.5 bg-muted text-muted-foreground text-[10px] font-semibold rounded-full hover:bg-primary/10 hover:text-primary transition-colors cursor-pointer"
+            >
               <MapPin className="w-2.5 h-2.5 shrink-0" />
               {city}
-            </span>
+            </button>
           </div>
         )}
 
         {(() => {
           const region = listing.regionName || "";
+          const regionSlug = (listing as any).regionSlug as string | undefined;
           const sameAsCity = city && region.trim().toLowerCase() === city.trim().toLowerCase();
           if (sameAsCity) return null;
+          if (!region && city) return null;
           return (
-            <div className="flex items-center gap-1 text-muted-foreground text-xs mb-2">
+            <button
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (regionSlug) navigate(`/catalog?region=${regionSlug}`); }}
+              className="flex items-center gap-1 text-muted-foreground text-xs mb-2 hover:text-primary transition-colors cursor-pointer w-fit"
+            >
               <MapPin className="w-3 h-3 shrink-0" />
-              <span className="truncate">{region || (!city ? "Регион не указан" : "")}</span>
-            </div>
+              <span className="truncate">{region || "Регион не указан"}</span>
+            </button>
           );
         })()}
 

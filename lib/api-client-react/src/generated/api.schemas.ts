@@ -209,6 +209,7 @@ export interface Listing {
   categoryName?: string;
   categorySlug?: string;
   regionId: number;
+  regionSlug?: string;
   regionName?: string;
   photos?: string[];
   ownerId: number;

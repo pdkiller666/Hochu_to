@@ -981,6 +981,8 @@ components:
           type: string
         regionId:
           type: integer
+        regionSlug:
+          type: string
         regionName:
           type: string
         photos:
