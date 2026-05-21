@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { useRegion } from "@/lib/region-context";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "";
+const SPEED_PX_S = 48; // pixels per second — smooth, not distracting
 
 interface ListingCarouselSectionProps {
   title: string;
@@ -83,8 +84,6 @@ function SkeletonCard() {
   );
 }
 
-const SCROLL_SPEED = 0.6; // px per animation frame
-
 export function ListingCarouselSection({
   title,
   subtitle,
@@ -99,77 +98,64 @@ export function ListingCarouselSection({
   const { selectedRegion } = useRegion();
   const { listings, loading, geoMode } = useListings(sort, limit, selectedRegion, quality);
 
+  // Duplicate for seamless looping (like Ticker)
+  const track = [...listings, ...listings];
+
   const seeAllLink = catalogLink
     ? selectedRegion && geoMode !== "fallback"
       ? `${catalogLink}${catalogLink.includes("?") ? "&" : "?"}region=${selectedRegion}`
       : catalogLink
     : undefined;
 
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const [canScrollLeft, setCanScrollLeft] = useState(false);
-  const [canScrollRight, setCanScrollRight] = useState(true);
+  // GPU-smooth auto-scroll via transform
+  const outerRef = useRef<HTMLDivElement>(null);   // overflow:hidden wrapper
+  const trackRef = useRef<HTMLDivElement>(null);   // flex track we translate
+  const posRef   = useRef(0);                      // current X position (float)
+  const lastTsRef = useRef(0);
   const isPausedRef = useRef(false);
   const rafRef = useRef<number | null>(null);
-  const skipFramesRef = useRef(0);
 
-  const checkScroll = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    setCanScrollLeft(el.scrollLeft > 8);
-    setCanScrollRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 8);
-  }, []);
+  const startRaf = useCallback(() => {
+    const tick = (ts: number) => {
+      if (!isPausedRef.current) {
+        const dt = lastTsRef.current ? Math.min(ts - lastTsRef.current, 80) : 0;
+        lastTsRef.current = ts;
 
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    checkScroll();
-    el.addEventListener("scroll", checkScroll, { passive: true });
-    window.addEventListener("resize", checkScroll);
-    return () => {
-      el.removeEventListener("scroll", checkScroll);
-      window.removeEventListener("resize", checkScroll);
-    };
-  }, [listings, checkScroll]);
-
-  // Auto-scroll loop
-  useEffect(() => {
-    if (loading || listings.length === 0) return;
-    const el = scrollRef.current;
-    if (!el) return;
-
-    const tick = () => {
-      if (!isPausedRef.current && el) {
-        const maxScroll = el.scrollWidth - el.clientWidth;
-        if (maxScroll > 0) {
-          if (skipFramesRef.current > 0) {
-            // waiting for browser to settle after reset
-            skipFramesRef.current--;
-          } else if (el.scrollLeft >= maxScroll - 1) {
-            // reached end — jump to start and pause for 20 frames
-            el.scrollLeft = 0;
-            skipFramesRef.current = 20;
-          } else {
-            el.scrollLeft += SCROLL_SPEED;
+        const tr = trackRef.current;
+        if (tr) {
+          const half = tr.scrollWidth / 2; // half because we duplicated
+          if (half > 0) {
+            posRef.current += (SPEED_PX_S * dt) / 1000;
+            if (posRef.current >= half) posRef.current -= half;
+            tr.style.transform = `translate3d(-${posRef.current}px, 0, 0)`;
           }
         }
+      } else {
+        lastTsRef.current = ts;
       }
       rafRef.current = requestAnimationFrame(tick);
     };
-
     rafRef.current = requestAnimationFrame(tick);
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    };
-  }, [loading, listings]);
+  }, []);
 
-  const scroll = (direction: "left" | "right") => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const cardWidth = el.querySelector("[data-card]")?.clientWidth ?? 280;
-    el.scrollBy({ left: direction === "left" ? -(cardWidth + 16) * 2 : (cardWidth + 16) * 2, behavior: "smooth" });
+  useEffect(() => {
+    if (loading || listings.length === 0) return;
+    startRaf();
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+  }, [loading, listings, startRaf]);
+
+  // Manual scroll buttons — move posRef by 2 card widths
+  const scroll = (dir: "left" | "right") => {
+    const tr = trackRef.current;
+    if (!tr) return;
+    const card = tr.querySelector<HTMLElement>("[data-card]");
+    const step = (card ? card.offsetWidth : 280) + 16; // card + gap
+    const half = tr.scrollWidth / 2;
+    if (half <= 0) return;
+    posRef.current += dir === "right" ? step * 2 : -(step * 2);
+    posRef.current = ((posRef.current % half) + half) % half; // wrap
+    tr.style.transform = `translate3d(-${posRef.current}px, 0, 0)`;
   };
-
-  const skeletonCount = limit > 6 ? 6 : limit;
 
   const geoHint =
     selectedRegion && !loading
@@ -182,9 +168,11 @@ export function ListingCarouselSection({
         : null
       : null;
 
+  const hasItems = !loading && listings.length > 0;
+
   return (
     <section className={cn("py-12 overflow-x-clip", bgClassName)}>
-      {/* Header — stays within max-width */}
+      {/* Header */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
@@ -205,11 +193,11 @@ export function ListingCarouselSection({
           <div className="flex items-center gap-2">
             <button
               onClick={() => scroll("left")}
-              disabled={!canScrollLeft}
+              disabled={!hasItems}
               aria-label="Назад"
               className={cn(
                 "w-9 h-9 rounded-full border flex items-center justify-center transition-all",
-                canScrollLeft
+                hasItems
                   ? "border-border bg-white hover:bg-muted hover:border-primary/50 shadow-sm text-foreground"
                   : "border-border/30 bg-muted/30 text-muted-foreground cursor-not-allowed"
               )}
@@ -218,11 +206,11 @@ export function ListingCarouselSection({
             </button>
             <button
               onClick={() => scroll("right")}
-              disabled={!canScrollRight}
+              disabled={!hasItems}
               aria-label="Вперёд"
               className={cn(
                 "w-9 h-9 rounded-full border flex items-center justify-center transition-all",
-                canScrollRight
+                hasItems
                   ? "border-border bg-white hover:bg-muted hover:border-primary/50 shadow-sm text-foreground"
                   : "border-border/30 bg-muted/30 text-muted-foreground cursor-not-allowed"
               )}
@@ -252,29 +240,38 @@ export function ListingCarouselSection({
         )}
       </div>
 
-      {/* Scrollable row — full-width with internal padding, no right-edge clip */}
+      {/* Carousel track — overflow:hidden + translate3d for GPU smoothness */}
       <div
-        ref={scrollRef}
-        className="flex gap-4 overflow-x-auto pb-3 scroll-smooth px-4 sm:px-6 lg:px-8"
-        style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}
+        ref={outerRef}
+        className="overflow-hidden px-4 sm:px-6 lg:px-8 mt-1 pb-3"
         onMouseEnter={() => { isPausedRef.current = true; }}
-        onMouseLeave={() => { isPausedRef.current = false; }}
+        onMouseLeave={() => { isPausedRef.current = false; lastTsRef.current = 0; }}
         onTouchStart={() => { isPausedRef.current = true; }}
-        onTouchEnd={() => { setTimeout(() => { isPausedRef.current = false; }, 3000); }}
+        onTouchEnd={() => { setTimeout(() => { isPausedRef.current = false; lastTsRef.current = 0; }, 2500); }}
       >
-        {loading
-          ? Array.from({ length: skeletonCount }).map((_, i) => (
+        {loading ? (
+          /* Skeleton — static flex row */
+          <div className="flex gap-4">
+            {Array.from({ length: 6 }).map((_, i) => (
               <div key={i} data-card className="flex-none w-[260px] sm:w-[280px]">
                 <SkeletonCard />
               </div>
-            ))
-          : listings.map((listing) => (
-              <div key={listing.id} data-card className="flex-none w-[260px] sm:w-[280px]">
+            ))}
+          </div>
+        ) : (
+          /* Live track — GPU-translated */
+          <div
+            ref={trackRef}
+            className="flex gap-4"
+            style={{ willChange: "transform", transform: "translate3d(0,0,0)" }}
+          >
+            {track.map((listing, i) => (
+              <div key={`${listing.id}-${i}`} data-card className="flex-none w-[260px] sm:w-[280px]">
                 <ListingCard listing={listing} />
               </div>
             ))}
-        {/* Right-edge spacer so last card isn't flush with viewport */}
-        <div className="flex-none w-4 sm:w-6 lg:w-8 shrink-0" aria-hidden />
+          </div>
+        )}
       </div>
 
       {seeAllLink && (

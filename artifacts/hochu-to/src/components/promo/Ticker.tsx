@@ -11,21 +11,27 @@ const items = [
   "✅ Работает прямо сейчас — не в планах",
 ];
 
+const repeated = [...items, ...items];
+
 export function Ticker() {
-  const repeated = [...items, ...items];
   return (
     <div className="bg-[#2B2B2B] py-4 overflow-hidden select-none">
       <div
-        className="flex gap-12 whitespace-nowrap"
         style={{
-          animation: "ticker 40s linear infinite",
+          display: "flex",
+          gap: "3rem",
+          whiteSpace: "nowrap",
           width: "max-content",
+          animation: "hochu-ticker 38s linear infinite",
+          willChange: "transform",
+          transform: "translateZ(0)",
         }}
       >
         {repeated.map((item, i) => (
           <span
             key={i}
-            className="text-sm font-semibold text-white/80 flex-shrink-0 flex items-center gap-2"
+            style={{ display: "inline-flex", alignItems: "center", gap: "0.5rem", flexShrink: 0 }}
+            className="text-sm font-semibold text-white/80"
           >
             {item}
             <span className="text-[#C65D3B] text-lg mx-3">·</span>
@@ -33,9 +39,9 @@ export function Ticker() {
         ))}
       </div>
       <style>{`
-        @keyframes ticker {
-          0%   { transform: translateX(0); }
-          100% { transform: translateX(-50%); }
+        @keyframes hochu-ticker {
+          0%   { transform: translate3d(0, 0, 0); }
+          100% { transform: translate3d(-50%, 0, 0); }
         }
       `}</style>
     </div>
