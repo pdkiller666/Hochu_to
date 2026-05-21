@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { MapPin, Star, Heart, Info, ShieldCheck, Sparkles, Award, Flame, Crown, Zap, CheckCircle2 } from "lucide-react";
+import { MapPin, Star, Heart, Info, ShieldCheck, Sparkles, Award, Flame, Crown, Zap } from "lucide-react";
 import { Listing } from "@workspace/api-client-react";
 import { formatPrice, calculateTotalPrice, calcDeposit, type ItemCategory } from "@/lib/utils";
 import { useState } from "react";
@@ -102,36 +102,24 @@ export function ListingCard({ listing }: ListingCardProps) {
 
   return (
     <Link href={`/listings/${listing.id}`} className="card-hover group relative flex flex-col h-full">
-      {/* Top overlay row: категория + доступность слева, сердечко справа */}
-      <div className="absolute top-3 left-3 right-3 z-10 flex items-center justify-between gap-2">
-        {/* Левая группа: категория + статус */}
-        <div className="flex items-center gap-1.5 min-w-0">
-          <span className="flex-shrink-0 px-2.5 py-1 bg-white/90 backdrop-blur-sm text-[10px] font-bold rounded-full text-foreground shadow-sm truncate max-w-[110px]">
-            {listing.categoryName || "Категория"}
-          </span>
-          {isAvailable ? (
-            <span className="flex-shrink-0 flex items-center gap-0.5 px-2 py-1 bg-emerald-500 text-white text-[10px] font-bold rounded-full shadow-sm">
-              <CheckCircle2 className="w-3 h-3" />
-              Свободно
-            </span>
-          ) : (
-            <span className="flex-shrink-0 px-2 py-1 bg-stone-700/90 text-white text-[10px] font-bold rounded-full shadow-sm">
-              Занято
-            </span>
-          )}
-        </div>
+      {/* Top overlay row: категория слева, сердечко справа */}
+      <div className="absolute top-2 left-2 right-2 z-10 flex items-start justify-between gap-1">
+        {/* Метка категории */}
+        <span className="px-2 py-0.5 bg-white/90 backdrop-blur-sm text-[10px] font-semibold rounded-full text-foreground shadow-sm leading-4 max-w-[calc(100%-40px)] truncate">
+          {listing.categoryName || "Категория"}
+        </span>
 
         {/* Сердечко справа */}
         <button
           onClick={handleFavoriteClick}
-          className={`flex-shrink-0 w-8 h-8 rounded-full bg-white/90 backdrop-blur-sm flex items-center justify-center transition-all shadow-sm ${
+          className={`flex-shrink-0 w-7 h-7 rounded-full bg-white/90 backdrop-blur-sm flex items-center justify-center transition-all shadow-sm ${
             fav
               ? "text-rose-500 hover:text-rose-600"
               : "text-muted-foreground hover:text-rose-500 hover:bg-white"
           }`}
           title={fav ? "Удалить из избранного" : "Добавить в избранное"}
         >
-          <Heart className={`w-4 h-4 ${fav ? "fill-current" : ""}`} />
+          <Heart className={`w-3.5 h-3.5 ${fav ? "fill-current" : ""}`} />
         </button>
       </div>
 
