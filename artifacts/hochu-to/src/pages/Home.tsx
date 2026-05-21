@@ -489,7 +489,7 @@ export default function Home() {
             <div className="flex-1 text-white text-center md:text-left relative z-10">
               <p className="text-sm font-semibold uppercase tracking-widest text-white/70 mb-2">Co-Sharing - Новая функция</p>
               <h2 className="text-2xl md:text-3xl lg:text-4xl font-extrabold mb-3">
-                Вместе дешевле —<br className="hidden sm:block" /> Совместные покупки
+                Вместе дешевле —<br className="hidden sm:block" /> Совместное владение
               </h2>
               <p className="text-white/80 text-base md:text-lg leading-relaxed max-w-xl">
                 Объединяйтесь с другими пользователями и покупайте нужные вещи оптом по выгодной цене. Создайте заявку или присоединитесь к уже существующей.

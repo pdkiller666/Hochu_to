@@ -3032,9 +3032,9 @@ function EconomyTab() {
         </div>
       </div>
 
-      {/* ─── Stage 23a: Co-Sharing (Совместные покупки с долями) ──────────── */}
+      {/* ─── Stage 23a: Co-Sharing (Совместное владение с долями) ──────────── */}
       <div className="bg-white rounded-xl border border-stone-200 p-6">
-        <h2 className="text-lg font-semibold text-stone-800 mb-1">Совместные покупки (Co-Sharing)</h2>
+        <h2 className="text-lg font-semibold text-stone-800 mb-1">Совместное владение (Co-Sharing)</h2>
         <p className="text-sm text-stone-500 mb-4">
           Пулы фракционного владения: дольщики скидываются на вещь, становятся совладельцами и получают доход от внешних аренд.
           Пока модуль на стадии бэкенд-фундамента — UI пользователей появится в Stage 23b.

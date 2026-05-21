@@ -37,7 +37,7 @@ export default function JointPurchases() {
           <div className="flex-1">
             <h1 className="text-4xl md:text-5xl font-extrabold mb-6 text-foreground">
               Вместе дешевле.<br/>
-              <span className="text-primary">Совместные покупки</span>
+              <span className="text-primary">Совместное владение</span>
             </h1>
             <p className="text-lg text-muted-foreground mb-8">
               Нужна дорогая вещь, но жалко покупать одному? Найдите единомышленников, скиньтесь и пользуйтесь по очереди. Идеально для дорогого тур.снаряжения, спец.техники или игровых приставок.
@@ -45,7 +45,7 @@ export default function JointPurchases() {
             <a href="#create-request" className="btn-primary text-lg px-8 py-4">Предложить покупку</a>
           </div>
           <div className="flex-1">
-            <img src={`${import.meta.env.BASE_URL}images/joint-purchase.png`} alt="Совместные покупки" className="w-full rounded-3xl shadow-2xl shadow-primary/10" />
+            <img src={`${import.meta.env.BASE_URL}images/joint-purchase.png`} alt="Совместное владение" className="w-full rounded-3xl shadow-2xl shadow-primary/10" />
           </div>
         </div>
       </div>

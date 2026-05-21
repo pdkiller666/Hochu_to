@@ -60,7 +60,7 @@ export function Footer() {
             <h4 className="font-bold text-lg mb-6">Платформа</h4>
             <ul className="space-y-4">
               <li><Link href="/catalog" className="text-muted-foreground hover:text-primary transition-colors">Каталог вещей</Link></li>
-              <li><Link href="/pools" className="text-muted-foreground hover:text-primary transition-colors">Совместные покупки</Link></li>
+              <li><Link href="/pools" className="text-muted-foreground hover:text-primary transition-colors">Совместное владение</Link></li>
               <li><Link href="/how-to-rent" className="text-muted-foreground hover:text-primary transition-colors">Как арендовать</Link></li>
               <li><Link href="/how-to-list" className="text-muted-foreground hover:text-primary transition-colors">Как сдать в аренду</Link></li>
               <li><Link href="/guarantee-fund" className="text-muted-foreground hover:text-primary transition-colors">Гарантийный фонд</Link></li>

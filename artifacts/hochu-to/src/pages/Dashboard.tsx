@@ -2554,7 +2554,7 @@ export default function Dashboard() {
                         {([
                           { key: "bookings" as const, label: "Бронирования", desc: "Новые заявки, статусы, напоминания" },
                           { key: "system" as const, label: "Системные", desc: "Верификация, предупреждения, платежи" },
-                          { key: "chats" as const, label: "Совместные покупки", desc: "Обновления пулов и долей" },
+                          { key: "chats" as const, label: "Совместное владение", desc: "Обновления пулов и долей" },
                         ]).map(({ key, label, desc }) => (
                           <label key={key} className="flex items-center gap-3 p-3 rounded-xl border border-border hover:bg-muted/30 cursor-pointer transition-colors">
                             <input
@@ -3080,7 +3080,7 @@ export default function Dashboard() {
                         {([
                           { key: "bookings" as const, label: "Бронирования", desc: "Новые заявки, статусы, напоминания" },
                           { key: "system" as const, label: "Системные", desc: "Верификация, предупреждения, платежи" },
-                          { key: "chats" as const, label: "Совместные покупки", desc: "Обновления пулов и долей" },
+                          { key: "chats" as const, label: "Совместное владение", desc: "Обновления пулов и долей" },
                         ]).map(({ key, label, desc }) => (
                           <label key={key} className="flex items-center gap-3 p-3 rounded-xl border border-border hover:bg-muted/30 cursor-pointer transition-colors">
                             <input

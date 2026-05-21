@@ -44,7 +44,7 @@ export default function Terms() {
 
           <section>
             <h2 className="font-display text-2xl font-bold mb-4">
-              2. Совместные покупки (Co-Sharing) и Выкуп (Buyout)
+              2. Совместное владение (Co-Sharing) и Выкуп (Buyout)
             </h2>
             <div className="space-y-4 text-muted-foreground">
               <p>
