@@ -239,7 +239,7 @@ export default function Catalog() {
               }`}
             >
               <SlidersHorizontal className="w-4 h-4" />
-              <span>Фильтры</span>
+              <span className="hidden sm:inline">Фильтры</span>
               {activeFiltersCount > 0 && (
                 <span className="ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-white text-[10px] font-bold">
                   {activeFiltersCount}
@@ -379,12 +379,9 @@ export default function Catalog() {
                 }`}
               >
                 <Banknote className="w-4 h-4" />
-                <span className="hidden sm:inline">
+                <span>
                   {minPrice || maxPrice ? `${minPrice || "0"}–${maxPrice || "∞"} ₽` : "Цена"}
                 </span>
-                {(minPrice || maxPrice) && (
-                  <span className="sm:hidden w-2 h-2 rounded-full bg-primary" />
-                )}
               </button>
             </div>
 
