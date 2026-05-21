@@ -1,330 +1,414 @@
 # Отчёт по текущей реализации генерации инфографики (Stage 41-analysis)
 
-> Дата: 21.05.2026  
-> Автор: аудит агента на основе кода коммита `4dea0b2`  
-> Статус: актуально — включает изменения, внесённые в рамках текущей сессии (Stage 41 rewrite)
+> Дата: 21.05.2026 | Коммит: `4dea0b2` | Статус: читает реальный код, без изменений
 
 ---
 
 ## 1. Общая архитектура
 
-### Точка входа
+### Точка входа — `POST /api/ai/generate-infographic` (`routes/ai.ts`)
 
 ```
-POST /api/ai/generate-infographic
-Content-Type: multipart/form-data
-Auth: Bearer <access_token>  (requireAuth)
+multipart/form-data:
+  photo        File    ≤10 МБ, image/* only (multer.memoryStorage)
+  title        string  ≤200 символов, обязательно
+  category     string  опционально
+  description  string  ≤600 символов, опционально
+  pricePerDay  number  опционально
+  template     string  "marketplace" | "classic" | "horizontal" (default: marketplace)
+  format       string  "square" | "horizontal"
+  preprocess   bool    "true" → препроцессинг фото перед отправкой в AI
+  provider     string  "auto" или конкретный провайдер
 ```
 
-**Параметры запроса (multipart):**
-
-| Поле | Тип | Обязательно | Описание |
-|---|---|---|---|
-| `photo` | File (jpg/png/webp, ≤10 МБ) | ✅ | Фото товара |
-| `title` | string (≤200 символов) | ✅ | Название товара |
-| `category` | string | — | Категория |
-| `description` | string (≤600 символов) | — | Описание |
-| `pricePerDay` | string/number | — | Цена аренды ₽/сут |
-| `template` | `"marketplace"` \| `"classic"` \| `"horizontal"` | — | Тип карточки (default: `marketplace`) |
-| `format` | `"square"` \| `"horizontal"` | — | Только для `classic` |
-| `preprocess` | `"true"` | — | Препроцессинг фото (sharpen + saturation) |
-| `provider` | string | — | LLM-провайдер для буллетов (`"auto"` — подбор автоматически) |
-
-**Ответ (JSON):**
+**Ответ:**
 ```json
-{
-  "url": "/uploads/<uuid>.webp",
-  "template": "marketplace",
-  "generativeTier": 1 | 2 | "svg",
-  "preprocessed": false,
-  "content": { "title", "leftTitle", "leftItems[]", "rightTitle", "rightItems[]" },
-  "provider": "openrouter",
-  "actualProvider": "openrouter",
-  "fallback": false
+{ "url": "/uploads/<uuid>.webp", "template": "marketplace",
+  "generativeTier": 1|2|"svg", "preprocessed": false,
+  "content": { "title","leftTitle","leftItems[]","rightTitle","rightItems[]" },
+  "provider": "openrouter", "actualProvider": "openrouter", "fallback": false }
+```
+
+**Auth:** `requireAuth` (JWT Bearer).  
+**Rate limit:** 10 запросов/мин/user, общий бакет с `/generate-description`, in-memory Map, окно сбрасывается каждые 5 мин.
+
+---
+
+### Три шаблона — три пути исполнения
+
+```
+template=horizontal  → generateInfographicBullets()  → buildHorizontalImage()
+                                                         (SVG + sharp, 1200×630)
+
+template=classic     → generateInfographicBullets()  → buildInfographicImage()
+                                                         (SVG + sharp, 1080×1080)
+
+template=marketplace → generateMarketplaceContent()  → [preprocessForAI()?]
+(default)               (LLM, структурный JSON)          → generateGenerativeInfographic()
+                                                              ├─ Tier 1: OpenRouter /images/generate
+                                                              ├─ Tier 2: Gemini multimodal
+                                                              └─ Tier 3: original photo WebP
+                                                         ↓ если tier=3 (или выброс)
+                                                         buildMarketplaceInfographic()
+                                                         (Tier 2.5: SVG overlay + sharp)
+```
+
+**Критическое наблюдение из кода (`routes/ai.ts`, строки 294–296):**
+```typescript
+// Tier 1/2 (OpenRouter/Gemini image gen) недоступны на бесплатном плане —
+// сразу используем надёжный buildMarketplaceInfographic (sharp + SVG overlay).
+// При появлении платного Gemini — генеративный tier подключится автоматически.
+```
+На практике **всегда срабатывает Tier 2.5 (SVG overlay)** — generative tiers требуют платного плана OpenRouter и Gemini. Текущий рабочий результат: `generativeTier: "svg"`.
+
+---
+
+## 2. Генерация текстового содержимого (ai-service.ts)
+
+### 2.1 Для шаблона `marketplace` — `generateMarketplaceContent()`
+
+**Что генерирует:** структурированный JSON:
+```typescript
+interface MarketplaceInfographicContent {
+  title: string;        // "АРЕНДА ...", ЗАГЛАВНЫМИ, ≤24 символа
+  leftTitle: string;    // ≤20 символов, ЗАГЛАВНЫМИ
+  leftItems: string[];  // 3–4 пункта, ≤22 символа каждый (комплект/аксессуары)
+  rightTitle: string;   // ≤24 символа, ЗАГЛАВНЫМИ
+  rightItems: string[]; // 3–4 пункта, ≤22 символа каждый (характеристики)
 }
 ```
 
-### Участвующие компоненты
+**Системный промпт** (`MARKETPLACE_SYSTEM_PROMPT`, строка 998):
+- Чистый JSON без markdown, без пояснений
+- title — начинается с "АРЕНДА", только факты, 2–4 слова на пункт
+- leftItems — что входит в комплект; rightItems — технические характеристики
 
-```
-ListingForm.tsx (UI)
-    │  multipart upload
-    ▼
-routes/ai.ts  POST /api/ai/generate-infographic
-    │
-    ├─ generateMarketplaceContent()   ← ai-service.ts  (LLM: структура карточки)
-    │
-    ├─ preprocessForAI()              ← infographic.ts  (опционально: sharpen)
-    │
-    ├─ generateGenerativeInfographic()  ← infographic.ts
-    │       ├── Tier 1: OpenRouter /images/generate  (DALL-E 3 / Flux)
-    │       ├── Tier 2: Gemini 2.0 Flash multimodal  (+Imagen 3 sub-fallback)
-    │       └── Tier 3: оригинальное фото 1080×1080 WebP
-    │
-    └─ buildMarketplaceInfographic()  ← image-service.ts  (SVG overlay, если tier=3)
-         └── buildMarketplaceOverlaySvg()  (sharp + SVG composite)
-```
+**Парсинг ответа** (`parseMarketplaceContent()`, строка 1030):
+- Срезает ```json-блоки, `JSON.parse()`, валидирует наличие всех полей
+- Обрезает строки: title до 26, leftTitle/rightTitle до 22/26, items до 25 символов
+- Возвращает `null` при ошибке → fallback в mock
 
-**Rate limit:** 10 запросов/минуту на пользователя (общий бакет с `/generate-description`), реализован через in-memory Map в `routes/ai.ts` (строки 36–60).
+**Mock-контент** (`marketplaceMockContent()`, строка 1056):
+- Категорийные заглушки (инструмент/электроника/спорт/general)
+- Используется при `provider=mock` или при ошибке LLM
+
+**⚠️ Нет кэша** — `generateMarketplaceContent()` вызывается при каждом запросе заново. Кэшируется только финальное изображение (disk-кэш).
 
 ---
 
-## 2. Генерация буллетов (ai-service.ts)
+### 2.2 Для шаблонов `classic` / `horizontal` — `generateInfographicBullets()`
 
-### Функции
+**Что генерирует:** ровно 3 коротких буллета (2–5 слов каждый).
 
-| Функция | Строки | Назначение |
-|---|---|---|
-| `generateInfographicBullets()` | ~602–899 | 3 буллета для classic/horizontal |
-| `generateMarketplaceContent()` | ~973–1100 | Структурированный JSON для marketplace |
+**Системный промпт** (`INFOGRAPHIC_SYSTEM_PROMPT`, строка 617):
+- Запрет общих фраз: «Готово к работе», «Высокое качество» и т.д.
+- Требует конкретику: мощность, материал, размер, что входит в набор
 
-### Провайдеры буллетов
+**Провайдеры:** `openrouter` → `amvera` → `deepseek-direct` → `mock`  
+Выбор через `resolveProvider()` с учётом DB kill-switch (`platform_settings.activeAiProvider`).
 
-| Провайдер | Env var | Модель | Таймаут |
-|---|---|---|---|
-| `openrouter` (default) | `OPENROUTER_API_KEY` | `deepseek/deepseek-chat` (env: `OPENROUTER_MODEL`) | 30 сек |
-| `gemini` | `OPENROUTER_API_KEY` | `google/gemini-flash-1.5` (env: `OPENROUTER_GEMINI_MODEL`) | 30 сек |
-| `amvera` | `AMVERA_API_TOKEN` | DeepSeek-V3 через amvera.ru | 30 сек |
-| `deepseek-direct` | `DEEPSEEK_API_KEY` | `deepseek-chat` | 30 сек |
-| `mock` | — | Hardcoded банк по категориям | 0 мс |
+**Парсинг LLM-ответа** (`parseBulletsFromLLM()`, строка 774):
+1. Попытка `JSON.parse()` (для Gemini-стиля с эмодзи)
+2. Pipe-формат (`bullet1 | bullet2 | bullet3`)
+3. Построчный
+- Обрезка до 32 символов по границе слова
 
-**Kill-switch:** если DB `platform_settings.aiProvider = 'mock'` — реальные API не вызываются.
+**In-memory кэш буллетов** (`BULLETS_CACHE`, строка 867):
+- Тип: `Map<string, BulletsEntry>`
+- Ключ: `lowercase(title)|lowercase(category)` (djb2-подобный)
+- TTL: 24 часа, ленивая очистка
+- ⚠️ Сбрасывается при рестарте сервера
 
-### Промпт для буллетов
-
-- `generateInfographicBullets`: «Ты эксперт по маркетплейс-текстам... сгенерируй ровно 3 ключевых преимущества для аренды»
-- `generateMarketplaceContent`: строгий JSON-формат → `{title, leftTitle, leftItems[3-4], rightTitle, rightItems[3-4]}`
-  - leftTitle/rightTitle: до 20–26 символов, только ЗАГЛАВНЫМИ
-  - Каждый пункт: 2–4 слова, до 22–25 символов — **жёсткое ограничение**
-  - leftItems: комплект/аксессуары; rightItems: характеристики/преимущества
-
-### Кэш буллетов (Stage 33.1)
-
-- **Тип:** in-memory `Map<string, BulletsEntry>` (`BULLETS_CACHE`, строка ~867)
-- **TTL:** 24 часа (`BULLETS_CACHE_TTL_MS = 24 * 60 * 60 * 1000`)
-- **Ключ:** SHA-256(title + "|" + category + "|" + provider)
-- **Очистка:** ленивая (при обращении проверяется `cachedAt`)
-- **⚠️ Проблема:** сбрасывается при рестарте сервера
+**Mock-банк буллетов** (`BULLET_BANK`, строка 667):
+- 10 категорий на русском (туризм, спорт, техника, инструмент, электроника, одежда, транспорт, недвижимость, мебель, детское, сад)
+- По 3 набора × 3 буллета на категорию
+- `djb2Hash(title) % bank.length` — детерминированный выбор
 
 ---
 
-## 3. Композитинг изображения (image-service.ts)
+## 3. Генеративный AI-пайплайн (infographic.ts)
 
-### Шаблоны
+### 3.1 Tier 1 — OpenRouter `/images/generate` (`tryOpenRouter()`, строка 106)
 
-| Шаблон | Функция | Размер | Назначение |
-|---|---|---|---|
-| Classic square | `buildInfographicImage()` | 1080×1080 | Фото справа, 3 буллета слева |
-| Horizontal | `buildHorizontalImage()` | 1200×630 | Фото слева, 3 буллета справа (OG/Telegram) |
-| Marketplace | `buildMarketplaceInfographic()` | 1080×1080 | Фото как фон, 2 панели overlay |
+**Endpoint:** `https://openrouter.ai/api/v1/images/generate`  
+**Метод:** text-to-image (фото-референс НЕ используется)  
+**Модели по очереди:**
+1. `openai/dall-e-3`
+2. `black-forest-labs/flux-1.1-pro`
+3. `black-forest-labs/flux-pro`
 
-### Обработка фото (sharp pipeline)
+**Параметры:** `size: "1024x1024"`, `quality: "standard"`, `response_format: "url"`  
+**Таймаут:** 60 сек на модель  
+**Ответ:** URL или b64_json  
+**Пропуск модели при:** HTTP 400/402/404 → следующая модель  
+**ENV:** `OPENROUTER_API_KEY`
 
+---
+
+### 3.2 Tier 2 — Gemini multimodal (`tryGeminiImageGen()`, строка 190)
+
+**Endpoint:** `https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent`  
+**Метод:** image-to-image (фото-референс + промпт → новое изображение)  
+**Препроцессинг входного фото:** `sharp → rotate → resize 1024×1024 (fit:inside) → JPEG 85%`  
+**Модели по очереди:**
+1. `gemini-2.0-flash-exp`
+2. `gemini-2.0-flash-preview-image-generation`
+3. `gemini-2.0-flash`
+
+**Параметры:** `responseModalities: ["TEXT","IMAGE"]`, `temperature: 0.8`  
+**Таймаут:** 90 сек на модель  
+**Парсинг:** ищет `parts[].inlineData.mimeType.startsWith("image/")` в ответе  
+**Sub-fallback:** если все три модели дали "нет image part" → `tryImagen3TextOnly()`
+
+**Imagen 3 sub-fallback** (`tryImagen3TextOnly()`, строка 276):  
+`imagen-3.0-generate-001:predict`, `aspectRatio:"1:1"`, таймаут 45 сек  
+**ENV:** `GEMINI_API_KEY`
+
+---
+
+### 3.3 Tier 3 — Деградация
+
+Если Tier 1 и Tier 2 оба бросили исключение:
 ```typescript
-// Classic:
-sharp(imageBuffer).rotate().resize(648, 648, {fit:"cover", position:"centre"}).png()
-// + rounded mask (SVG clipPath, radius=24px)
-
-// Marketplace:
-sharp(imageBuffer).rotate().resize(1080, 1080, {fit:"cover", position:"centre"})
-  .modulate({ brightness: 0.80 }).png()
-// + SVG overlay composite
+sharp(imageBuffer).rotate().resize(1080,1080,{fit:"cover"}).webp({quality:85})
 ```
-
-### SVG-структура (Marketplace)
-
-```
-1080×1080
-├── Градиент top: rgba(0,0,0,0.82→0)   — для читаемости заголовка
-├── Градиент bottom: rgba(0,0,0,0→0.74) — для читаемости буллетов
-├── Заголовок: Montserrat Bold 68px, white, center top
-├── Левая панель: white/91% opacity, rounded 18px
-│   └── Буллеты: до 4 строк, Terracotta circle + Inter 27px
-├── Правая панель: #1c1c1c/87%, rounded 18px
-│   └── Буллеты: до 4 строк, white text
-├── Ценовая пилюля: rect #C65D3B, Montserrat Bold 35px
-└── Брендинг: "Хочу_То" внизу справа
-```
-
-### Шрифты
-
-- **Montserrat-Bold.ttf** и **Inter-Regular.ttf** — загружаются из `src/assets/fonts/`, встраиваются в SVG как base64 `@font-face`
-- **Fallback:** DejaVu Sans (из Dockerfile/Amvera образа)
-- Шрифты кэшируются in-memory (`_fontFaceBlock`, строка ~71)
-
-### Кэш финальных изображений (image-service.ts)
-
-- **Тип:** disk `/tmp/infographic-cache/*.webp`
-- **TTL:** 24 часа, очистка при старте модуля (`initCache()`)
-- **Ключ:** SHA-256(`prefix` + photoBuffer + bullets/content)
-- **⚠️ Проблема:** очищается при перезапуске контейнера
+Возвращает оригинальное фото, кропнутое под квадрат. Без оверлея.
 
 ---
 
-## 4. Ограничения и проблемы текущего подхода
+### 3.4 Tier 2.5 — SVG Overlay Fallback (`buildMarketplaceInfographic()`, строка 409)
 
-### Критичные
+Срабатывает, если `genResult === null` или `genResult.tier === 3`.  
+Это **реальный рабочий путь** в текущей конфигурации.
 
-| Проблема | Описание |
+**Пайплайн sharp:**
+```typescript
+sharp(imageBuffer)
+  .rotate()                                     // EXIF-ориентация
+  .resize(1080, 1080, {fit:"cover",position:"centre"})
+  .modulate({brightness: 0.80})                 // затемнение для читаемости
+  .png()
+  .toBuffer()
+→ composite([{input: overlaySvg}])              // SVG поверх
+.webp({quality: 90})
+```
+
+**SVG-оверлей** (`buildMarketplaceOverlaySvg()`, строка 301):
+
+| Элемент | Параметры |
 |---|---|
-| **Жёсткая привязка координат** | Все X/Y, размеры шрифтов, отступы — хардкод константами (MKT_LEFT_X=24, MKT_ITEM_FONT=27 и т.д.). Любое изменение дизайна = правка кода. |
-| **Обрезание длинных текстов** | `truncStr(item, 24)` — обрезает до 24 символов. Длинные названия на рус. теряют смысл (напр. «Профессиональный видеоп…»). Переносы строк ограничены 2 вариантами. |
-| **Нет улучшения качества фото** | sharp только `.rotate()` + `.resize()`. Нет: удаления фона, улучшения экспозиции, денойзинга. Плохое фото → плохая карточка. |
-| **Нет кириллицы через librsvg** | librsvg (используется sharp для SVG rasterization) плохо работает с кастомными шрифтами без fontconfig. Montserrat может отрендериться как DejaVu → другой вид. |
-| **Стиль не адаптируется к товару** | Один шаблон для всех категорий: мангал и дрон выглядят одинаково. |
+| Верхний градиент | `rgba(0,0,0,0.82 → 0)`, высота 268px — для заголовка |
+| Нижний градиент | `rgba(0,0,0,0 → 0.74)`, y=758 — для нижней зоны |
+| Заголовок | Montserrat Bold 68px, white, center, y≈104–140 |
+| Левая панель | `rect` white/91%, rx=18, y=210, h=510 |
+| └─ Заголовок | Montserrat Bold 17px, letter-spacing 2, #2B2B2B |
+| └─ Разделитель | `line` #C65D3B opacity 35% |
+| └─ Пункты | `circle` r=8 #C65D3B + `text` Inter 27px #2B2B2B, шаг 96px |
+| Правая панель | `rect` #1c1c1c/87%, rx=18, y=210, h=510 |
+| └─ Пункты | `text` #F0EBE0 |
+| Цена | `rect` #C65D3B, rx=14, 334×66px; Montserrat Bold 35px white |
+| Брендинг | "Хочу_То" Montserrat Bold 25px white, "МАРКЕТПЛЕЙС АРЕНДЫ" 12px |
 
-### Менее критичные
-
-| Проблема | Описание |
-|---|---|
-| Кэш буллетов сбрасывается при рестарте | In-memory Map — не persistent. Повторные LLM-вызовы после деплоя. |
-| Кэш изображений в /tmp | Очищается при рестарте контейнера на Amvera. Каждый деплой = регенерация. |
-| Нет preview перед добавлением | Пользователь видит результат только после загрузки, не может выбрать лучший вариант из нескольких. |
-| Ограничение 10 req/min (общее) | Пользователь с активным добавлением объявлений быстро исчерпывает лимит. |
+**Обрезка текста:** `truncStr(item, 24)` — жёсткое обрезание до 24 символов с `…`
 
 ---
 
-## 5. Зависимости и конфигурация
+### 3.5 Промпт для generative tier (`buildImagePrompt()`, строка 54)
 
-### Переменные окружения
+```
+Professional marketplace product card image (1080×1080 square) for Russian rental platform "Хочу_То".
 
-| Переменная | Используется в | Обязательна |
+PRODUCT: "{title}"
+Category: {category}. RENTAL PRICE: от {price} ₽/сутки
+KEY FEATURES to display:
+  1. {bullet1}
+  2. {bullet2}
+  ...
+PRODUCT DESCRIPTION: "{description}"
+
+VISUAL DESIGN:
+- Clean studio photo of the product (center/foreground, sharp, professional)
+- Semi-transparent dark panel at bottom with features as clean list
+- Large bold white title at top
+- Orange price badge (#C65D3B)
+- Small "Хочу_То" watermark
+- All Cyrillic text sharp and perfectly legible
+- No lorem ipsum, no device frames
+
+OUTPUT: Complete, ready-to-post product card image.
+```
+
+**Cache key:** `SHA-256(imageBuffer + "|" + prompt)` → `/tmp/infographic-cache/gen_<hash>.webp`
+
+---
+
+## 4. Препроцессинг фото (`preprocessForAI()`, infographic.ts строка 378)
+
+Активируется при `?preprocess=true` (или body `preprocess=true`):
+```typescript
+sharp(imageBuffer)
+  .rotate()
+  .resize(1024, 1024, {fit:"cover", position:"centre"})
+  .sharpen({sigma: 1.5})
+  .modulate({brightness: 1.05, saturation: 1.1})
+  .png()
+```
+Улучшает резкость и насыщенность для лучшего распознавания генеративными моделями.  
+По умолчанию **отключён** — фронтенд передаёт без `preprocess`.
+
+---
+
+## 5. Шрифты (image-service.ts)
+
+- **Файлы:** `src/assets/fonts/Montserrat-Bold.ttf`, `Inter-Regular.ttf`
+- **Загрузка:** lazy при первом вызове, кэшируются in-memory (`_fontFaceBlock`)
+- **Встраивание:** base64 `@font-face` в SVG → `librsvg` (sharp) читает без системного fontconfig
+- **Fallback:** `DejaVu Sans` (из Dockerfile/Amvera-образа) при ошибке загрузки файлов
+
+---
+
+## 6. Кэширование
+
+| Слой | Тип | Ключ | TTL | Сброс при рестарте |
+|---|---|---|---|---|
+| Буллеты (classic/horizontal) | in-memory Map | `lowercase(title\|category)` | 24 ч | ✅ Да |
+| Финальный WebP (SVG шаблоны) | disk `/tmp/infographic-cache/` | `SHA-256(prefix+photo+bullets)` | 24 ч | Нет (до очистки /tmp) |
+| Generative WebP (Tier 1/2) | disk `/tmp/infographic-cache/` | `SHA-256(photo+prompt)` | 24 ч | Нет |
+| Шрифты | in-memory (`_fontFaceBlock`) | — | ∞ (процесс) | ✅ Да |
+
+Инициализация disk-кэша: `initCache()` при старте модуля → удаляет файлы старше 24ч.
+
+---
+
+## 7. UI (ListingForm.tsx)
+
+**Кнопка:** `"✨ Создать инфографику"` (`data-testid="button-infographic"`)  
+- Disabled при: `infoGenerating === true` или `photos.length >= 10`
+- Два input: выбор из галереи (`infoInputId`) и камера (`infoCameraInputId`)
+
+**Что отправляет на бэк:**
+```
+photo        — выбранный файл
+title        — formData.title (обязательно)
+category     — name категории из справочника (если выбрана)
+template     — "marketplace" (хардкод, Stage 41)
+pricePerDay  — formData.pricePerDay (если заполнено)
+description  — formData.description.slice(0, 500) (если есть)
+provider     — "auto"
+Authorization: Bearer {token}
+```
+
+**При успехе:**
+- Добавляет `j.url` в массив `photos` (появляется в галерее объявления)
+- Toast: `"Продающее фото готово! 🪄"` + `content.title · bullet1 · bullet2 · bullet3`
+
+**При ошибке:**
+- Destructive toast с `j.message` или `j.error`
+
+---
+
+## 8. Зависимости и переменные окружения
+
+### ENV vars
+
+| Переменная | Где используется | Без неё |
 |---|---|---|
-| `OPENROUTER_API_KEY` | `ai-service.ts` (буллеты), `infographic.ts` (Tier 1 /images/generate) | Для реального AI |
-| `OPENROUTER_MODEL` | `ai-service.ts` строка 53 | Нет (default: `deepseek/deepseek-chat`) |
-| `OPENROUTER_GEMINI_MODEL` | `ai-service.ts` строка 55 | Нет (default: `google/gemini-flash-1.5`) |
-| `GEMINI_API_KEY` | `infographic.ts` (Tier 2), `ai-service.ts` (арбитраж) | Для Tier 2 fallback |
-| `AMVERA_API_TOKEN` | `ai-service.ts` (буллеты провайдер amvera) | Нет |
-| `DEEPSEEK_API_KEY` | `ai-service.ts` строка ~167 | Нет |
-| `AUTH_JWT_SECRET` | `lib/auth-token.ts` | ✅ Установлен в этой сессии |
+| `OPENROUTER_API_KEY` | `infographic.ts` Tier 1, `ai-service.ts` буллеты | Tier 1 пропускается, буллеты → mock |
+| `GEMINI_API_KEY` | `infographic.ts` Tier 2 + Imagen 3 | Tier 2 пропускается |
+| `AMVERA_API_TOKEN` | `ai-service.ts` провайдер `amvera` | Этот провайдер недоступен |
+| `DEEPSEEK_API_KEY` | `ai-service.ts` deepseek-direct | Этот fallback недоступен |
+| `OPENROUTER_MODEL` | `ai-service.ts` (буллеты) | default: `deepseek/deepseek-chat` |
+| `OPENROUTER_GEMINI_MODEL` | `ai-service.ts` | default: `google/gemini-flash-1.5` |
 
-### NPM-зависимости генерации изображений
+### NPM-зависимости
 
-| Пакет | Версия | Роль |
-|---|---|---|
-| `sharp` | ^0.33 | SVG rasterization, resize, composite, WebP encode |
-| `multer` | ^2 | multipart upload в памяти (memoryStorage) |
-| `crypto` (Node.js built-in) | — | SHA-256 для cache keys |
+| Пакет | Роль |
+|---|---|
+| `sharp` | Resize, rotate, composite, SVG rasterization, WebP encode |
+| `multer` | multipart/form-data, memoryStorage |
+| `crypto` (built-in) | SHA-256 cache keys |
+| `pino` (`logger`) | Структурированные логи tier/duration/err |
 
 ### Таймауты
 
-| Операция | Таймаут |
+| Операция | Значение |
 |---|---|
-| OpenRouter буллеты | 30 сек (`OPENROUTER_TIMEOUT_MS`) |
-| Tier 1 OpenRouter /images/generate | 60 сек (per model) |
-| Tier 2 Gemini multimodal | 90 сек (per model) |
+| OpenRouter Tier 1 (per model) | 60 сек |
+| Gemini Tier 2 (per model) | 90 сек |
 | Imagen 3 sub-fallback | 45 сек |
-| Rate limit window | 60 сек / 10 req |
+| OpenRouter буллеты | 30 сек |
 
 ---
 
-## 6. Места для изменений при переходе на полностью генеративные модели
-
-### Файлы и функции
-
-| Файл | Функция/Секция | Действие при Stage 42 |
-|---|---|---|
-| `lib/infographic.ts` | `tryOpenRouter()` | ✅ Уже переписан на `/images/generate`. Улучшить промпт, добавить более новые модели. |
-| `lib/infographic.ts` | `tryGeminiImageGen()` | ✅ Уже переписан с правильными моделями. Проверить доступность `gemini-2.0-flash-exp` image gen. |
-| `lib/infographic.ts` | `buildImagePrompt()` | 🔄 Улучшить промпт: добавить категорийные стили (outdoor/electronics/tools), добавить ссылку на цветовую схему #C65D3B. |
-| `lib/image-service.ts` | `buildMarketplaceInfographic()` | ⚠️ Оставить как Tier 2.5 SVG fallback. Можно улучшить дизайн (градиенты, тени). |
-| `lib/image-service.ts` | `buildInfographicImage()` | ℹ️ Оставить для `template=classic` (не используется по умолчанию). |
-| `lib/image-service.ts` | `buildHorizontalImage()` | ℹ️ Оставить для `template=horizontal` (OG-формат). |
-| `lib/ai-service.ts` | `generateMarketplaceContent()` | ✅ Оставить — буллеты по-прежнему нужны для промпта генеративных моделей. |
-| `routes/ai.ts` | `template === "marketplace"` блок | 🔄 Логику `generativeTier` можно упростить после валидации Tier 1/2. |
-| `pages/ListingForm.tsx` | кнопка «Создать инфографику» | 🔄 Добавить индикатор качества генерации (badge "AI" / "SVG"). Добавить возможность регенерации. |
-
-### Что можно удалить при полной переработке
-
-- Все SVG-строители в `image-service.ts` (строки 185–400): `buildMarketplaceOverlaySvg`, `buildBulletsSvg`, `buildHorizontalBulletsSvg`
-- Функции работы со шрифтами: `getFontFaceBlock`, `wrapBullet`, `wrapMarketplaceTitle`
-- Константы макета: `MKT_W/H/PANEL_Y/...`, `CANVAS/PHOTO_W/PHOTO_H/...`
-- Зависимость от `sharp` для SVG-composite (оставить только для resize/encode)
-
-### Что обязательно оставить
-
-- `multer` + in-memory upload (загрузка фото для референса остаётся нужной для Tier 2 Gemini)
-- `generateMarketplaceContent()` — буллеты нужны для промптов generative tier
-- Disk-cache в `/tmp/infographic-cache/` — существенно экономит API-расходы
-- Rate limiter (10 req/min/user)
-- `preprocessForAI()` — помогает Gemini лучше распознавать детали
-
----
-
-## 7. Рекомендации для Stage 42 (OpenRouter + Gemini fallback)
-
-### Архитектура пайплайна (рекомендуемая)
+## 9. Фактический рабочий путь (что происходит прямо сейчас)
 
 ```
-POST /api/ai/generate-infographic
-    │
-    ├─ 1. generateMarketplaceContent()  →  title, bullets, price
-    │         (LLM text, cached 24h in-memory)
-    │
-    ├─ 2. buildImagePrompt()            →  детальный промпт
-    │         с категорийным стилем + характеристиками + ценой
-    │
-    ├─ 3. Tier 1: OpenRouter /images/generate
-    │         Модели: openai/dall-e-3 → black-forest-labs/flux-1.1-pro
-    │         Вход: текстовый промпт (text-to-image)
-    │         Кэш: disk SHA-256(prompt) 24h
-    │
-    ├─ 4. Tier 2: Gemini 2.0 Flash multimodal
-    │         Модели: gemini-2.0-flash-exp → imagen-3.0-generate-001
-    │         Вход: фото-референс + промпт (image-to-image / text-to-image)
-    │         Кэш: disk SHA-256(photo+prompt) 24h
-    │
-    └─ 5. Tier 2.5: buildMarketplaceInfographic() (SVG overlay)
-              Всегда работает, не зависит от внешних API
-              Disk-кэш SHA-256(photo+content) 24h
+Пользователь нажимает "✨ Создать инфографику" и выбирает фото
+    ↓
+POST /api/ai/generate-infographic (multipart)
+    ↓
+generateMarketplaceContent()  ←→  OpenRouter LLM (deepseek/deepseek-chat)
+    → JSON: {title, leftTitle[4 bullets], rightTitle, rightItems[4 bullets]}
+    ↓
+generateGenerativeInfographic()  ← пробует Tier 1 и Tier 2
+    → Tier 1 (OpenRouter /images/generate): 402/404 — модели недоступны на free plan
+    → Tier 2 (Gemini multimodal): нет image output без платного plan
+    → Tier 3: возвращает оригинальный кроп 1080×1080
+    ↓
+routes/ai.ts: genResult.tier === 3  → buildMarketplaceInfographic() [Tier 2.5]
+    ↓
+sharp: фото → 1080×1080 cover, brightness 0.80
+composite: SVG overlay (заголовок + 2 панели + цена + бренд)
+encode: WebP quality 90
+    ↓
+fs.writeFile → UPLOADS_DIR/<uuid>.webp
+    ↓
+{ url: "/uploads/<uuid>.webp", generativeTier: "svg", content: {...} }
 ```
 
-### Промпт для generative tier
-
-Текущий промпт (в `buildImagePrompt`) уже хороший, но стоит добавить:
-
-1. **Категорийный стиль фона:**
-   - `electronics/tools` → минималистичный серый/белый стол
-   - `leisure/sports` → природа/outdoor, динамика
-   - `special_machinery` → промышленный, серьёзный фон
-   
-2. **Явное указание брендовых цветов:**
-   ```
-   Brand accent color: #C65D3B (terracotta orange) for badges and highlights
-   ```
-
-3. **Запрет артефактов:**
-   ```
-   NO watermarks, NO device frames, NO lorem ipsum, NO broken Cyrillic
-   ```
-
-### Форматы
-
-| Формат | Размер | Модель target |
-|---|---|---|
-| Основной | 1024×1024 → resize 1080×1080 | DALL-E 3, Flux 1.1 Pro |
-| OG/соцсети | текущий horizontal 1200×630 | Оставить SVG шаблон (stable) |
-
-### Риски и митигация
-
-| Риск | Вероятность | Митигация |
-|---|---|---|
-| Кириллический текст нечитаем | 🔴 Высокая (DALL-E 3, Flux плохо рендерят русский) | Генерировать фото без текста → накладывать текст через SVG-overlay поверх |
-| Задержка 15–60 сек | 🟠 Средняя | UX: прогресс-бар, skeleton-preview; disk-кэш для повторных запросов |
-| Стоимость ($0.04–0.08 за DALL-E 3) | 🟡 Низкая в бета | Rate limit 10/min; кэш 24ч снижает реальное число вызовов |
-| Референс-фото не используется в Tier 1 | 🟡 Приемлемо | Tier 2 (Gemini) использует фото; промпт Tier 1 детально описывает товар |
-| Flux/DALL-E недоступны через OpenRouter | 🟡 Иногда | Fallback-цепочка из 3 моделей уже реализована |
-
-### Ключевая рекомендация — гибридный подход
-
-> Наиболее надёжное решение для бета — **генерировать фоновое изображение через AI (Tier 1/2), затем накладывать текст через SVG-overlay**. Это решает проблему нечитаемого кириллического текста от генеративных моделей и сохраняет качество дизайна карточки.
-
-Реализация:
-1. AI генерирует **красивое фото товара** (без текста) — промпт: *"Professional product photo, clean studio background, no text, no watermarks"*
-2. `buildMarketplaceOverlaySvg()` накладывает заголовок, буллеты, цену, бренд
-
-Это сочетает лучшее из обоих подходов: качество AI-изображения + читаемость русского текста.
+**Итог:** генерация занимает ~2–5 сек (LLM для структуры + sharp для SVG). Результат стабильный, брендированный, но не "AI-generated" в смысле generative модели — это SVG overlay поверх фото.
 
 ---
 
-*Файл создан автоматически агентом. Следующий этап: Stage 42 — Full Generative Infographics.*
+## 10. Слабые места для Stage 42
+
+| Проблема | Место в коде | Приоритет |
+|---|---|---|
+| Generative tier недоступен без платного API | `infographic.ts` tryOpenRouter/tryGemini | 🔴 Критично |
+| Текст обрезается твёрдо до 24 символов | `image-service.ts` `truncStr(item, 24)` | 🟠 Высокий |
+| Заголовок SVG не переносит слова >22 символов | `wrapMarketplaceTitle()` строка 282 | 🟠 Высокий |
+| Нет кэша для `generateMarketplaceContent()` | `ai-service.ts` ~970+ | 🟡 Средний |
+| Буллеты кэшируются in-memory → сброс при деплое | `BULLETS_CACHE` | 🟡 Средний |
+| Disk-кэш в /tmp → очищается при рестарте Amvera | `CACHE_DIR = "/tmp/infographic-cache"` | 🟡 Средний |
+| `preprocessForAI()` отключён на фронте | `ListingForm.tsx` — не передаёт `preprocess` | 🟢 Низкий |
+| Все категории — одинаковый шаблон SVG | `buildMarketplaceOverlaySvg()` | 🟢 Низкий |
+
+---
+
+## 11. Рекомендации для Stage 42
+
+### Ключевой выбор: что менять
+
+**Вариант A — Гибридный (рекомендуется):**
+1. Оставить SVG overlay (`buildMarketplaceInfographic`) как основу
+2. Добавить AI-генерацию только фона (без текста): `prompt = "clean studio background for {category} product, no text, photorealistic"`
+3. Текст накладывать SVG-слоем → решает проблему нечитаемой кириллицы
+
+**Вариант B — Полностью генеративный:**
+1. Подключить DALL-E 3 или Flux через OpenRouter (нужен платный план, ~$0.04/img)
+2. Промпт уже готов (`buildImagePrompt`)
+3. Добавить SVG постпроцессинг поверх для текста (иначе кириллица нечитаема)
+
+### Конкретные изменения для Stage 42
+
+| Задача | Файл | Что делать |
+|---|---|---|
+| Подключить OpenRouter images/generate | `infographic.ts` | Уже реализовано, нужен платный ключ |
+| Кэш для `generateMarketplaceContent()` | `ai-service.ts` | Добавить аналог `BULLETS_CACHE` |
+| Disk-кэш в persistent path | `image-service.ts`, `infographic.ts` | Сменить `/tmp` → `UPLOADS_DIR/../cache/` |
+| Категорийные стили SVG | `image-service.ts` | Разные цветовые схемы по `category` |
+| Снять hard-truncation 24 символа | `image-service.ts` | Авто-уменьшение шрифта вместо обрезки |
+
+---
+
+*Отчёт составлен по реальному коду коммита `4dea0b2`. Готов к использованию как ТЗ для Stage 42.*
