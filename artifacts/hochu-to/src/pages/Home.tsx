@@ -493,7 +493,7 @@ export default function Home() {
                 Вместе дешевле —<br className="hidden sm:block" /> Совместное владение
               </h2>
               <p className="text-white/80 text-base md:text-lg leading-relaxed max-w-xl">
-                Объединяйтесь с другими пользователями и покупайте нужные вещи оптом по выгодной цене. Создайте заявку или присоединитесь к уже существующей.
+                Скиньтесь с друзьями или незнакомцами на дорогую вещь — и пользуйтесь по очереди. Платформа защищает каждую передачу через Цифровой акт.
               </p>
               <div className="flex flex-col sm:flex-row gap-3 mt-6 justify-center md:justify-start">
                 <Link

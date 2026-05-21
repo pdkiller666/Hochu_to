@@ -534,6 +534,21 @@ router.post(
 
       res.json(result);
 
+      // Уведомление дольщику: его взнос подтверждён создателем.
+      void (async () => {
+        try {
+          await createNotification({
+            userId: share.userId,
+            type: "pool_share_confirmed",
+            title: "Ваш взнос подтверждён!",
+            message: `Инициатор пула «${pool.title}» подтвердил получение ${result.share.amountRub} ₽ — ваша доля зачислена.`,
+            listingTitle: pool.title,
+          });
+        } catch (err) {
+          logger.error({ err, poolId }, "[pools] notify contributor share_confirmed failed");
+        }
+      })();
+
       // Stage 27 — audit log + покликовые уведомления (best-effort).
       void recordAuditEvent({
         entityType: "pool",

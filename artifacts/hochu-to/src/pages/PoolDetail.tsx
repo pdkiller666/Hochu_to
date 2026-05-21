@@ -340,7 +340,7 @@ function ContributeBlock({
               <div className="text-xs font-bold text-accent mb-2 inline-flex items-center gap-1">
                 <ShieldCheck className="w-3 h-3" /> Реквизиты для перевода СБП
               </div>
-              <div className="flex items-center justify-between gap-2 mb-2">
+              <div className="flex items-center justify-between gap-2 mb-3">
                 <code className="text-sm font-bold text-foreground break-all">
                   {pool.creatorPaymentDetails || "не указаны"}
                 </code>
@@ -352,15 +352,32 @@ function ContributeBlock({
                       toast({ title: "Скопировано" });
                     }}
                     className="shrink-0 p-1.5 rounded-md hover:bg-accent/20 text-accent transition-colors"
-                    title="Скопировать"
+                    title="Скопировать реквизиты"
                   >
                     <Copy className="w-3.5 h-3.5" />
                   </button>
                 )}
               </div>
+              {/* SBP deeplink — извлекаем телефон из реквизитов */}
+              {pool.creatorPaymentDetails && (() => {
+                const m = pool.creatorPaymentDetails!.match(/(\+?7|8)[\s\-()]?(\d[\s\-()]{0,2}){9,}/);
+                const digits = m?.[0]?.replace(/\D/g, "");
+                const phone = digits ? (digits.startsWith("8") ? "+7" + digits.slice(1) : "+" + digits) : null;
+                return phone ? (
+                  <a
+                    href={`tel:${phone}`}
+                    className="flex items-center justify-center gap-2 w-full py-2 mb-3 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-sm font-bold transition-colors shadow-sm shadow-emerald-500/30"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 6.75c0 8.284 6.716 15 15 15h2.25a2.25 2.25 0 002.25-2.25v-1.372c0-.516-.351-.966-.852-1.091l-4.423-1.106c-.44-.11-.902.055-1.173.417l-.97 1.293c-.282.376-.769.542-1.21.38a12.035 12.035 0 01-7.143-7.143c-.162-.441.004-.928.38-1.21l1.293-.97c.363-.271.527-.734.417-1.173L6.963 3.102a1.125 1.125 0 00-1.091-.852H4.5A2.25 2.25 0 002.25 4.5v2.25z"/>
+                    </svg>
+                    Открыть СБП-перевод
+                  </a>
+                ) : null;
+              })()}
               <ol className="text-xs text-foreground/70 space-y-1 list-decimal list-inside">
-                <li>Откройте приложение банка → СБП по номеру телефона</li>
-                <li>Переведите указанную сумму инициатору</li>
+                <li>Нажмите «Открыть СБП-перевод» или скопируйте номер вручную</li>
+                <li>Переведите указанную сумму через приложение банка</li>
                 <li>В комментарии укажите название пула</li>
                 <li>Вернитесь сюда и нажмите «Я перевёл»</li>
               </ol>

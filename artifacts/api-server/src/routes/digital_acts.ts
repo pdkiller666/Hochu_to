@@ -516,6 +516,29 @@ router.post("/pools/:poolId/digital-acts", requireAuth, async (req: AuthRequest,
       pool: result.pool,
       message: "Готово! Пул активирован, объявление-черновик создано — отредактируйте его в Кабинете и опубликуйте.",
     });
+
+    // Уведомление всем совладельцам: пул перешёл в статус active.
+    void (async () => {
+      try {
+        const shareholderRows = await db
+          .select({ userId: poolSharesTable.userId })
+          .from(poolSharesTable)
+          .where(eq(poolSharesTable.poolId, poolId));
+        const recipients = new Set<number>(shareholderRows.map((r) => r.userId));
+        recipients.add(result.pool.creatorId);
+        for (const userId of recipients) {
+          await createNotification({
+            userId,
+            type: "pool_active",
+            title: "Пул активирован! 🎉",
+            message: `Пул «${result.pool.title}» перешёл в активный статус — вещь готова к использованию.`,
+            listingTitle: result.pool.title,
+          });
+        }
+      } catch (err) {
+        logger.error({ err, poolId }, "[digital_acts] notify pool_active failed");
+      }
+    })();
   } catch (e: any) {
     const pgCode = e?.cause?.code ?? e?.code;
     if (pgCode === "23505") {
