@@ -21,6 +21,7 @@ COPY artifacts/hochu-to/ artifacts/hochu-to/
 ENV PORT=3000
 ENV BASE_PATH=/
 ENV NODE_ENV=production
+ENV API_PORT=8080
 RUN pnpm --filter @workspace/hochu-to run build
 
 # --- Сборка бэкенда ---
