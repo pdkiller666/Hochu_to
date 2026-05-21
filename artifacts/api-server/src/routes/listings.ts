@@ -146,7 +146,7 @@ async function calcMaxProtection(
 router.get("/", async (req, res) => {
   const settings = await getPlatformSettings();
   const defaultSort = settings.defaultCatalogSort ?? "new";
-  const { category, region, minPrice, maxPrice, search, safeOnly, quality, page = "1", limit = "12", sort = defaultSort } = req.query as Record<string, string>;
+  const { category, region, city, minPrice, maxPrice, search, safeOnly, quality, page = "1", limit = "12", sort = defaultSort } = req.query as Record<string, string>;
   const pageNum = Math.max(1, parseInt(page));
   const limitNum = Math.min(50, Math.max(1, parseInt(limit)));
   const offset = (pageNum - 1) * limitNum;
@@ -200,7 +200,25 @@ router.get("/", async (req, res) => {
     }
   }
 
-  const conditions = regionCondition ? [...baseConditions, regionCondition] : baseConditions;
+  // Фильтр по конкретному населённому пункту (city).
+  // Используем ручной LIKE с вариантами регистра (аналогично поиску по title),
+  // т.к. PostgreSQL с locale=C не обрабатывает ILIKE для кириллицы.
+  let cityCondition: any = null;
+  if (city && city.trim()) {
+    const c = city.trim();
+    const lower = c.toLowerCase();
+    const upper = c.toUpperCase();
+    const capitalized = lower.charAt(0).toUpperCase() + lower.slice(1);
+    const variants = Array.from(new Set([c, lower, upper, capitalized]));
+    const cityConds: any[] = [];
+    for (const v of variants) {
+      cityConds.push(sql`COALESCE(${listingsTable.city}, '') LIKE ${v}`);
+    }
+    cityCondition = or(...cityConds);
+  }
+
+  const locationConditions = [regionCondition, cityCondition].filter(Boolean);
+  const conditions = locationConditions.length > 0 ? [...baseConditions, ...locationConditions] : baseConditions;
   const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
 
   const [totalResult] = await db

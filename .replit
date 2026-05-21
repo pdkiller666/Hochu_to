@@ -51,7 +51,7 @@ outputType = "console"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "sh -c 'cd artifacts/api-server && node ./build.mjs && PORT=8080 NODE_ENV=development node --enable-source-maps ./dist/index.mjs'"
+args = "sh -c 'export PORT=8080 NODE_ENV=development && cd artifacts/api-server && exec node --enable-source-maps ./dist/index.mjs'"
 waitForPort = 8080
 
 [agent]

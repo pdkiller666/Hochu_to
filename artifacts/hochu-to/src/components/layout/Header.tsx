@@ -7,7 +7,7 @@ import { useGetCurrentUser, useGetRegions } from "@workspace/api-client-react";
 import { AppNotification } from "@workspace/api-client-react";
 import { useWs } from "@/lib/use-websocket";
 import { cn } from "@/lib/utils";
-import { useRegion, getCachedGeoRegion, detectRegionByServerGeoIP } from "@/lib/region-context";
+import { useRegion, getCachedGeoRegion, detectLocationByServerGeoIP } from "@/lib/region-context";
 import { useFavorites } from "@/lib/favorites-context";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "";
@@ -372,7 +372,7 @@ export function Header() {
     query: { enabled: isAuthenticated } as any,
   });
   const { data: regions } = useGetRegions();
-  const { selectedRegion: selectedSlug, setSelectedRegion } = useRegion();
+  const { selectedRegion: selectedSlug, setSelectedRegion, selectedCityName, setSelectedCity, clearSelectedCity } = useRegion();
 
   // Вычисляем текущий slug региона (приоритет: профиль → гео-кеш → "")
   const userRegionSlug = user?.regionId && regions
@@ -401,18 +401,24 @@ export function Header() {
 
     // Кеша нет, профиля нет — определяем по IP через бэкенд.
     initialized.current = true;
-    detectRegionByServerGeoIP(regions).then(slug => {
-      if (slug) setSelectedRegion(slug);
+    detectLocationByServerGeoIP(regions).then(({ regionSlug, cityName }) => {
+      if (regionSlug) setSelectedRegion(regionSlug);
+      if (cityName) setSelectedCity(cityName);
     });
   }, [user, regions, userRegionSlug, isAuthenticated, selectedSlug, setSelectedRegion]);
 
-  const selectedName = regions?.find(r => r.slug === selectedSlug)?.name ?? "Выберите регион";
+  const selectedRegionName = regions?.find(r => r.slug === selectedSlug)?.name ?? "Выберите регион";
+  // Если известен конкретный город — показываем его вместо широкого региона
+  const selectedName = selectedCityName || selectedRegionName;
 
   const handleRegionChange = (slug: string) => {
     setSelectedRegion(slug);
+    // При ручной смене региона сбрасываем детальный город
+    clearSelectedCity();
     if (location === "/catalog") {
       const sp = new URLSearchParams(window.location.search);
       if (slug) sp.set("region", slug); else sp.delete("region");
+      sp.delete("city");
       navigate(`/catalog?${sp.toString()}`);
     }
   };
@@ -429,9 +435,20 @@ export function Header() {
             { headers: { "User-Agent": "HochuTo/1.0" } }
           );
           const data = await resp.json();
-          const state: string = data?.address?.state ?? data?.address?.city ?? "";
+          const addr = data?.address ?? {};
+          // Конкретный населённый пункт (приоритет: city > town > village > suburb)
+          const detectedCity: string = addr.city ?? addr.town ?? addr.village ?? addr.suburb ?? addr.county ?? "";
+          // Широкий регион для фильтрации
+          const state: string = addr.state ?? addr.city ?? "";
           const slug = state ? matchRegion(state, regions) : null;
-          if (slug) handleRegionChange(slug);
+          if (slug) setSelectedRegion(slug);
+          if (detectedCity) setSelectedCity(detectedCity);
+          if (location === "/catalog") {
+            const sp = new URLSearchParams(window.location.search);
+            if (slug) sp.set("region", slug); else sp.delete("region");
+            if (detectedCity) sp.set("city", detectedCity); else sp.delete("city");
+            navigate(`/catalog?${sp.toString()}`);
+          }
         } catch {}
         setGeoLoading(false);
       },

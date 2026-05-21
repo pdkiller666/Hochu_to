@@ -5,7 +5,7 @@ import { useLocation, useSearch } from "wouter";
 import { useState, useEffect, useRef } from "react";
 import { Search, X, SlidersHorizontal, MapPin, Loader2, ChevronDown, ChevronUp, ArrowUpDown, ShieldCheck, LayoutGrid, Rows3, Banknote } from "lucide-react";
 import { getToken, getAuthHeaders } from "@/lib/auth";
-import { getCachedGeoRegion, setCachedGeoRegion, detectRegionByServerGeoIP, useRegion } from "@/lib/region-context";
+import { getCachedGeoRegion, setCachedGeoRegion, detectRegionByServerGeoIP, useRegion, getCachedGeoCity } from "@/lib/region-context";
 import { readPersistedState, clearPersistedState } from "@/lib/use-persisted-state";
 import { useDocumentMeta } from "@/lib/use-document-meta";
 
@@ -93,14 +93,25 @@ export default function Catalog() {
   // Восстанавливаем сохранённые фильтры (если нет URL-параметров)
   const saved = readPersistedState<SavedFilters>(STORAGE_KEY, {});
 
-  const { setSelectedRegion: setHeaderRegion } = useRegion();
+  const { setSelectedRegion: setHeaderRegion, selectedCityName: contextCity, setSelectedCity: setHeaderCity, clearSelectedCity: clearHeaderCity } = useRegion();
+
+  const urlCity = searchParams.get("city") || "";
 
   const [category, setCategory] = useState(urlCategory || saved.category || "");
   const [region, setRegionLocal] = useState(urlRegion || getCachedGeoRegion() || "");
+  const [city, setCityLocal] = useState(urlCity || contextCity || getCachedGeoCity() || "");
   // Обёртка: обновляем и локальный стейт, и контекст шапки одновременно.
   const setRegion = (slug: string) => {
     setRegionLocal(slug);
     setHeaderRegion(slug);
+    // Ручная смена региона сбрасывает детальный город
+    setCityLocal("");
+    clearHeaderCity();
+  };
+
+  const setCity = (name: string) => {
+    setCityLocal(name);
+    if (name) setHeaderCity(name); else clearHeaderCity();
   };
   const [search, setSearch] = useState(urlSearch || saved.search || "");
   const [minPrice, setMinPrice] = useState(saved.minPrice || "");
@@ -134,16 +145,17 @@ export default function Catalog() {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  // Sync search/category/region from URL when navigating (e.g. from header search).
-  // Depends on searchStr so it reacts even when only ?search= changes (pathname stays /catalog).
+  // Sync search/category/region/city from URL when navigating
   useEffect(() => {
     const sp = new URLSearchParams(searchStr);
     const s = sp.get("search") || "";
     const c = sp.get("category") || "";
     const r = sp.get("region") || "";
+    const ct = sp.get("city") || "";
     setSearch(s);
     if (c) setCategory(c);
     if (r) { setRegion(r); regionInitialized.current = true; }
+    if (ct) setCity(ct);
   }, [location, searchStr]);
 
   useEffect(() => {
@@ -171,6 +183,7 @@ export default function Catalog() {
   const { data, isLoading, error } = useGetListings({
     category: category || undefined,
     region: region || undefined,
+    city: city || undefined,
     search: search || undefined,
     minPrice: minPrice ? Number(minPrice) : undefined,
     maxPrice: maxPrice ? Number(maxPrice) : undefined,
@@ -186,16 +199,18 @@ export default function Catalog() {
     setMaxPrice("");
     setSort("new");
     setRegion("");
+    setCity("");
     setSafeOnly(false);
     clearPersistedState(STORAGE_KEY);
   };
 
-  const hasActiveFilters = !!(category || search || minPrice || maxPrice || (sort && sort !== "new") || safeOnly);
+  const hasActiveFilters = !!(category || search || minPrice || maxPrice || (sort && sort !== "new") || safeOnly || city);
   const selectedRegionName = regions?.find(r => r.slug === region)?.name ?? "";
   const selectedCategoryName = categories?.find(c => c.slug === category)?.name ?? "";
   const selectedSortLabel = SORT_OPTIONS.find(o => o.value === sort)?.label ?? "";
   const activeFiltersCount = [
     region,
+    city,
     category,
     minPrice || maxPrice ? "price" : "",
     sort && sort !== "new" ? sort : "",
@@ -301,6 +316,23 @@ export default function Catalog() {
                 </select>
               </div>
 
+              {/* City — free text filter, sm+ */}
+              <div className={`hidden sm:flex items-center gap-1.5 bg-white border rounded-xl px-3 py-2.5 min-w-[130px] max-w-[170px] transition-colors ${city ? "border-primary" : "border-border"}`}>
+                <MapPin className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                <input
+                  type="text"
+                  placeholder="Город..."
+                  value={city}
+                  onChange={(e) => setCity(e.target.value)}
+                  className="bg-transparent border-none outline-none text-sm font-medium w-full min-w-0"
+                />
+                {city && (
+                  <button onClick={() => setCity("")} className="text-muted-foreground hover:text-destructive flex-shrink-0 transition-colors">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
               {/* Sort dropdown */}
               <div className="hidden sm:flex items-center gap-1.5 bg-white border border-border rounded-xl px-3 py-2.5 min-w-[130px]">
                 <ArrowUpDown className="w-4 h-4 text-muted-foreground flex-shrink-0" />
@@ -381,34 +413,50 @@ export default function Catalog() {
             )}
           </div>
 
-          {/* Mobile: region + sort row */}
-          <div className="sm:hidden pb-2 flex gap-2">
-            <div className="flex items-center gap-1.5 bg-white border border-border rounded-xl px-3 py-2 flex-1">
-              <MapPin className="w-4 h-4 text-primary flex-shrink-0" />
-              <select
-                value={region}
-                onChange={(e) => { setRegion(e.target.value); regionInitialized.current = true; }}
-                className="bg-transparent border-none outline-none text-sm font-medium cursor-pointer appearance-none w-full"
-              >
-                <option value="">Все регионы</option>
-                {regions?.map(r => (
-                  <option key={r.id} value={r.slug}>{r.name}</option>
-                ))}
-              </select>
-              <ChevronDown className="w-4 h-4 text-muted-foreground flex-shrink-0 pointer-events-none" />
+          {/* Mobile: region + city + sort row */}
+          <div className="sm:hidden pb-2 flex flex-col gap-2">
+            <div className="flex gap-2">
+              <div className="flex items-center gap-1.5 bg-white border border-border rounded-xl px-3 py-2 flex-1">
+                <MapPin className="w-4 h-4 text-primary flex-shrink-0" />
+                <select
+                  value={region}
+                  onChange={(e) => { setRegion(e.target.value); regionInitialized.current = true; }}
+                  className="bg-transparent border-none outline-none text-sm font-medium cursor-pointer appearance-none w-full"
+                >
+                  <option value="">Все регионы</option>
+                  {regions?.map(r => (
+                    <option key={r.id} value={r.slug}>{r.name}</option>
+                  ))}
+                </select>
+                <ChevronDown className="w-4 h-4 text-muted-foreground flex-shrink-0 pointer-events-none" />
+              </div>
+              <div className="flex items-center gap-1.5 bg-white border border-border rounded-xl px-3 py-2 flex-1">
+                <ArrowUpDown className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                <select
+                  value={sort}
+                  onChange={(e) => setSort(e.target.value as SortOption)}
+                  className="bg-transparent border-none outline-none text-sm font-medium cursor-pointer appearance-none w-full"
+                >
+                  {SORT_OPTIONS.map(o => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </div>
             </div>
-
-            <div className="flex items-center gap-1.5 bg-white border border-border rounded-xl px-3 py-2 flex-1">
-              <ArrowUpDown className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-              <select
-                value={sort}
-                onChange={(e) => setSort(e.target.value as SortOption)}
-                className="bg-transparent border-none outline-none text-sm font-medium cursor-pointer appearance-none w-full"
-              >
-                {SORT_OPTIONS.map(o => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
+            <div className={`flex items-center gap-1.5 bg-white border rounded-xl px-3 py-2 transition-colors ${city ? "border-primary" : "border-border"}`}>
+              <MapPin className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+              <input
+                type="text"
+                placeholder="Населённый пункт..."
+                value={city}
+                onChange={(e) => setCity(e.target.value)}
+                className="bg-transparent border-none outline-none text-sm font-medium w-full min-w-0"
+              />
+              {city && (
+                <button onClick={() => setCity("")} className="text-muted-foreground hover:text-destructive flex-shrink-0 transition-colors">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
           </div>
 
@@ -426,9 +474,22 @@ export default function Catalog() {
             <h1 className="text-2xl sm:text-3xl font-bold mb-0.5">Каталог вещей</h1>
             <p className="text-sm text-muted-foreground">
               {data ? `Найдено ${data.total} предложений` : "Загрузка..."}
-              {selectedRegionName && (
-                <span className="ml-1">
-                  · <span className="text-primary font-medium">{selectedRegionName}</span>
+              {(city || selectedRegionName) && (
+                <span className="ml-1 inline-flex items-center gap-1">
+                  ·{" "}
+                  <MapPin className="w-3.5 h-3.5 text-primary inline" />
+                  <span className="text-primary font-medium">
+                    {city || selectedRegionName}
+                  </span>
+                  {city && (
+                    <button
+                      onClick={() => setCity("")}
+                      className="ml-0.5 text-muted-foreground hover:text-destructive transition-colors"
+                      title="Сбросить фильтр по городу"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
                 </span>
               )}
             </p>
