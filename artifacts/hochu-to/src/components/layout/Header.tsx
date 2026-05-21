@@ -479,16 +479,16 @@ export function Header() {
             </span>
           </Link>
 
-          {/* Desktop Search Bar — center, takes most space */}
-          <div className="hidden md:flex flex-1 min-w-[160px] mx-2 items-center bg-white border border-border rounded-xl px-3 py-2 shadow-sm focus-within:ring-2 focus-within:ring-primary/30 focus-within:border-primary/50 transition-all">
+          {/* Desktop Search Bar — takes all available space */}
+          <div className="hidden md:flex flex-1 min-w-0 mx-3 items-center bg-white border border-border rounded-xl px-3 py-2 shadow-sm focus-within:ring-2 focus-within:ring-primary/30 focus-within:border-primary/50 transition-all">
             <HeaderSearchBar className="w-full min-w-0" />
           </div>
 
-          {/* Desktop Region Selector — visible from xl to avoid squeezing the search bar */}
-          <div className="hidden xl:flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border bg-white shadow-sm text-sm text-muted-foreground hover:border-primary/40 transition-colors flex-shrink-0">
+          {/* Desktop Region Selector — visible from lg, compact */}
+          <div className="hidden lg:flex items-center gap-1 px-2.5 py-1.5 rounded-full border border-border bg-white shadow-sm text-sm text-muted-foreground hover:border-primary/40 transition-colors flex-shrink-0 max-w-[170px]">
             <MapPin className="w-3.5 h-3.5 text-primary flex-shrink-0" />
             <select
-              className="bg-transparent border-none outline-none font-medium cursor-pointer appearance-none text-foreground max-w-[120px] truncate text-sm"
+              className="bg-transparent border-none outline-none font-medium cursor-pointer appearance-none text-foreground min-w-0 flex-1 truncate text-sm"
               value={selectedSlug}
               onChange={(e) => handleRegionChange(e.target.value)}
               title={selectedName}
@@ -498,7 +498,6 @@ export function Header() {
                 <option key={r.id} value={r.slug}>{r.name}</option>
               ))}
             </select>
-            <div className="w-px h-3.5 bg-border mx-0.5 flex-shrink-0" />
             <button
               onClick={handleGeoDetect}
               disabled={geoLoading}
@@ -512,8 +511,8 @@ export function Header() {
             </button>
           </div>
 
-          {/* Desktop Nav — only xl+ */}
-          <nav className="hidden xl:flex items-center gap-3 2xl:gap-5 flex-shrink-0">
+          {/* Desktop Nav — only 2xl+ to avoid crowding at 1280px */}
+          <nav className="hidden 2xl:flex items-center gap-4 flex-shrink-0">
             {navLinks.map((link) => (
               <Link
                 key={link.path}

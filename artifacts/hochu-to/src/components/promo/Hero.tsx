@@ -10,10 +10,10 @@ const chips = [
 ];
 
 const avatars = [
-  "https://i.pravatar.cc/40?img=1",
-  "https://i.pravatar.cc/40?img=5",
-  "https://i.pravatar.cc/40?img=8",
-  "https://i.pravatar.cc/40?img=12",
+  { initials: "АИ", bg: "#C65D3B" },
+  { initials: "МС", bg: "#4A8587" },
+  { initials: "ДК", bg: "#8E6B2B" },
+  { initials: "ЕП", bg: "#5A7A52" },
 ];
 
 export function Hero() {
@@ -45,13 +45,14 @@ export function Hero() {
           className="inline-flex items-center gap-3 px-5 py-2.5 rounded-full bg-white shadow-md border border-[#C65D3B]/15 mb-10"
         >
           <div className="flex -space-x-2">
-            {avatars.map((src, i) => (
-              <img
+            {avatars.map((av, i) => (
+              <div
                 key={i}
-                src={src}
-                alt=""
-                className="w-7 h-7 rounded-full border-2 border-white object-cover"
-              />
+                className="w-7 h-7 rounded-full border-2 border-white flex items-center justify-center text-white font-bold text-[9px] flex-shrink-0"
+                style={{ backgroundColor: av.bg }}
+              >
+                {av.initials}
+              </div>
             ))}
           </div>
           <span className="text-sm font-semibold text-[#2B2B2B]">
