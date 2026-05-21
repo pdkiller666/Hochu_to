@@ -201,10 +201,6 @@ export default function ListingForm() {
   const infoFileInputRef = useRef<HTMLInputElement>(null);
   const infoInputId = "infographic-upload-input";
 
-  // ─── Stage 30C: выбор AI-провайдера (общий для описания и инфографики) ───
-  // Дефолт 'gemini' — премиальная модель с лучшим качеством русского.
-  const [aiProvider, setAiProvider] = useState<"gemini" | "amvera">("gemini");
-
   // ─── Stage 30J UX: сворачиваемые секции формы ───────────────────────────
   // При редактировании владелец обычно правит точечно (например, цену) —
   // удобнее, когда все секции свёрнуты по умолчанию и видно структуру целиком,
@@ -261,7 +257,7 @@ export default function ListingForm() {
         fd.append("description", formData.description.trim().slice(0, 500));
       }
       // Stage 30C: per-request выбор LLM-провайдера.
-      fd.append("provider", aiProvider);
+      fd.append("provider", "auto");
 
       const res = await fetch(`${API_BASE}/api/ai/generate-infographic`, {
         method: "POST",
@@ -626,26 +622,10 @@ export default function ListingForm() {
               <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
                 <label className="block text-sm font-bold">Описание</label>
                 <div className="flex items-center gap-2 flex-wrap">
-                  <Select
-                    value={aiProvider}
-                    onValueChange={(v) => setAiProvider(v as "gemini" | "amvera")}
-                  >
-                    <SelectTrigger
-                      className="h-8 w-[200px] text-xs bg-white"
-                      data-testid="select-ai-provider"
-                    >
-                      <SelectValue placeholder="Модель ИИ" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="gemini">🧠 Gemini Pro (Премиум)</SelectItem>
-                      <SelectItem value="amvera">🚀 DeepSeek-V3 (Amvera)</SelectItem>
-                    </SelectContent>
-                  </Select>
                   <AiDescriptionButton
                     title={formData.title}
                     category={categories?.find(c => c.id === Number(formData.categoryId))?.name}
                     currentText={formData.description}
-                    provider={aiProvider}
                     onText={(text) => setFormData((d) => ({ ...d, description: text }))}
                   />
                   <button
@@ -660,9 +640,6 @@ export default function ListingForm() {
                   </button>
                 </div>
               </div>
-              <p className="text-xs text-muted-foreground mb-2">
-                Модель ИИ применяется и к генерации описания, и к буллетам инфографики.
-              </p>
               <textarea
                 required
                 className={`input-field resize-y w-full ${descriptionExpanded ? "min-h-[480px] md:min-h-[600px]" : "min-h-[180px] md:min-h-[220px]"}`}
@@ -1033,11 +1010,11 @@ export default function ListingForm() {
                   onClick={onInfographicClick}
                   disabled={infoGenerating || photos.length >= 10}
                   title="Создаст брендированную карточку 1080×1080 с тремя буллетами от ИИ"
-                  className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-gradient-to-r from-[#C65D3B] to-[#a04829] text-white text-sm font-bold hover:opacity-90 transition-opacity disabled:opacity-50 disabled:pointer-events-none shadow-sm"
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-gradient-to-r from-violet-500 to-purple-600 text-white text-sm font-bold hover:opacity-90 transition-opacity disabled:opacity-50 disabled:pointer-events-none shadow-md shadow-violet-200"
                   data-testid="button-infographic"
                 >
                   {infoGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                  {infoGenerating ? "Готовим..." : "🪄 Создать инфографику"}
+                  {infoGenerating ? "Готовим..." : "✨ Создать инфографику"}
                 </button>
                 <label
                   htmlFor={uploadInputId}
@@ -1348,13 +1325,11 @@ function AiDescriptionButton({
   title,
   category,
   currentText,
-  provider,
   onText,
 }: {
   title: string;
   category?: string | null;
   currentText: string;
-  provider: "gemini" | "amvera";
   onText: (text: string) => void;
 }) {
   const { toast } = useToast();
@@ -1371,8 +1346,6 @@ function AiDescriptionButton({
         body: JSON.stringify({
           title: cleanTitle,
           category: category || undefined,
-          // Stage 30C: per-request выбор LLM-провайдера.
-          provider,
         }),
       });
       const j = await res.json();
@@ -1401,7 +1374,7 @@ function AiDescriptionButton({
     } finally {
       setLoading(false);
     }
-  }, [title, category, provider, onText, toast]);
+  }, [title, category, onText, toast]);
 
   const handleClick = () => {
     const cleanTitle = title.trim();
@@ -1426,18 +1399,18 @@ function AiDescriptionButton({
         type="button"
         onClick={handleClick}
         disabled={loading}
-        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-gradient-to-r from-[#C65D3B] to-[#a04829] text-white hover:opacity-90 disabled:opacity-60 transition shadow-sm"
-        title="Сгенерировать продающее описание с помощью ИИ"
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-gradient-to-r from-violet-500 to-purple-600 text-white hover:opacity-90 disabled:opacity-60 transition shadow-sm shadow-violet-200"
+        title="Нейросеть сгенерирует продающее описание автоматически"
       >
         {loading ? (
           <>
             <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            Нейросеть пишет текст… 🪄
+            Нейросеть пишет…
           </>
         ) : (
           <>
             <Sparkles className="w-3.5 h-3.5" />
-            Сгенерировать ИИ-описание
+            ✨ Сгенерировать описание
           </>
         )}
       </button>
