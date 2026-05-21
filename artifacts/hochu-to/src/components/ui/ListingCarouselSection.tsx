@@ -110,6 +110,7 @@ export function ListingCarouselSection({
   const [canScrollRight, setCanScrollRight] = useState(true);
   const isPausedRef = useRef(false);
   const rafRef = useRef<number | null>(null);
+  const skipFramesRef = useRef(0);
 
   const checkScroll = useCallback(() => {
     const el = scrollRef.current;
@@ -139,15 +140,17 @@ export function ListingCarouselSection({
     const tick = () => {
       if (!isPausedRef.current && el) {
         const maxScroll = el.scrollWidth - el.clientWidth;
-        if (maxScroll <= 0) {
-          rafRef.current = requestAnimationFrame(tick);
-          return;
-        }
-        if (el.scrollLeft >= maxScroll - 2) {
-          // smoothly jump back to start
-          el.scrollLeft = 0;
-        } else {
-          el.scrollLeft += SCROLL_SPEED;
+        if (maxScroll > 0) {
+          if (skipFramesRef.current > 0) {
+            // waiting for browser to settle after reset
+            skipFramesRef.current--;
+          } else if (el.scrollLeft >= maxScroll - 1) {
+            // reached end — jump to start and pause for 20 frames
+            el.scrollLeft = 0;
+            skipFramesRef.current = 20;
+          } else {
+            el.scrollLeft += SCROLL_SPEED;
+          }
         }
       }
       rafRef.current = requestAnimationFrame(tick);
