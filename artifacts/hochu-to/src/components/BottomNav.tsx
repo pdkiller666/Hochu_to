@@ -14,6 +14,7 @@ export function BottomNav() {
   const favCount = favoriteIds.size;
 
   const [unreadCount, setUnreadCount] = useState(0);
+  const [notifOpen, setNotifOpen] = useState(false);
 
   const fetchUnread = useCallback(async () => {
     if (!token) return;
@@ -40,15 +41,28 @@ export function BottomNav() {
     return () => window.removeEventListener("notif-updated", handler);
   }, [fetchUnread]);
 
-  function openNotifications() {
-    window.dispatchEvent(new CustomEvent("open-mobile-notif"));
+  // Синхронизируем состояние с Header — когда панель закрывается из Header
+  useEffect(() => {
+    const handler = () => setNotifOpen(false);
+    window.addEventListener("mobile-notif-closed", handler);
+    return () => window.removeEventListener("mobile-notif-closed", handler);
+  }, []);
+
+  function toggleNotifications() {
+    if (notifOpen) {
+      window.dispatchEvent(new CustomEvent("close-mobile-notif"));
+      setNotifOpen(false);
+    } else {
+      window.dispatchEvent(new CustomEvent("open-mobile-notif"));
+      setNotifOpen(true);
+    }
   }
 
   const TABS = [
     { path: "/",          label: "Главная",   icon: Home,       badge: null,     onClick: undefined },
     { path: "/catalog",   label: "Каталог",   icon: LayoutGrid, badge: null,     onClick: undefined },
     { path: "/favorites", label: "Избранное", icon: Heart,      badge: favCount > 0 ? favCount : null, onClick: undefined },
-    { path: null,         label: "Уведомления", icon: Bell,     badge: unreadCount > 0 ? unreadCount : null, onClick: openNotifications },
+    { path: null,         label: "Уведомления", icon: Bell,     badge: unreadCount > 0 ? unreadCount : null, onClick: toggleNotifications },
     { path: "/dashboard", label: "Профиль",   icon: User,       badge: null,     onClick: undefined },
   ] as const;
 

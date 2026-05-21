@@ -115,6 +115,12 @@ export function ListingCarouselSection({
   const isPausedRef = useRef(false);
   const rafRef = useRef<number | null>(null);
 
+  // Touch-swipe refs
+  const touchStartXRef = useRef<number | null>(null);
+  const touchStartYRef = useRef<number | null>(null);
+  const touchStartPosRef = useRef(0);
+  const isHorizontalSwipeRef = useRef<boolean | null>(null); // null = not yet determined
+
   const startRaf = useCallback(() => {
     const tick = (ts: number) => {
       if (!isPausedRef.current) {
@@ -143,6 +149,34 @@ export function ListingCarouselSection({
     startRaf();
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
   }, [loading, listings, startRaf]);
+
+  // Non-passive touchmove listener — позволяет preventDefault для горизонтального свайпа
+  useEffect(() => {
+    const el = outerRef.current;
+    if (!el) return;
+    const onTouchMove = (e: TouchEvent) => {
+      if (touchStartXRef.current === null) return;
+      const dx = touchStartXRef.current - e.touches[0].clientX;
+      const dy = touchStartYRef.current !== null ? touchStartYRef.current - e.touches[0].clientY : 0;
+
+      // Определяем направление при первом движении
+      if (isHorizontalSwipeRef.current === null) {
+        isHorizontalSwipeRef.current = Math.abs(dx) > Math.abs(dy);
+      }
+      if (!isHorizontalSwipeRef.current) return; // вертикальный скролл — не перехватываем
+
+      e.preventDefault(); // блокируем страничный скролл при горизонтальном свайпе
+
+      const tr = trackRef.current;
+      if (!tr) return;
+      const half = tr.scrollWidth / 2;
+      if (half <= 0) return;
+      posRef.current = ((touchStartPosRef.current + dx) % half + half) % half;
+      tr.style.transform = `translate3d(-${posRef.current}px, 0, 0)`;
+    };
+    el.addEventListener("touchmove", onTouchMove, { passive: false });
+    return () => el.removeEventListener("touchmove", onTouchMove);
+  }, [loading, listings]);
 
   // Manual scroll buttons — move posRef by 2 card widths
   const scroll = (dir: "left" | "right") => {
@@ -246,8 +280,19 @@ export function ListingCarouselSection({
         className="overflow-hidden px-4 sm:px-6 lg:px-8 mt-1 pb-3"
         onMouseEnter={() => { isPausedRef.current = true; }}
         onMouseLeave={() => { isPausedRef.current = false; lastTsRef.current = 0; }}
-        onTouchStart={() => { isPausedRef.current = true; }}
-        onTouchEnd={() => { setTimeout(() => { isPausedRef.current = false; lastTsRef.current = 0; }, 2500); }}
+        onTouchStart={(e) => {
+          isPausedRef.current = true;
+          touchStartXRef.current = e.touches[0].clientX;
+          touchStartYRef.current = e.touches[0].clientY;
+          touchStartPosRef.current = posRef.current;
+          isHorizontalSwipeRef.current = null;
+        }}
+        onTouchEnd={() => {
+          touchStartXRef.current = null;
+          touchStartYRef.current = null;
+          isHorizontalSwipeRef.current = null;
+          setTimeout(() => { isPausedRef.current = false; lastTsRef.current = 0; }, 2500);
+        }}
       >
         {loading ? (
           /* Skeleton — static flex row */

@@ -353,12 +353,23 @@ export function Header() {
     });
   }, [isAuthenticated, subscribe]);
 
-  // BottomNav Bell → открыть мобильную панель уведомлений
+  // BottomNav Bell → открыть/закрыть мобильную панель уведомлений
   useEffect(() => {
-    const handler = () => { setMobileNotifOpen(true); setIsMobileMenuOpen(false); if (!mobileNotifOpen) fetchNotifications(); };
-    window.addEventListener("open-mobile-notif", handler);
-    return () => window.removeEventListener("open-mobile-notif", handler);
-  }, [mobileNotifOpen, fetchNotifications]);
+    const openHandler = () => {
+      setMobileNotifOpen(true);
+      setIsMobileMenuOpen(false);
+      fetchNotifications();
+    };
+    const closeHandler = () => {
+      setMobileNotifOpen(false);
+    };
+    window.addEventListener("open-mobile-notif", openHandler);
+    window.addEventListener("close-mobile-notif", closeHandler);
+    return () => {
+      window.removeEventListener("open-mobile-notif", openHandler);
+      window.removeEventListener("close-mobile-notif", closeHandler);
+    };
+  }, [fetchNotifications]);
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -794,79 +805,118 @@ export function Header() {
       </AnimatePresence>
 
 
-      {/* Mobile Notification Panel — separate from nav menu */}
+      {/* Mobile Notification Panel — bottom sheet, slides up from bottom */}
+      {/* Backdrop */}
       <AnimatePresence>
         {mobileNotifOpen && (
           <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-            className="md:hidden border-t border-border bg-white overflow-hidden shadow-lg"
+            key="notif-backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="md:hidden fixed inset-0 z-40 bg-black/40"
+            onClick={() => {
+              setMobileNotifOpen(false);
+              window.dispatchEvent(new CustomEvent("mobile-notif-closed"));
+            }}
+          />
+        )}
+      </AnimatePresence>
+      {/* Bottom sheet */}
+      <AnimatePresence>
+        {mobileNotifOpen && (
+          <motion.div
+            key="notif-sheet"
+            initial={{ y: "100%", opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: "100%", opacity: 0 }}
+            transition={{ type: "spring", damping: 30, stiffness: 300 }}
+            className="md:hidden fixed bottom-14 left-0 right-0 z-50 bg-white rounded-t-2xl shadow-2xl"
+            style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
           >
-            <div className="px-4 pt-3 pb-4">
-              <div className="flex items-center justify-between mb-3">
-                <span className="font-bold text-sm flex items-center gap-1.5">
-                  <Bell className="w-4 h-4 text-primary" />
-                  Уведомления
-                  {unreadCount > 0 && (
-                    <span className="w-5 h-5 rounded-full bg-destructive text-white text-[10px] font-bold flex items-center justify-center">
-                      {unreadCount}
-                    </span>
-                  )}
-                </span>
-                <div className="flex items-center gap-3">
-                  {unreadCount > 0 && (
-                    <button onClick={markAllRead} className="text-xs text-primary font-semibold">
-                      Прочитать все
-                    </button>
-                  )}
-                  <button onClick={() => setMobileNotifOpen(false)} className="p-1 text-muted-foreground">
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
+              {/* Handle bar */}
+              <div className="flex justify-center pt-3 pb-1">
+                <div className="w-10 h-1 rounded-full bg-muted" />
               </div>
 
-              {notifications.length === 0 ? (
-                <div className="py-8 text-center">
-                  <Bell className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
-                  <p className="text-sm text-muted-foreground">Нет уведомлений</p>
-                </div>
-              ) : (
-                <div className="space-y-1 max-h-72 overflow-y-auto">
-                  {notifications.slice(0, 8).map(n => (
+              <div className="px-4 pt-2 pb-5">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="font-bold text-sm flex items-center gap-1.5">
+                    <Bell className="w-4 h-4 text-primary" />
+                    Уведомления
+                    {unreadCount > 0 && (
+                      <span className="w-5 h-5 rounded-full bg-destructive text-white text-[10px] font-bold flex items-center justify-center">
+                        {unreadCount}
+                      </span>
+                    )}
+                  </span>
+                  <div className="flex items-center gap-3">
+                    {unreadCount > 0 && (
+                      <button onClick={markAllRead} className="text-xs text-primary font-semibold">
+                        Прочитать все
+                      </button>
+                    )}
                     <button
-                      key={n.id}
                       onClick={() => {
-                        if (!n.isRead) markOneRead(n.id);
                         setMobileNotifOpen(false);
-                        navigate(getNotifLink(n.type, n.bookingId ?? undefined));
+                        window.dispatchEvent(new CustomEvent("mobile-notif-closed"));
                       }}
-                      className={cn(
-                        "w-full text-left px-3 py-2.5 rounded-xl transition-colors flex items-start gap-2",
-                        !n.isRead ? "bg-primary/5" : "hover:bg-muted/40"
-                      )}
+                      className="p-1 text-muted-foreground"
                     >
-                      {!n.isRead && <span className="w-2 h-2 rounded-full bg-primary shrink-0 mt-1.5" />}
-                      <div className={cn("flex-1 min-w-0", n.isRead && "pl-4")}>
-                        <p className="text-sm font-semibold leading-snug">{n.title}</p>
-                        {n.message && <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{n.message}</p>}
-                        <p className="text-[10px] text-muted-foreground mt-1">{timeAgo(n.createdAt)}</p>
-                      </div>
+                      <X className="w-4 h-4" />
                     </button>
-                  ))}
+                  </div>
                 </div>
-              )}
 
-              {notifications.length > 0 && (
-                <div className="mt-3 pt-2 border-t border-border">
-                  <Link href="/dashboard" onClick={() => setMobileNotifOpen(false)}
-                    className="text-xs text-primary font-semibold">
-                    Перейти в личный кабинет →
-                  </Link>
-                </div>
-              )}
-            </div>
-          </motion.div>
+                {notifications.length === 0 ? (
+                  <div className="py-8 text-center">
+                    <Bell className="w-8 h-8 text-muted-foreground/30 mx-auto mb-2" />
+                    <p className="text-sm text-muted-foreground">Нет уведомлений</p>
+                  </div>
+                ) : (
+                  <div className="space-y-1 max-h-64 overflow-y-auto">
+                    {notifications.slice(0, 8).map(n => (
+                      <button
+                        key={n.id}
+                        onClick={() => {
+                          if (!n.isRead) markOneRead(n.id);
+                          setMobileNotifOpen(false);
+                          window.dispatchEvent(new CustomEvent("mobile-notif-closed"));
+                          navigate(getNotifLink(n.type, n.bookingId ?? undefined));
+                        }}
+                        className={cn(
+                          "w-full text-left px-3 py-2.5 rounded-xl transition-colors flex items-start gap-2",
+                          !n.isRead ? "bg-primary/5" : "hover:bg-muted/40"
+                        )}
+                      >
+                        {!n.isRead && <span className="w-2 h-2 rounded-full bg-primary shrink-0 mt-1.5" />}
+                        <div className={cn("flex-1 min-w-0", n.isRead && "pl-4")}>
+                          <p className="text-sm font-semibold leading-snug">{n.title}</p>
+                          {n.message && <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{n.message}</p>}
+                          <p className="text-[10px] text-muted-foreground mt-1">{timeAgo(n.createdAt)}</p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {notifications.length > 0 && (
+                  <div className="mt-3 pt-2 border-t border-border">
+                    <Link
+                      href="/dashboard"
+                      onClick={() => {
+                        setMobileNotifOpen(false);
+                        window.dispatchEvent(new CustomEvent("mobile-notif-closed"));
+                      }}
+                      className="text-xs text-primary font-semibold"
+                    >
+                      Перейти в личный кабинет →
+                    </Link>
+                  </div>
+                )}
+              </div>
+            </motion.div>
         )}
       </AnimatePresence>
 
