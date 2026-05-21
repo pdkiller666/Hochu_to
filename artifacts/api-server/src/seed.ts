@@ -116,6 +116,7 @@ const ALL_CATEGORIES = [
   { name: "Одежда и обувь",   slug: "clothing",     icon: "👗" },
   { name: "Фото и видео",     slug: "photo",        icon: "📷" },
   { name: "Книги и учёба",    slug: "books",        icon: "📚" },
+  { name: "Другое",           slug: "other",        icon: "📦" },
 ];
 
 async function seed() {
