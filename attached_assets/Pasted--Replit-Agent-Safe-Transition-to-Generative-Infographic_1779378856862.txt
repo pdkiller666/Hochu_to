@@ -1,0 +1,48 @@
+Промпт для Replit Agent: Safe Transition to Generative Infographics
+Task: Stage 41 – Pivot to AI-Generative Product Cards with 3-Tier Fallback & Safe Deprecation
+
+Context:
+We are upgrading our marketplace product cards to be fully AI-generated (Image-to-Image with native text rendering by models like Flux Pro / Imagen 3). However, to ensure zero downtime and protect social media sharing (OG images), we will implement a robust 3-tier fallback chain and retain legacy horizontal generation temporarily.
+
+Action Required:
+
+1. Deprecate Legacy Logic (Do NOT Delete Yet):
+In lib/image-service.ts, mark buildMarketplaceOverlaySvg and related sharp text-compositing logic as @deprecated.
+Important: Keep buildHorizontalImage fully active for now. We will continue using it as a safe fallback for 1200x630 social sharing formats.
+
+2. Create AI-Prompt Generator (lib/ai-service.ts):
+Implement the following prompt builder function. It strictly uses English instructions for the model but injects exact Russian text for rendering:
+
+TypeScript
+export function buildImagePrompt(item: { title: string; price: number; bullets: string[]; format?: "square" | "horizontal" }): string {
+  const aspect = item.format === "horizontal" ? "1200x630 landscape" : "1080x1080 square";
+  const bulletsText = item.bullets.map(b => `"${b}"`).join(", ");
+  return `Generate a premium product card for a Russian rental marketplace. 
+    Aspect ratio: ${aspect}. Center the product from the attached photo, remove original background, replace with a stylish studio or atmospheric setting.
+    Overlay the following Russian text clearly on the image:
+    - Title: "${item.title}"
+    - Price: "Аренда ${item.price} ₽/сутки"
+    - Bullets: ${bulletsText}
+    Style: minimalistic, modern, clean typography, no distortion, text must be perfectly readable.`;
+}
+3. Implement the Core Service (lib/infographic.ts):
+Create generateGenerativeInfographic(imageBuffer: Buffer, itemData: any): Promise<Buffer>. Implement the 3-Tier Fallback Chain:
+
+Tier 1 (OpenRouter): Fetch to OpenRouter using the generated prompt.
+
+Tier 2 (Google API): Wrap Tier 1 in a try/catch. Fallback to https://gemini.googleapis.com/v1beta/models/imagen-3.0-generate-001. Use X-Auth-Token: Bearer {key} and apply .trim() to process.env.GEMINI_API_KEY.
+
+Tier 3 (Graceful Degradation): Wrap the entire process in a final try/catch. On total failure, return the original imageBuffer.
+
+Audit Logging: Log every generation attempt (success tier or errors) into the audit_events table (e.g., eventType: 'ai_image_generation', storing duration and tier used).
+
+4. Route Integration (routes/ai.ts):
+Update POST /api/ai/generate-infographic:
+
+Check for ?format=horizontal. If true, temporarily route to the old buildHorizontalImage.
+
+Check for ?preprocess=true. If true, optionally route through a background removal step before sending to the generative AI (to save tokens/improve accuracy).
+
+For standard square images, route to generateGenerativeInfographic.
+
+Ensure SHA-256 caching is preserved to avoid redundant API calls.
