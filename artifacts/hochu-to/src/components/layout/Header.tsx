@@ -346,10 +346,19 @@ export function Header() {
       const notif = payload as AppNotification;
       setNotifications((prev) => {
         if (prev.some((n) => n.id === notif.id)) return prev;
+        // Сообщаем BottomNav об изменении счётчика
+        window.dispatchEvent(new CustomEvent("notif-updated"));
         return [notif, ...prev];
       });
     });
   }, [isAuthenticated, subscribe]);
+
+  // BottomNav Bell → открыть мобильную панель уведомлений
+  useEffect(() => {
+    const handler = () => { setMobileNotifOpen(true); setIsMobileMenuOpen(false); if (!mobileNotifOpen) fetchNotifications(); };
+    window.addEventListener("open-mobile-notif", handler);
+    return () => window.removeEventListener("open-mobile-notif", handler);
+  }, [mobileNotifOpen, fetchNotifications]);
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -732,36 +741,8 @@ export function Header() {
             )}
           </div>
 
-          {/* Mobile: heart + bell + hamburger */}
+          {/* Mobile: hamburger only (heart → BottomNav, bell → BottomNav) */}
           <div className="md:hidden flex items-center">
-            {isAuthenticated && (
-              <>
-                <Link
-                  href="/favorites"
-                  className="relative p-2 text-foreground"
-                  title="Избранное"
-                >
-                  <Heart className="w-[18px] h-[18px]" />
-                  {favCount > 0 && (
-                    <span className="absolute top-1 right-1 w-4 h-4 rounded-full bg-rose-500 text-white text-[9px] font-bold flex items-center justify-center">
-                      {favCount > 9 ? "9+" : favCount}
-                    </span>
-                  )}
-                </Link>
-                <button
-                  onClick={() => { setMobileNotifOpen(v => !v); setIsMobileMenuOpen(false); }}
-                  className="relative p-2 text-foreground"
-                  title="Уведомления"
-                >
-                  <Bell className="w-[18px] h-[18px]" />
-                  {unreadCount > 0 && (
-                    <span className="absolute top-1 right-1 w-4 h-4 rounded-full bg-destructive text-white text-[9px] font-bold flex items-center justify-center">
-                      {unreadCount > 9 ? "9+" : unreadCount}
-                    </span>
-                  )}
-                </button>
-              </>
-            )}
             <button
               onClick={() => { setIsMobileMenuOpen(v => !v); setMobileNotifOpen(false); }}
               className="text-foreground p-2 -mr-1"
