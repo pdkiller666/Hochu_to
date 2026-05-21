@@ -63,17 +63,30 @@ function makeCacheKey(imageBuffer: Buffer, prompt: string): string {
 }
 
 // ─── OpenRouter models ─────────────────────────────────────────────────────────
+// API: POST /api/v1/chat/completions (НЕ /images/generate)
+// Ответ: choices[0].message.images[0].image_url.url (base64 data URL)
+// Параметр: modalities + image_config.aspect_ratio
 
 const DEFAULT_OPENROUTER_MODELS = [
-  "openai/dall-e-3",
-  "black-forest-labs/flux-1.1-pro",
-  "black-forest-labs/flux-pro",
+  "google/gemini-3.1-flash-image-preview",  // поддерживает text+image
+  "google/gemini-2.5-flash-image",           // поддерживает text+image
+  "black-forest-labs/flux.2-pro",            // только image
+  "black-forest-labs/flux.2-flex",           // только image
 ];
 
 function getOpenRouterModels(): string[] {
   const env = process.env.OPENROUTER_IMAGE_MODELS?.trim();
   if (env) return env.split(",").map((m) => m.trim()).filter(Boolean);
   return DEFAULT_OPENROUTER_MODELS;
+}
+
+/**
+ * Gemini-based models через OpenRouter возвращают и текст, и изображение.
+ * Flux/Sourceful — только изображение (modalities: ["image"]).
+ */
+function pickModalities(model: string): string[] {
+  if (model.includes("gemini")) return ["image", "text"];
+  return ["image"];
 }
 
 // ─── Prompt builder ────────────────────────────────────────────────────────────
@@ -133,7 +146,7 @@ ${priceRu ? `- Orange price badge (color #C65D3B terracotta): "${priceRu}"` : ""
 OUTPUT: Complete, ready-to-post product card image.`;
 }
 
-// ─── Tier 1: OpenRouter /images/generate ──────────────────────────────────────
+// ─── Tier 1: OpenRouter via /chat/completions + modalities ───────────────────
 
 async function tryOpenRouter(
   prompt: string,
@@ -145,14 +158,16 @@ async function tryOpenRouter(
     return null;
   }
 
-  const size = format === "horizontal" ? "1792x1024" : "1024x1024";
+  // OpenRouter использует /chat/completions с полем modalities, НЕ /images/generate
+  const aspectRatio = format === "horizontal" ? "16:9" : "1:1";
   const models = getOpenRouterModels();
 
   for (const model of models) {
+    const modalities = pickModalities(model);
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 60_000);
     try {
-      const res = await fetch("https://openrouter.ai/api/v1/images/generate", {
+      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: {
           Authorization: `Bearer ${apiKey}`,
@@ -162,20 +177,19 @@ async function tryOpenRouter(
         },
         body: JSON.stringify({
           model,
-          prompt,
-          n: 1,
-          size,
-          quality: "standard",
-          response_format: "url",
+          messages: [{ role: "user", content: prompt }],
+          modalities,
+          image_config: { aspect_ratio: aspectRatio },
+          stream: false,
         }),
         signal: ctrl.signal,
       });
       clearTimeout(timer);
 
-      if (res.status === 400 || res.status === 402 || res.status === 404) {
+      if (res.status === 400 || res.status === 402 || res.status === 404 || res.status === 422) {
         const txt = await res.text().catch(() => "");
         logger.warn(
-          { model, status: res.status, body: txt.slice(0, 150) },
+          { model, status: res.status, body: txt.slice(0, 200) },
           "infographic.tier1: model unavailable, trying next",
         );
         continue;
@@ -190,26 +204,45 @@ async function tryOpenRouter(
       }
 
       const data: any = await res.json();
-      const imgUrl: string | undefined = data?.data?.[0]?.url;
-      const b64: string | undefined = data?.data?.[0]?.b64_json;
 
-      if (b64) {
-        logger.info({ model }, "infographic.tier1: image generated (b64)");
-        return { image: Buffer.from(b64, "base64"), provider: model };
-      }
-      if (imgUrl) {
-        const imgRes = await fetch(imgUrl);
-        if (!imgRes.ok) {
-          logger.warn({ model, status: imgRes.status }, "infographic.tier1: failed to fetch image URL");
-          continue;
+      // Ответ: choices[0].message.images[0].image_url.url — base64 data URL
+      const images: any[] | undefined = data?.choices?.[0]?.message?.images;
+      if (images && images.length > 0) {
+        const dataUrl: string | undefined = images[0]?.image_url?.url;
+        if (dataUrl?.startsWith("data:")) {
+          // Парсим base64 из data URL: "data:image/png;base64,<b64>"
+          const commaIdx = dataUrl.indexOf(",");
+          if (commaIdx !== -1) {
+            const b64 = dataUrl.slice(commaIdx + 1);
+            logger.info({ model, modalities }, "infographic.tier1: image generated");
+            return { image: Buffer.from(b64, "base64"), provider: model };
+          }
         }
-        logger.info({ model }, "infographic.tier1: image generated (url)");
-        return { image: Buffer.from(await imgRes.arrayBuffer()), provider: model };
+        // Иногда может прийти и просто URL
+        if (typeof dataUrl === "string" && (dataUrl.startsWith("http://") || dataUrl.startsWith("https://"))) {
+          const imgRes = await fetch(dataUrl);
+          if (imgRes.ok) {
+            logger.info({ model }, "infographic.tier1: image fetched from URL");
+            return { image: Buffer.from(await imgRes.arrayBuffer()), provider: model };
+          }
+        }
+        logger.warn({ model, dataUrl: String(dataUrl).slice(0, 80) }, "infographic.tier1: unrecognised image_url format");
+        continue;
+      }
+
+      // Ряд моделей может вернуть изображение прямо в content (text part с data-URI)
+      const content: string | undefined = data?.choices?.[0]?.message?.content;
+      if (typeof content === "string" && content.startsWith("data:image")) {
+        const commaIdx = content.indexOf(",");
+        if (commaIdx !== -1) {
+          logger.info({ model }, "infographic.tier1: image in content field");
+          return { image: Buffer.from(content.slice(commaIdx + 1), "base64"), provider: model };
+        }
       }
 
       logger.warn(
-        { model, data: JSON.stringify(data).slice(0, 200) },
-        "infographic.tier1: empty response (no url, no b64)",
+        { model, keys: Object.keys(data?.choices?.[0]?.message ?? {}) },
+        "infographic.tier1: no images in response, trying next",
       );
     } catch (e: any) {
       clearTimeout(timer);
