@@ -16,8 +16,13 @@ import { requireAuth, AuthRequest } from "../middleware/auth.js";
 import {
   generateListingDescription,
   generateInfographicBullets,
+  generateMarketplaceContent,
 } from "../lib/ai-service.js";
-import { buildInfographicImage, buildHorizontalImage } from "../lib/image-service.js";
+import {
+  buildInfographicImage,
+  buildHorizontalImage,
+  buildMarketplaceInfographic,
+} from "../lib/image-service.js";
 import { UPLOADS_DIR } from "../lib/uploadsDir.js";
 import { logger } from "../lib/logger.js";
 
@@ -181,13 +186,26 @@ router.post(
         typeof req.body?.category === "string"
           ? req.body.category.trim() || null
           : null;
+      const description =
+        typeof req.body?.description === "string"
+          ? req.body.description.trim().slice(0, 600) || null
+          : null;
+      const pricePerDay =
+        typeof req.body?.pricePerDay === "string"
+          ? Number.parseFloat(req.body.pricePerDay) || null
+          : null;
       // Stage 30C: per-request провайдер из multipart-формы.
       const requestedProvider =
         typeof req.body?.provider === "string"
           ? req.body.provider.trim().toLowerCase()
           : null;
 
-      // format=horizontal → 1200×630 для соцсетей; по умолчанию — 1080×1080 (квадрат)
+      // template=marketplace (Stage 41) → продающее фото с панелями; classic → старый стиль с буллетами
+      // format=horizontal → 1200×630 для соцсетей (только в classic-режиме)
+      const template =
+        typeof req.body?.template === "string"
+          ? req.body.template.trim().toLowerCase()
+          : "marketplace";
       const format =
         typeof req.body?.format === "string"
           ? req.body.format.trim().toLowerCase()
@@ -220,21 +238,63 @@ router.post(
       }
 
       try {
-        // 1) Достаём 3 буллета из LLM (с graceful fallback в mock)
-        const bulletsResult = await generateInfographicBullets(
-          title,
-          category,
-          requestedProvider,
-        );
+        let webpBuffer: Buffer;
+        let responseExtra: Record<string, unknown>;
 
-        // 2) Собираем картинку: 1080×1080 (квадрат) или 1200×630 (горизонталь)
-        const webpBuffer = format === "horizontal"
-          ? await buildHorizontalImage(file.buffer, bulletsResult.bullets)
-          : await buildInfographicImage(file.buffer, bulletsResult.bullets);
+        if (template === "marketplace") {
+          // ── Stage 41: Marketplace template ──────────────────────────────
+          // 1) Получаем структуру (title + 2 колонки) из LLM
+          const mktResult = await generateMarketplaceContent(
+            title,
+            category,
+            pricePerDay,
+            description,
+            requestedProvider,
+          );
 
-        // 3) Сохраняем как обычный файл в UPLOADS_DIR — фронт получит
-        //    стандартный URL вида /uploads/<uuid>.webp и просто добавит
-        //    его в галерею объявления.
+          // 2) Формируем строку цены для пилюли
+          const priceText = pricePerDay
+            ? `от ${Math.round(pricePerDay).toLocaleString("ru-RU")} ₽/сут`
+            : "Цена по запросу";
+
+          // 3) Рендерим marketplace-инфографику
+          webpBuffer = await buildMarketplaceInfographic(
+            file.buffer,
+            mktResult.content,
+            priceText,
+          );
+
+          responseExtra = {
+            template: "marketplace",
+            content: mktResult.content,
+            priceText,
+            provider: mktResult.provider,
+            actualProvider: mktResult.actualProvider,
+            fallback: mktResult.fallback,
+            fallbackReason: mktResult.fallbackReason,
+          };
+        } else {
+          // ── Classic template (3 буллета) ─────────────────────────────────
+          const bulletsResult = await generateInfographicBullets(
+            title,
+            category,
+            requestedProvider,
+          );
+          webpBuffer = format === "horizontal"
+            ? await buildHorizontalImage(file.buffer, bulletsResult.bullets)
+            : await buildInfographicImage(file.buffer, bulletsResult.bullets);
+
+          responseExtra = {
+            template: "classic",
+            bullets: bulletsResult.bullets,
+            provider: bulletsResult.provider,
+            actualProvider: bulletsResult.actualProvider,
+            fallback: bulletsResult.fallback,
+            fallbackReason: bulletsResult.fallbackReason,
+          };
+        }
+
+        // 4) Сохраняем как обычный файл в UPLOADS_DIR
         const filename = `${randomUUID()}.webp`;
         await fs.writeFile(path.join(UPLOADS_DIR, filename), webpBuffer);
 
@@ -242,22 +302,13 @@ router.post(
           {
             userId,
             title: title.slice(0, 60),
-            provider: bulletsResult.provider,
-            actualProvider: bulletsResult.actualProvider,
-            fallback: bulletsResult.fallback,
+            template,
             sizeKb: Math.round(webpBuffer.length / 1024),
           },
           "ai.generate-infographic: success",
         );
 
-        res.json({
-          url: `/uploads/${filename}`,
-          bullets: bulletsResult.bullets,
-          provider: bulletsResult.provider,
-          actualProvider: bulletsResult.actualProvider,
-          fallback: bulletsResult.fallback,
-          fallbackReason: bulletsResult.fallbackReason,
-        });
+        res.json({ url: `/uploads/${filename}`, ...responseExtra });
       } catch (e: any) {
         logger.error(
           { err: e?.message, userId, title: title.slice(0, 60) },

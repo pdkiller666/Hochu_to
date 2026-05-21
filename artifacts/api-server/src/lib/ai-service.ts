@@ -966,3 +966,182 @@ export async function generateInfographicBullets(
     };
   }
 }
+
+// ─── Marketplace Infographic Content (Stage 41) ───────────────────────────────
+//
+// Генерирует структурированный JSON для нового шаблона инфографики:
+//   { title, leftTitle, leftItems[], rightTitle, rightItems[] }
+//
+// Используется в buildMarketplaceInfographic() (image-service.ts):
+//   - Фото товара как фон 1080×1080
+//   - Два полупрозрачных блока (белый / тёмный) с колонками характеристик
+//   - Ценовая пилюля терракотового цвета
+//   - Бренд-подпись Хочу_То
+
+export interface MarketplaceInfographicContent {
+  title: string;       // АРЕНДА + 1-3 слова, ЗАГЛАВНЫМИ, до 24 символов
+  leftTitle: string;   // заголовок левой колонки, до 20 символов
+  leftItems: string[]; // 3-4 пункта, до 23 символов каждый
+  rightTitle: string;  // заголовок правой колонки, до 24 символов
+  rightItems: string[]; // 3-4 пункта, до 23 символов каждый
+}
+
+export interface MarketplaceInfographicResult {
+  content: MarketplaceInfographicContent;
+  provider: AiProvider;
+  actualProvider: AiProvider;
+  fallback: boolean;
+  fallbackReason?: string;
+  model?: string;
+}
+
+const MARKETPLACE_SYSTEM_PROMPT = [
+  "Ты маркетолог для маркетплейса аренды вещей. Создай структуру инфографики карточки товара.",
+  "Ответь ТОЛЬКО валидным JSON без markdown-блоков, без пояснений, без лишних символов.",
+  "",
+  "Формат ответа:",
+  '{"title":"<строка>","leftTitle":"<строка>","leftItems":["<строка>","<строка>","<строка>"],"rightTitle":"<строка>","rightItems":["<строка>","<строка>","<строка>"]}',
+  "",
+  "Правила:",
+  "- title: начинается с АРЕНДА, всё ЗАГЛАВНЫМИ, максимум 24 символа",
+  "- leftTitle и rightTitle: ЗАГЛАВНЫМИ, до 20 символов",
+  "- Каждый пункт в leftItems/rightItems: 2-4 слова, до 22 символов, только факты",
+  "- leftItems: что входит в комплект (аксессуары, набор, принадлежности)",
+  "- rightItems: технические характеристики, материал, преимущества",
+  "- Только русский язык, без эмодзи, без точек в конце",
+].join("\n");
+
+function marketplaceUserPrompt(
+  title: string,
+  category?: string | null,
+  pricePerDay?: number | null,
+  description?: string | null,
+): string {
+  const parts = [`Название: ${title}`];
+  if (category) parts.push(`Категория: ${category}`);
+  if (pricePerDay) parts.push(`Цена: от ${pricePerDay} ₽/сут`);
+  if (description?.trim()) {
+    parts.push(`Описание: ${description.trim().slice(0, 500)}`);
+  }
+  parts.push("\nСгенерируй JSON по формату выше. Только конкретные факты.");
+  return parts.join("\n");
+}
+
+function parseMarketplaceContent(text: string): MarketplaceInfographicContent | null {
+  try {
+    const cleaned = text
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/\s*```$/i, "")
+      .trim();
+    const json = JSON.parse(cleaned);
+    if (
+      typeof json.title === "string" &&
+      typeof json.leftTitle === "string" &&
+      Array.isArray(json.leftItems) && json.leftItems.length >= 2 &&
+      typeof json.rightTitle === "string" &&
+      Array.isArray(json.rightItems) && json.rightItems.length >= 2
+    ) {
+      return {
+        title: String(json.title).toUpperCase().slice(0, 26),
+        leftTitle: String(json.leftTitle).toUpperCase().slice(0, 22),
+        leftItems: (json.leftItems as unknown[]).slice(0, 4).map((s) => String(s).slice(0, 25)),
+        rightTitle: String(json.rightTitle).toUpperCase().slice(0, 26),
+        rightItems: (json.rightItems as unknown[]).slice(0, 4).map((s) => String(s).slice(0, 25)),
+      };
+    }
+  } catch { /* ignore */ }
+  return null;
+}
+
+function marketplaceMockContent(title: string, category?: string | null): MarketplaceInfographicContent {
+  const raw = title.toUpperCase().split(/\s+/).slice(0, 3).join(" ");
+  const mkTitle = `АРЕНДА ${raw}`.slice(0, 24);
+  const cat = (category ?? "").toLowerCase();
+
+  if (cat.includes("инструмент") || cat.includes("tool") || cat.includes("перфор") || cat.includes("дрель")) {
+    return {
+      title: mkTitle,
+      leftTitle: "ПОЛНЫЙ КОМПЛЕКТ",
+      leftItems: ["Кейс с расходниками", "Зарядное устройство", "Инструкция"],
+      rightTitle: "ХАРАКТЕРИСТИКИ",
+      rightItems: ["Профессиональный класс", "Высокая мощность", "Без следов износа"],
+    };
+  }
+  if (cat.includes("электр") || cat.includes("фото") || cat.includes("камер")) {
+    return {
+      title: mkTitle,
+      leftTitle: "КОМПЛЕКТАЦИЯ",
+      leftItems: ["Оригинальные кабели", "Зарядное в наборе", "Защитный чехол"],
+      rightTitle: "ПЛЮСЫ",
+      rightItems: ["Оригинальная модель", "Чистая прошивка", "Без сколов"],
+    };
+  }
+  if (cat.includes("спорт") || cat.includes("велос") || cat.includes("лыж")) {
+    return {
+      title: mkTitle,
+      leftTitle: "В КОМПЛЕКТЕ",
+      leftItems: ["Шлем и защита", "Замок в наборе", "Насос"],
+      rightTitle: "ХАРАКТЕРИСТИКИ",
+      rightItems: ["Лёгкий алюминий", "Регулировка роста", "Обслуженный узел"],
+    };
+  }
+  return {
+    title: mkTitle,
+    leftTitle: "ЧТО ВХОДИТ",
+    leftItems: ["Полная комплектация", "Все аксессуары", "Инструкция по работе"],
+    rightTitle: "КЛЮЧЕВЫЕ ПЛЮСЫ",
+    rightItems: ["Проверенное состояние", "Быстрая выдача", "Поддержка 24/7"],
+  };
+}
+
+export async function generateMarketplaceContent(
+  title: string,
+  category?: string | null,
+  pricePerDay?: number | null,
+  description?: string | null,
+  requestedProvider?: string | null,
+): Promise<MarketplaceInfographicResult> {
+  const provider = await resolveProvider(requestedProvider);
+
+  if (provider === "mock") {
+    return {
+      content: marketplaceMockContent(title, category),
+      provider: "mock",
+      actualProvider: "mock",
+      fallback: false,
+    };
+  }
+
+  const model = resolveModel(provider);
+
+  try {
+    const client = getOpenRouterClient();
+    const completion = await client.chat.completions.create({
+      model,
+      temperature: 0.45,
+      messages: [
+        { role: "system", content: MARKETPLACE_SYSTEM_PROMPT },
+        { role: "user", content: marketplaceUserPrompt(title, category, pricePerDay, description) },
+      ],
+    });
+    const text = completion.choices?.[0]?.message?.content;
+    if (typeof text !== "string" || !text.trim()) {
+      throw new Error(`OpenRouter (${model}): empty response`);
+    }
+    const content = parseMarketplaceContent(text.trim());
+    if (!content) throw new Error("Failed to parse marketplace JSON from LLM response");
+
+    logger.info({ provider, model, title: title.slice(0, 60) }, "ai-service: marketplace content generated");
+    return { content, provider, actualProvider: provider, fallback: false, model };
+  } catch (err: any) {
+    const reason = err?.message || String(err);
+    logger.error({ provider, model, err: reason }, "ai-service: marketplace generation failed, falling back to mock");
+    return {
+      content: marketplaceMockContent(title, category),
+      provider,
+      actualProvider: "mock",
+      fallback: true,
+      fallbackReason: reason,
+    };
+  }
+}

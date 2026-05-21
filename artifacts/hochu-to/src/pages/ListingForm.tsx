@@ -254,6 +254,12 @@ export default function ListingForm() {
         (c: any) => String(c.id) === formData.categoryId,
       );
       if (cat?.name) fd.append("category", cat.name);
+      // Stage 41: marketplace template — фото как фон + две панели
+      fd.append("template", "marketplace");
+      if (formData.pricePerDay) fd.append("pricePerDay", String(formData.pricePerDay));
+      if (formData.description?.trim()) {
+        fd.append("description", formData.description.trim().slice(0, 500));
+      }
       // Stage 30C: per-request выбор LLM-провайдера.
       fd.append("provider", aiProvider);
 
@@ -267,11 +273,14 @@ export default function ListingForm() {
         throw new Error(j?.message || j?.error || "Не удалось создать инфографику");
       }
       setPhotos((prev) => [...prev, j.url as string]);
+      const content = j.content;
       toast({
-        title: "Инфографика готова! 🪄",
+        title: "Продающее фото готово! 🪄",
         description: j.fallback
-          ? "Картинка собрана, текст — запасной (LLM временно недоступна)."
-          : `Буллеты: ${(j.bullets || []).join(" • ")}`,
+          ? "Карточка собрана (запасной текст — LLM временно недоступна)."
+          : content
+            ? `${content.title} · ${[...(content.leftItems ?? []), ...(content.rightItems ?? [])].slice(0, 3).join(" · ")}`
+            : "Marketplace-инфографика успешно создана.",
       });
     } catch (err: any) {
       toast({

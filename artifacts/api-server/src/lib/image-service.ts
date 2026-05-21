@@ -17,6 +17,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import sharp from "sharp";
+import type { MarketplaceInfographicContent } from "./ai-service.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -259,6 +260,183 @@ function buildHorizontalBulletsSvg(bullets: string[], fontFaceBlock: string): st
   ${rows}
   <line x1="30" y1="${H_TEXT_H - 20}" x2="${H_TEXT_W - 20}" y2="${H_TEXT_H - 20}" stroke="#C65D3B" stroke-width="2" />
 </svg>`;
+}
+
+// ─── Marketplace template helpers ────────────────────────────────────────────
+
+const MKT_W = 1080;
+const MKT_H = 1080;
+const MKT_PANEL_Y = 210;
+const MKT_PANEL_H = 510;
+const MKT_PANEL_R = 18;
+const MKT_LEFT_X = 24;
+const MKT_LEFT_W = 372;
+const MKT_RIGHT_X = 684;
+const MKT_RIGHT_W = 372;
+const MKT_ITEM_FONT = 27;
+const MKT_ITEM_SPACING = 96;
+const MKT_ITEM_START_Y = MKT_PANEL_Y + 122; // 332
+
+function wrapMarketplaceTitle(s: string): string[] {
+  const words = s.split(/\s+/);
+  if (words.length < 2 || s.length <= 16) return [s];
+  for (let i = 1; i < words.length; i++) {
+    const l1 = words.slice(0, i).join(" ");
+    const l2 = words.slice(i).join(" ");
+    if (l1.length <= 22 && l2.length <= 22) return [l1, l2];
+  }
+  return [s];
+}
+
+function truncStr(s: string, max: number): string {
+  return s.length > max ? s.slice(0, max - 1) + "\u2026" : s;
+}
+
+function buildMarketplaceOverlaySvg(
+  content: MarketplaceInfographicContent,
+  priceText: string,
+  fontFaceBlock: string,
+): string {
+  const { title, leftTitle, leftItems, rightTitle, rightItems } = content;
+  const titleLines = wrapMarketplaceTitle(title);
+  const TITLE_FS = 68;
+  const TITLE_LINE_H = 78;
+  const titleY0 = titleLines.length === 1 ? 140 : 104;
+
+  const titleSvg = titleLines
+    .map((line, i) =>
+      `<text x="540" y="${titleY0 + i * TITLE_LINE_H}" ` +
+      `font-family="${FONT_HEADING}" font-size="${TITLE_FS}" font-weight="700" ` +
+      `fill="white" text-anchor="middle">${escapeXml(line)}</text>`,
+    )
+    .join("\n  ");
+
+  const leftItemsSvg = leftItems
+    .slice(0, 4)
+    .map((item, i) => {
+      const y = MKT_ITEM_START_Y + i * MKT_ITEM_SPACING;
+      return (
+        `<circle cx="${MKT_LEFT_X + 36}" cy="${y - 8}" r="8" fill="#C65D3B"/>` +
+        `<text x="${MKT_LEFT_X + 56}" y="${y}" ` +
+        `font-family="${FONT_BODY}" font-size="${MKT_ITEM_FONT}" fill="#2B2B2B">${escapeXml(truncStr(item, 24))}</text>`
+      );
+    })
+    .join("\n  ");
+
+  const rightItemsSvg = rightItems
+    .slice(0, 4)
+    .map((item, i) => {
+      const y = MKT_ITEM_START_Y + i * MKT_ITEM_SPACING;
+      return (
+        `<circle cx="${MKT_RIGHT_X + 36}" cy="${y - 8}" r="8" fill="#C65D3B"/>` +
+        `<text x="${MKT_RIGHT_X + 56}" y="${y}" ` +
+        `font-family="${FONT_BODY}" font-size="${MKT_ITEM_FONT}" fill="#F0EBE0">${escapeXml(truncStr(item, 24))}</text>`
+      );
+    })
+    .join("\n  ");
+
+  return `<svg width="${MKT_W}" height="${MKT_H}" xmlns="http://www.w3.org/2000/svg">
+  <style>${fontFaceBlock}</style>
+  <defs>
+    <linearGradient id="tg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#000" stop-opacity="0.82"/>
+      <stop offset="100%" stop-color="#000" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#000" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#000" stop-opacity="0.74"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Градиенты для читаемости заголовка и нижней зоны -->
+  <rect width="${MKT_W}" height="268" fill="url(#tg)"/>
+  <rect y="758" width="${MKT_W}" height="322" fill="url(#bg)"/>
+
+  <!-- Заголовок -->
+  ${titleSvg}
+
+  <!-- Левая панель (белая, полупрозрачная) -->
+  <rect x="${MKT_LEFT_X}" y="${MKT_PANEL_Y}" width="${MKT_LEFT_W}" height="${MKT_PANEL_H}"
+        rx="${MKT_PANEL_R}" fill="white" fill-opacity="0.91"/>
+  <text x="${MKT_LEFT_X + 22}" y="${MKT_PANEL_Y + 48}"
+        font-family="${FONT_HEADING}" font-size="17" font-weight="700"
+        fill="#2B2B2B" letter-spacing="2">${escapeXml(truncStr(leftTitle, 21))}</text>
+  <line x1="${MKT_LEFT_X + 14}" y1="${MKT_PANEL_Y + 63}"
+        x2="${MKT_LEFT_X + MKT_LEFT_W - 14}" y2="${MKT_PANEL_Y + 63}"
+        stroke="#C65D3B" stroke-width="2" stroke-opacity="0.35"/>
+  ${leftItemsSvg}
+
+  <!-- Правая панель (тёмная, полупрозрачная) -->
+  <rect x="${MKT_RIGHT_X}" y="${MKT_PANEL_Y}" width="${MKT_RIGHT_W}" height="${MKT_PANEL_H}"
+        rx="${MKT_PANEL_R}" fill="#1c1c1c" fill-opacity="0.87"/>
+  <text x="${MKT_RIGHT_X + 22}" y="${MKT_PANEL_Y + 48}"
+        font-family="${FONT_HEADING}" font-size="17" font-weight="700"
+        fill="white" letter-spacing="2">${escapeXml(truncStr(rightTitle, 21))}</text>
+  <line x1="${MKT_RIGHT_X + 14}" y1="${MKT_PANEL_Y + 63}"
+        x2="${MKT_RIGHT_X + MKT_RIGHT_W - 14}" y2="${MKT_PANEL_Y + 63}"
+        stroke="#C65D3B" stroke-width="2" stroke-opacity="0.55"/>
+  ${rightItemsSvg}
+
+  <!-- Ценовая пилюля -->
+  <rect x="${MKT_LEFT_X}" y="798" width="334" height="66" rx="14" fill="#C65D3B"/>
+  <text x="${MKT_LEFT_X + 167}" y="841"
+        font-family="${FONT_HEADING}" font-size="35" font-weight="700"
+        fill="white" text-anchor="middle">${escapeXml(priceText)}</text>
+
+  <!-- Брендинг -->
+  <text x="1056" y="1046"
+        font-family="${FONT_HEADING}" font-size="25" font-weight="700"
+        fill="white" text-anchor="end">Хочу<tspan fill="#C65D3B">_То</tspan></text>
+  <text x="1056" y="1066"
+        font-family="${FONT_BODY}" font-size="12"
+        fill="rgba(255,255,255,0.60)" text-anchor="end" letter-spacing="1">МАРКЕТПЛЕЙС АРЕНДЫ</text>
+</svg>`;
+}
+
+/**
+ * Собрать marketplace-инфографику 1080×1080 (Stage 41):
+ *   - Фото товара как фон (с лёгким затемнением)
+ *   - Белая + тёмная панели с двумя колонками характеристик
+ *   - Ценовая пилюля #C65D3B + бренд-подпись
+ * Кэш по SHA-256(photo+content) 24 ч.
+ */
+export async function buildMarketplaceInfographic(
+  imageBuffer: Buffer,
+  content: MarketplaceInfographicContent,
+  priceText: string,
+): Promise<Buffer> {
+  const cacheKey = makeCacheKey("mkt", imageBuffer, [
+    content.title,
+    content.leftTitle,
+    ...content.leftItems,
+    content.rightTitle,
+    ...content.rightItems,
+    priceText,
+  ]);
+  const cached = await getCached(cacheKey);
+  if (cached) return cached;
+
+  const fontFaceBlock = await getFontFaceBlock();
+
+  // Фото как фон — затемнить до 80% яркости для читаемости текста
+  const photoBackground = await sharp(imageBuffer)
+    .rotate()
+    .resize(MKT_W, MKT_H, { fit: "cover", position: "centre" })
+    .modulate({ brightness: 0.80 })
+    .png()
+    .toBuffer();
+
+  const overlaySvg = Buffer.from(
+    buildMarketplaceOverlaySvg(content, priceText, fontFaceBlock),
+  );
+
+  const out = await sharp(photoBackground)
+    .composite([{ input: overlaySvg, top: 0, left: 0 }])
+    .webp({ quality: 90 })
+    .toBuffer();
+
+  await putCached(cacheKey, out);
+  return out;
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
