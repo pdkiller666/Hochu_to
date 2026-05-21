@@ -252,7 +252,13 @@ export default function Catalog() {
             <div className="flex-shrink-0 w-px h-5 bg-border" />
 
             {/* Карусель категорий — скроллится вправо */}
-            <div className="flex gap-1.5 overflow-x-auto flex-1 scrollbar-none [-ms-overflow-style:none] [scrollbar-width:none] py-0.5">
+            <div
+              className="flex gap-1.5 overflow-x-auto flex-1 scrollbar-none [-ms-overflow-style:none] [scrollbar-width:none] py-0.5 px-1"
+              style={{
+                maskImage: "linear-gradient(to right, transparent 0px, black 12px, black calc(100% - 20px), transparent 100%)",
+                WebkitMaskImage: "linear-gradient(to right, transparent 0px, black 12px, black calc(100% - 20px), transparent 100%)",
+              }}
+            >
               <button
                 onClick={() => setCategory("")}
                 className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition-colors border whitespace-nowrap ${
